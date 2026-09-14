@@ -107,6 +107,30 @@ if ($Plugin -contains 'dotnet') {
     }
 }
 
+# --- startup auto-update hook ------------------------------------------------------
+$data = Join-Path $env:LOCALAPPDATA $name
+New-Item -ItemType Directory -Path $data -Force | Out-Null
+$updater = Join-Path $data 'update-plugins.ps1'
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/$repo/main/scripts/update-plugins.ps1" -OutFile $updater
+$settingsPath = Join-Path $HOME '.claude\settings.json'
+if (-not (Test-Path $settingsPath)) { New-Item -ItemType Directory -Path (Split-Path $settingsPath) -Force | Out-Null; Set-Content $settingsPath '{}' }
+$raw = Get-Content $settingsPath -Raw
+if ($raw -match [regex]::Escape("$name\update-plugins.ps1")) {
+    Write-Host "==> startup auto-update hook already registered"
+} else {
+    Write-Host "==> registering SessionStart auto-update hook in $settingsPath"
+    $settings = $raw | ConvertFrom-Json
+    if (-not $settings.PSObject.Properties['hooks']) { $settings | Add-Member -NotePropertyName hooks -NotePropertyValue ([pscustomobject]@{}) }
+    $hook = [pscustomobject]@{
+        matcher = 'startup'
+        hooks   = @([pscustomobject]@{ type = 'command'; shell = 'powershell'; command = "powershell -NoProfile -ExecutionPolicy Bypass -File `"$updater`""; async = $true })
+    }
+    $existing = @()
+    if ($settings.hooks.PSObject.Properties['SessionStart']) { $existing = @($settings.hooks.SessionStart) }
+    $settings.hooks | Add-Member -NotePropertyName SessionStart -NotePropertyValue (@($existing) + @($hook)) -Force
+    $settings | ConvertTo-Json -Depth 20 | Set-Content $settingsPath -Encoding utf8
+}
+
 Write-Host ""
 Write-Host "Done. Restart Claude Code to load the plugins."
 if ($failed) { exit 1 }

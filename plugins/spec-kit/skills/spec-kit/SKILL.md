@@ -21,15 +21,15 @@ Requires `uv` (https://docs.astral.sh/uv/) and `git`.
 
 ```bash
 # one-off, no install:
-uvx --from git+https://github.com/github/spec-kit.git specify init --here --integration claude --integration-options="--skills"
+uvx --from git+https://github.com/github/spec-kit.git specify init --here --integration claude
 
 # or install the CLI persistently, then:
 uv tool install specify-cli --from git+https://github.com/github/spec-kit.git
-specify init --here --integration claude --integration-options="--skills"
+specify init --here --integration claude
 ```
 
 - `--here` initialises the current directory; add `--force` if it is non-empty and the user has agreed. Use `--non-interactive` in scripts.
-- Omit `--integration-options="--skills"` to get `/speckit.*` slash-command files in `.claude/commands/` instead of skills. Skills mode is preferred.
+- The `claude` integration writes skills to `.claude/skills/speckit-*/SKILL.md` (verified with Spec Kit 2026-09). Do not pass `--integration-options="--skills"`: only `--events` is accepted and the CLI errors with `Unknown integration option '--skills'`.
 - Run `specify check` to verify required tools; `specify self upgrade` to update the CLI.
 - Tell the user to start a new Claude Code session (or `/reload`) so the generated skills are picked up.
 
