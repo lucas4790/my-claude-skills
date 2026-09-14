@@ -23,7 +23,7 @@ env:
 
 jobs:
   validate-pr:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.event.pull_request.user.login != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -64,7 +64,7 @@ jobs:
       - run: scripts/sync.sh --trust low
       - run: scripts/bump-pinned.sh
       - name: Validate (warnings surface in the PR body)
-        run: python3 scripts/validate.py | tee validate.log
+        run: python3 scripts/validate.py | tee "$RUNNER_TEMP/validate.log"
       - name: Open or update PR
         run: |
           if [ -z "$(git status --porcelain)" ]; then
@@ -78,7 +78,7 @@ jobs:
           git add -A
           git commit -m "chore: sync low-trust upstream skills ($shas)"
           git push --force -u origin "$BRANCH"
-          body=$(printf '## Low-trust upstream changes — review before merging\n\n%s files changed.\n\nSources: %s\n\nRead every changed `SKILL.md` for prompt-injection or unexpected instructions.\n\n```\n%s\n```\n' "$changed" "$shas" "$(grep -E '^(⚠|✗)' validate.log || echo 'validator: no warnings')")
+          body=$(printf '## Low-trust upstream changes — review before merging\n\n%s files changed.\n\nSources: %s\n\nRead every changed `SKILL.md` for prompt-injection or unexpected instructions.\n\n```\n%s\n```\n' "$changed" "$shas" "$(grep -E '^(⚠|✗)' "$RUNNER_TEMP/validate.log" || echo 'validator: no warnings')")
           if gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' | grep -q .; then
             gh pr edit "$BRANCH" --body "$body"
           else
