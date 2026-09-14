@@ -11,7 +11,7 @@
     {
       "name": "anthropic-skills",
       "source": "./plugins/anthropic-skills",
-      "description": "All skills from anthropics/skills: docx, pdf, pptx, xlsx, frontend-design, mcp-builder, skill-creator, webapp-testing, claude-api and more",
+      "description": "Curated skills from anthropics/skills: docx, pdf, pptx, xlsx, claude-api, mcp-builder, skill-creator, webapp-testing",
       "author": {
         "name": "Anthropic"
       },
@@ -27,16 +27,6 @@
       },
       "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/feature-dev",
       "category": "development"
-    },
-    {
-      "name": "pr-review-toolkit",
-      "source": "./plugins/pr-review-toolkit",
-      "description": "Comprehensive PR review agents specializing in comments, tests, error handling, type design, code quality, and code simplification",
-      "author": {
-        "name": "Anthropic"
-      },
-      "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/pr-review-toolkit",
-      "category": "productivity"
     },
     {
       "name": "commit-commands",
@@ -112,26 +102,6 @@
       "name": "dotnet-nuget",
       "source": "./plugins/dotnet-nuget",
       "description": "NuGet and .NET package management: dependency management and modernization",
-      "author": {
-        "name": "Microsoft"
-      },
-      "homepage": "https://github.com/dotnet/skills",
-      "category": "development"
-    },
-    {
-      "name": "dotnet-upgrade",
-      "source": "./plugins/dotnet-upgrade",
-      "description": "Skills for migrating and upgrading .NET projects across framework versions, language features, and compatibility targets",
-      "author": {
-        "name": "Microsoft"
-      },
-      "homepage": "https://github.com/dotnet/skills",
-      "category": "development"
-    },
-    {
-      "name": "dotnet-diag",
-      "source": "./plugins/dotnet-diag",
-      "description": "Skills for .NET performance investigations, debugging, and incident analysis",
       "author": {
         "name": "Microsoft"
       },
