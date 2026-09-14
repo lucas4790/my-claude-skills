@@ -24,6 +24,8 @@ Claude Code refreshes GitHub marketplaces on startup and auto-updates installed 
 
 ## Plugins
 
+See [SKILLS.md](SKILLS.md) for the full catalog of every skill, command and agent (regenerated on each sync).
+
 | Plugin | Upstream | Contents |
 |---|---|---|
 | `anthropic-skills` | [anthropics/skills](https://github.com/anthropics/skills) | every skill under `skills/` (docx, pdf, pptx, xlsx, frontend-design, mcp-builder, skill-creator, webapp-testing, claude-api, ...) |
@@ -43,10 +45,10 @@ Claude Code refreshes GitHub marketplaces on startup and auto-updates installed 
 ## How syncing works
 
 - `sources.json` lists each upstream repo, the ref to track, and which paths to copy where.
-- `scripts/sync.sh` sparse-clones each source, copies the paths in (deleting anything upstream removed), and records the synced commit in `UPSTREAM.lock.json`.
+- `scripts/sync.sh` sparse-clones each source, copies the paths in (deleting anything upstream removed), and records the synced commit in `UPSTREAM.lock.json`, then regenerates `SKILLS.md`.
 - `.github/workflows/sync-upstream.yml` runs the script daily at 06:00 UTC (and on manual dispatch) and commits directly to `main` when anything changed.
 
-Run it locally with `scripts/sync.sh` (needs `git`, `rsync`, `jq`).
+Run it locally with `scripts/sync.sh` (needs `git`, `rsync`, `jq`, `python3`).
 
 ## Adding a source
 

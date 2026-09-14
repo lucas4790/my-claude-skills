@@ -51,3 +51,4 @@ done
 
 jq -S . <<<"$lock" > "$LOCK"
 echo "==> wrote $(basename "$LOCK")"
+python3 "$ROOT/scripts/gen-catalog.py"
