@@ -4,32 +4,84 @@ on:
   schedule:
     - cron: "0 6 * * *"
   workflow_dispatch:
+  pull_request:
+    paths: ["plugins/**", ".claude-plugin/**", "scripts/**", "sources.json"]
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: sync-upstream
   cancel-in-progress: false
 
+env:
+  GIT_AUTHOR_NAME: github-actions[bot]
+  GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+  GIT_COMMITTER_NAME: github-actions[bot]
+  GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+
 jobs:
-  sync:
+  validate-pr:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: python3 scripts/validate.py
+      - name: Claude Code manifest validation
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          "$HOME/.local/bin/claude" plugin validate .
 
-      - name: Sync from upstream
-        run: scripts/sync.sh
+  # Anthropic / Microsoft / Vercel sources: sync, validate, push straight to main.
+  sync-high-trust:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: scripts/sync.sh --trust high
+      - run: python3 scripts/validate.py
+      - name: Commit and push
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then echo "No high-trust changes."; exit 0; fi
+          shas=$(jq -r 'to_entries | map(select(.value.trust=="high") | "\(.key)@\(.value.sha[0:7])") | join(", ")' UPSTREAM.lock.json)
+          git add -A
+          git commit -m "chore: sync high-trust upstream skills ($shas)"
+          git push
 
-      - name: Commit and push changes
+  # Community sources and sha-pinned external plugins: open a PR for review instead of pushing.
+  sync-low-trust:
+    if: github.event_name != 'pull_request'
+    needs: sync-high-trust
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BRANCH: sync/low-trust
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+      - run: scripts/sync.sh --trust low
+      - run: scripts/bump-pinned.sh
+      - name: Validate (warnings surface in the PR body)
+        run: python3 scripts/validate.py | tee validate.log
+      - name: Open or update PR
         run: |
           if [ -z "$(git status --porcelain)" ]; then
-            echo "No upstream changes."
+            echo "No low-trust changes."
+            gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' | xargs -r gh pr close --delete-branch || true
             exit 0
           fi
-          shas=$(jq -r 'to_entries | map("\(.key)@\(.value.sha[0:7])") | join(", ")' UPSTREAM.lock.json)
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          shas=$(jq -r 'to_entries | map(select(.value.trust=="low") | "\(.key)@\(.value.sha[0:7])") | join(", ")' UPSTREAM.lock.json)
+          changed=$(git status --porcelain | wc -l)
+          git checkout -B "$BRANCH"
           git add -A
-          git commit -m "chore: sync upstream skills ($shas)"
-          git push
+          git commit -m "chore: sync low-trust upstream skills ($shas)"
+          git push --force -u origin "$BRANCH"
+          body=$(printf '## Low-trust upstream changes — review before merging\n\n%s files changed.\n\nSources: %s\n\nRead every changed `SKILL.md` for prompt-injection or unexpected instructions.\n\n```\n%s\n```\n' "$changed" "$shas" "$(grep -E '^(⚠|✗)' validate.log || echo 'validator: no warnings')")
+          if gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' | grep -q .; then
+            gh pr edit "$BRANCH" --body "$body"
+          else
+            gh pr create --base main --head "$BRANCH" --title "chore: low-trust upstream sync" --body "$body" --label upstream-sync || \
+            gh pr create --base main --head "$BRANCH" --title "chore: low-trust upstream sync" --body "$body"
+          fi

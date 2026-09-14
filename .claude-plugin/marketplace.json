@@ -162,7 +162,7 @@
     {
       "name": "powershell",
       "source": "./plugins/powershell",
-      "description": "PowerShell skills: safe native-command invocation, quoting and escaping, plus script/module/Pester/CI development patterns",
+      "description": "PowerShell skill: safe native-command invocation, quoting, escaping, encoding and Start-Process rules (Misaka-Mikoto-Tech/agent-skills)",
       "author": {
         "name": "Lucas",
         "url": "https://github.com/lucas4790"
@@ -183,7 +183,7 @@
     {
       "name": "agent-browser",
       "source": "./plugins/agent-browser",
-      "description": "Browser automation CLI for AI agents (Vercel Labs): navigate, fill forms, screenshot, extract data, test web apps; requires `npm i -g agent-browser && agent-browser install`",
+      "description": "Browser automation CLI for AI agents (Vercel Labs): navigate, fill forms, screenshot, extract data, test web apps; install.sh sets up the CLI and Chrome",
       "author": {
         "name": "Vercel Labs",
         "url": "https://github.com/vercel-labs"
@@ -224,10 +224,32 @@
       "category": "learning"
     },
     {
+      "name": "terraform",
+      "source": "./plugins/terraform",
+      "description": "HashiCorp Terraform MCP server (runs via docker): registry, provider and module docs lookup for IaC work",
+      "author": {
+        "name": "HashiCorp"
+      },
+      "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/external_plugins/terraform",
+      "category": "development"
+    },
+    {
+      "name": "pyright-lsp",
+      "source": "./plugins/pyright-lsp",
+      "description": "Python language server (Pyright) for type checking and code intelligence; requires `npm i -g pyright`",
+      "author": {
+        "name": "Anthropic"
+      },
+      "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/pyright-lsp",
+      "category": "development"
+    },
+    {
       "name": "caveman",
       "source": {
         "source": "url",
-        "url": "https://github.com/JuliusBrussee/caveman.git"
+        "url": "https://github.com/JuliusBrussee/caveman.git",
+        "ref": "main",
+        "sha": "15581d14007fd01fb3f132016741962f34936ca2"
       },
       "description": "Ultra-compressed communication mode: cuts ~65% of output tokens by talking like caveman while keeping technical accuracy",
       "author": {

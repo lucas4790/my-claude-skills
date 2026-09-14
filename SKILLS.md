@@ -299,13 +299,12 @@ Curated C#/.NET design skills from Aaronontheweb/dotnet-skills: coding standards
 
 ## `powershell`
 
-PowerShell skills: safe native-command invocation, quoting and escaping, plus script/module/Pester/CI development patterns
+PowerShell skill: safe native-command invocation, quoting, escaping, encoding and Start-Process rules (Misaka-Mikoto-Tech/agent-skills)
 
 ### Skills
 
 | Name | What it does |
 |---|---|
-| [`powershell-agent-skills`](plugins/powershell/skills/powershell-agent-skills/SKILL.md) | Comprehensive PowerShell development skill — scripts, modules, MCP services, AI agents, GUIs, CI/CD, and enterprise automation. Amalgamates patterns from 18 top PowerShell agent skills across the ecosystem. |
 | [`powershell-safe-invocation`](plugins/powershell/skills/powershell-safe-invocation/SKILL.md) | Use when writing or running PowerShell on Windows, especially native programs, quoted paths, escaping, pwsh, Start-Process, file operations, or shell troubleshooting. |
 
 ## `mattpocock-skills`
@@ -344,7 +343,7 @@ Matt Pocock's engineering skills: grill-me / grill-with-docs interviews, to-spec
 
 ## `agent-browser`
 
-Browser automation CLI for AI agents (Vercel Labs): navigate, fill forms, screenshot, extract data, test web apps; requires `npm i -g agent-browser && agent-browser install`
+Browser automation CLI for AI agents (Vercel Labs): navigate, fill forms, screenshot, extract data, test web apps; install.sh sets up the CLI and Chrome
 
 ### Skills
 
@@ -375,6 +374,14 @@ Generate a DeepWiki-style, source-linked, diagram-rich wiki for any repository t
 ## `explanatory-output-style`
 
 Adds educational insights about implementation choices and codebase patterns while Claude works
+
+## `terraform`
+
+HashiCorp Terraform MCP server (runs via docker): registry, provider and module docs lookup for IaC work
+
+## `pyright-lsp`
+
+Python language server (Pyright) for type checking and code intelligence; requires `npm i -g pyright`
 
 ## `caveman`
 

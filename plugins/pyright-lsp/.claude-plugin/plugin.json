@@ -1,0 +1,12 @@
+{
+  "name": "pyright-lsp",
+  "description": "Python language server (Pyright) for type checking and code intelligence; requires `npm i -g pyright`",
+  "author": { "name": "Anthropic" },
+  "lspServers": {
+    "pyright": {
+      "command": "pyright-langserver",
+      "args": ["--stdio"],
+      "extensionToLanguage": { ".py": "python", ".pyi": "python" }
+    }
+  }
+}
