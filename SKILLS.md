@@ -371,10 +371,6 @@ Generate a DeepWiki-style, source-linked, diagram-rich wiki for any repository t
 |---|---|
 | [`codebase-onboarding`](plugins/codebase-onboarding/skills/codebase-onboarding/SKILL.md) | Generate a DeepWiki-style structured wiki for any codebase to accelerate developer onboarding. Use this skill whenever a user wants to understand, document, or onboard into an unfamiliar repository — including requests… |
 
-## `explanatory-output-style`
-
-Adds educational insights about implementation choices and codebase patterns while Claude works
-
 ## `terraform`
 
 HashiCorp Terraform MCP server (runs via docker): registry, provider and module docs lookup for IaC work

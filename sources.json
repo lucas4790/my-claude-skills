@@ -43,10 +43,6 @@
           "to": "plugins/code-modernization"
         },
         {
-          "from": "plugins/explanatory-output-style",
-          "to": "plugins/explanatory-output-style"
-        },
-        {
           "from": "external_plugins/terraform",
           "to": "plugins/terraform"
         },
