@@ -308,6 +308,60 @@ PowerShell skills: safe native-command invocation, quoting and escaping, plus sc
 | [`powershell-agent-skills`](plugins/powershell/skills/powershell-agent-skills/SKILL.md) | Comprehensive PowerShell development skill — scripts, modules, MCP services, AI agents, GUIs, CI/CD, and enterprise automation. Amalgamates patterns from 18 top PowerShell agent skills across the ecosystem. |
 | [`powershell-safe-invocation`](plugins/powershell/skills/powershell-safe-invocation/SKILL.md) | Use when writing or running PowerShell on Windows, especially native programs, quoted paths, escaping, pwsh, Start-Process, file operations, or shell troubleshooting. |
 
+## `mattpocock-skills`
+
+Matt Pocock's engineering skills: grill-me / grill-with-docs interviews, to-spec, to-tickets, two-axis code-review, TDD, domain modeling, triage, implement, handoff and more (run setup-matt-pocock-skills once per repo)
+
+### Skills
+
+| Name | What it does |
+|---|---|
+| [`ask-matt`](plugins/mattpocock-skills/skills/engineering/ask-matt/SKILL.md) | Ask which skill or flow fits your situation. A router over the skills in this repo. |
+| [`diagnosing-bugs`](plugins/mattpocock-skills/skills/engineering/diagnosing-bugs/SKILL.md) | Diagnosis loop for hard bugs and performance regressions. Use when the user says "diagnose"/"debug this", or reports something broken/throwing/failing/slow. |
+| [`grill-with-docs`](plugins/mattpocock-skills/skills/engineering/grill-with-docs/SKILL.md) | A relentless interview to sharpen a plan or design, which also creates docs (ADR's and glossary) as we go. |
+| [`triage`](plugins/mattpocock-skills/skills/engineering/triage/SKILL.md) | Move issues and external PRs through a state machine of triage roles, categorise, verify, grill if needed, and write agent-ready briefs. |
+| [`improve-codebase-architecture`](plugins/mattpocock-skills/skills/engineering/improve-codebase-architecture/SKILL.md) | Scan a codebase for deepening opportunities, present them as a visual HTML report, then grill through whichever one you pick. |
+| [`setup-matt-pocock-skills`](plugins/mattpocock-skills/skills/engineering/setup-matt-pocock-skills/SKILL.md) | Configure this repo for the engineering skills: set up its issue tracker, triage label vocabulary, and domain doc layout. Run once before first use of the other engineering skills. |
+| [`tdd`](plugins/mattpocock-skills/skills/engineering/tdd/SKILL.md) | Test-driven development. Use when the user wants to build features or fix bugs test-first, mentions "red-green-refactor", or wants integration tests. |
+| [`to-spec`](plugins/mattpocock-skills/skills/engineering/to-spec/SKILL.md) | Turn the current conversation into a spec and publish it to the project issue tracker: no interview, just synthesis of what you've already discussed. |
+| [`to-tickets`](plugins/mattpocock-skills/skills/engineering/to-tickets/SKILL.md) | Break a plan, spec, or the current conversation into a set of tracer-bullet tickets, each declaring its blocking edges, published to the configured tracker (edges as text in one file per ticket locally, or native… |
+| [`wayfinder`](plugins/mattpocock-skills/skills/engineering/wayfinder/SKILL.md) | Plan a huge chunk of work (more than one agent session can hold) as a shared map of decision tickets on your issue tracker, and resolve them one at a time until the way to the destination is clear. |
+| [`implement`](plugins/mattpocock-skills/skills/engineering/implement/SKILL.md) | Implement a piece of work based on a spec or set of tickets. |
+| [`prototype`](plugins/mattpocock-skills/skills/engineering/prototype/SKILL.md) | Build a throwaway prototype to answer a design question. Use when the user wants to sanity-check whether a state model or logic feels right, or explore what a UI should look like. |
+| [`research`](plugins/mattpocock-skills/skills/engineering/research/SKILL.md) | Investigate a question against high-trust primary sources and capture the findings as a Markdown file in the repo. Use when the user wants a topic researched, docs or API facts gathered, or reading legwork delegated to… |
+| [`domain-modeling`](plugins/mattpocock-skills/skills/engineering/domain-modeling/SKILL.md) | Build and sharpen a project's domain model. Use when discussing codebase terminology, writing or editing a CONTEXT.md, or recording or editing an ADR. |
+| [`codebase-design`](plugins/mattpocock-skills/skills/engineering/codebase-design/SKILL.md) | Shared vocabulary for designing deep modules. Use when the user wants to design or improve a module's interface, find deepening opportunities, decide where a seam goes, make code more testable or AI-navigable, or when… |
+| [`code-review`](plugins/mattpocock-skills/skills/engineering/code-review/SKILL.md) | Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes: Standards (does the code follow this repo's documented coding standards?) and Spec (does the code match what the originating… |
+| [`resolving-merge-conflicts`](plugins/mattpocock-skills/skills/engineering/resolving-merge-conflicts/SKILL.md) | Use when you need to resolve an in-progress git merge/rebase conflict. |
+| [`wizard`](plugins/mattpocock-skills/skills/engineering/wizard/SKILL.md) | Generate an interactive bash wizard that walks a human through steps only they can perform. Use when provisioning infrastructure, setting up credentials or CI secrets, walking an unfamiliar third-party dashboard, or… |
+| [`grill-me`](plugins/mattpocock-skills/skills/productivity/grill-me/SKILL.md) | A relentless interview to sharpen a plan or design. |
+| [`grilling`](plugins/mattpocock-skills/skills/productivity/grilling/SKILL.md) | Grill the user relentlessly about a plan, decision, or idea. Use when the user wants to stress-test their thinking, or uses any 'grill' trigger phrases. |
+| [`handoff`](plugins/mattpocock-skills/skills/productivity/handoff/SKILL.md) | Compact the current conversation into a handoff document for another agent to pick up. |
+| [`teach`](plugins/mattpocock-skills/skills/productivity/teach/SKILL.md) | Teach the user a new skill or concept, within this workspace. |
+| [`to-questionnaire`](plugins/mattpocock-skills/skills/productivity/to-questionnaire/SKILL.md) | Turn a decision you can't fully answer into a questionnaire for someone else to fill in. |
+| [`wait-what`](plugins/mattpocock-skills/skills/productivity/wait-what/SKILL.md) | Stop. That last message did not land: re-pitch it. |
+| [`writing-for-agents`](plugins/mattpocock-skills/skills/productivity/writing-for-agents/SKILL.md) | Writing documents for agents. Use when creating or editing skills, or modifying AGENTS.md or CLAUDE.md. |
+
+## `agent-browser`
+
+Browser automation CLI for AI agents (Vercel Labs): navigate, fill forms, screenshot, extract data, test web apps; requires `npm i -g agent-browser && agent-browser install`
+
+### Skills
+
+| Name | What it does |
+|---|---|
+| [`agent-browser`](plugins/agent-browser/skills/agent-browser/SKILL.md) | Browser automation CLI for AI agents. Use when the user needs to interact with websites, including navigating pages, filling forms, clicking buttons, taking screenshots, extracting data, testing web apps, or automating… |
+
+## `spec-kit`
+
+Bootstraps GitHub Spec Kit (Spec-Driven Development) in a project and guides the constitution → specify → clarify → plan → tasks → implement workflow; the speckit-* skills are generated by the Spec Kit CLI
+
+### Skills
+
+| Name | What it does |
+|---|---|
+| [`spec-kit`](plugins/spec-kit/skills/spec-kit/SKILL.md) | Set up and drive GitHub Spec Kit (Spec-Driven Development) in a project. Use when the user mentions Spec Kit, spec-driven development, SDD, `specify init`, or any `/speckit.*` command, or wants a constitution → spec →… |
+
 ## `caveman`
 
 Ultra-compressed communication mode: cuts ~65% of output tokens by talking like caveman while keeping technical accuracy

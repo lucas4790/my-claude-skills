@@ -67,6 +67,25 @@
       ]
     },
     {
+      "name": "mattpocock-skills",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "ref": "main",
+      "copy": [
+        { "from": ".claude-plugin/plugin.json", "to": "plugins/mattpocock-skills/.claude-plugin/plugin.json" },
+        { "from": "skills", "to": "plugins/mattpocock-skills/skills" },
+        { "from": "LICENSE", "to": "plugins/mattpocock-skills/LICENSE" }
+      ]
+    },
+    {
+      "name": "agent-browser",
+      "repo": "https://github.com/vercel-labs/agent-browser.git",
+      "ref": "main",
+      "copy": [
+        { "from": "skills/agent-browser", "to": "plugins/agent-browser/skills/agent-browser" },
+        { "from": "LICENSE", "to": "plugins/agent-browser/LICENSE" }
+      ]
+    },
+    {
       "name": "powershell-agent-skills",
       "repo": "https://github.com/ajinkyajacob/powershell-agent-skills.git",
       "ref": "master",

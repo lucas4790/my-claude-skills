@@ -1,4 +1,9 @@
 {
+  "agent-browser": {
+    "ref": "main",
+    "repo": "https://github.com/vercel-labs/agent-browser.git",
+    "sha": "8c15ff9f71ae60c7e99e66afe1e2d4b9bf414fe2"
+  },
   "anthropics-skills": {
     "ref": "main",
     "repo": "https://github.com/anthropics/skills.git",
@@ -13,6 +18,11 @@
     "ref": "main",
     "repo": "https://github.com/dotnet/skills.git",
     "sha": "24f7cfbd42ad7bf52bcd67372816b982c38c64c6"
+  },
+  "mattpocock-skills": {
+    "ref": "main",
+    "repo": "https://github.com/mattpocock/skills.git",
+    "sha": "3cca18b368ae95cdbdebbff572ccafa662551015"
   },
   "misaka-agent-skills": {
     "ref": "main",

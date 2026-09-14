@@ -40,11 +40,20 @@ def first_sentence(text: str, limit: int = 220) -> str:
     return cut[: cut.rfind(" ")] + "…"
 
 
+def skill_files(plugin_dir: Path):
+    manifest = plugin_dir / ".claude-plugin/plugin.json"
+    declared = json.loads(manifest.read_text()).get("skills") if manifest.exists() else None
+    if isinstance(declared, list):
+        explicit = [plugin_dir / d / "SKILL.md" for d in declared]
+        if explicit and all(f.exists() for f in explicit):
+            return explicit
+    return sorted(plugin_dir.rglob("SKILL.md"))
+
+
 def collect(plugin_dir: Path, kind: str, pattern: str):
     items = []
-    for f in sorted(plugin_dir.rglob(pattern)):
-        if kind == "skills" and f.name != "SKILL.md":
-            continue
+    files = skill_files(plugin_dir) if kind == "skills" else sorted(plugin_dir.rglob(pattern))
+    for f in files:
         fm = frontmatter(f)
         name = fm.get("name") or (f.parent.name if kind == "skills" else f.stem)
         desc = fm.get("description", "")
