@@ -159,6 +159,32 @@ if selected terraform; then
   fi
 fi
 
+# --- startup auto-update hook -----------------------------------------------------
+# SessionStart hook runs update-plugins.sh in the background: refreshes the marketplace,
+# installs plugins added upstream, updates installed ones (throttled to every 6 h).
+DATA="${XDG_DATA_HOME:-$HOME/.local/share}/$NAME"
+mkdir -p "$DATA"
+local_copy="$(dirname "${BASH_SOURCE[0]:-/nonexistent}")/scripts/update-plugins.sh"
+if [ -f "$local_copy" ]; then
+  cp "$local_copy" "$DATA/update-plugins.sh"
+elif ! curl -fsSL "https://raw.githubusercontent.com/$REPO/main/scripts/update-plugins.sh" -o "$DATA/update-plugins.sh"; then
+  warn "could not fetch update-plugins.sh; startup auto-update hook not installed"
+  DATA=""
+fi
+[ -z "$DATA" ] || chmod +x "$DATA/update-plugins.sh"
+SETTINGS="$HOME/.claude/settings.json"
+[ -s "$SETTINGS" ] || { mkdir -p "$HOME/.claude"; echo '{}' > "$SETTINGS"; }
+if [ -z "$DATA" ]; then
+  :
+elif grep -q "$NAME/update-plugins.sh" "$SETTINGS"; then
+  echo "==> startup auto-update hook already registered"
+else
+  echo "==> registering SessionStart auto-update hook in $SETTINGS"
+  hook=$(jq -n --arg cmd "bash \"$DATA/update-plugins.sh\"" \
+    '{matcher: "startup", hooks: [{type: "command", command: $cmd, async: true}]}')
+  tmp=$(mktemp) && jq --argjson h "$hook" '.hooks.SessionStart = ((.hooks.SessionStart // []) + [$h])' "$SETTINGS" > "$tmp" && mv "$tmp" "$SETTINGS"
+fi
+
 echo
 echo "Done. Restart Claude Code to load the plugins."
 [ "${#failed[@]}" -eq 0 ]

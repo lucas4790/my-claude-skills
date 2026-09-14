@@ -35,7 +35,7 @@ claude plugin marketplace add lucas4790/my-claude-skills
 claude plugin install <plugin>@my-claude-skills
 ```
 
-Claude Code refreshes GitHub marketplaces on startup and auto-updates installed plugins when the repo changes, so nothing else is needed locally.
+The script also registers a `SessionStart` hook (`~/.claude/settings.json`, or `%LOCALAPPDATA%` on Windows) that runs `scripts/update-plugins.sh` / `.ps1` in the background: refreshes the marketplace, installs plugins added to it since last time, and updates installed ones. Throttled to once per 6 h (`MY_CLAUDE_SKILLS_INTERVAL` seconds to change); log in `~/.cache/my-claude-skills/update.log`. Changes apply to the next session. Run it by hand with `--force`.
 
 ## Plugins
 
