@@ -33,6 +33,109 @@
       "category": "productivity"
     },
     {
+      "name": "commit-commands",
+      "source": "./plugins/commit-commands",
+      "description": "Commands for git commit workflows including commit, push, and PR creation",
+      "author": { "name": "Anthropic" },
+      "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/commit-commands",
+      "category": "productivity"
+    },
+    {
+      "name": "claude-security",
+      "source": "./plugins/claude-security",
+      "description": "Deep vulnerability scanning of your own code at a chosen effort tier, with every finding challenged before it is reported, and verified patches you apply when you choose",
+      "author": { "name": "Anthropic" },
+      "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/claude-security",
+      "category": "security"
+    },
+    {
+      "name": "code-modernization",
+      "source": "./plugins/code-modernization",
+      "description": "Modernize legacy codebases with a structured preflight / assess / map / extract-rules / brief / reimagine / transform / harden workflow and specialist review agents",
+      "author": { "name": "Anthropic" },
+      "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/code-modernization",
+      "category": "development"
+    },
+    {
+      "name": "dotnet",
+      "source": "./plugins/dotnet",
+      "description": "Official Microsoft .NET plugin: Roslyn C# language server (via dnx, needs .NET 10 SDK) plus core .NET skills",
+      "author": { "name": "Microsoft" },
+      "homepage": "https://github.com/dotnet/skills",
+      "category": "development"
+    },
+    {
+      "name": "dotnet-aspnetcore",
+      "source": "./plugins/dotnet-aspnetcore",
+      "description": "ASP.NET Core web development skills including middleware, endpoints, real-time communication, and API patterns",
+      "author": { "name": "Microsoft" },
+      "homepage": "https://github.com/dotnet/skills",
+      "category": "development"
+    },
+    {
+      "name": "dotnet-test",
+      "source": "./plugins/dotnet-test",
+      "description": "Skills and agents for running, generating, analyzing, and improving .NET tests: execution, filtering, coverage, testability, MSTest workflows",
+      "author": { "name": "Microsoft" },
+      "homepage": "https://github.com/dotnet/skills",
+      "category": "testing"
+    },
+    {
+      "name": "dotnet-data",
+      "source": "./plugins/dotnet-data",
+      "description": "Skills for .NET data access and Entity Framework related tasks",
+      "author": { "name": "Microsoft" },
+      "homepage": "https://github.com/dotnet/skills",
+      "category": "development"
+    },
+    {
+      "name": "dotnet-nuget",
+      "source": "./plugins/dotnet-nuget",
+      "description": "NuGet and .NET package management: dependency management and modernization",
+      "author": { "name": "Microsoft" },
+      "homepage": "https://github.com/dotnet/skills",
+      "category": "development"
+    },
+    {
+      "name": "dotnet-upgrade",
+      "source": "./plugins/dotnet-upgrade",
+      "description": "Skills for migrating and upgrading .NET projects across framework versions, language features, and compatibility targets",
+      "author": { "name": "Microsoft" },
+      "homepage": "https://github.com/dotnet/skills",
+      "category": "development"
+    },
+    {
+      "name": "dotnet-diag",
+      "source": "./plugins/dotnet-diag",
+      "description": "Skills for .NET performance investigations, debugging, and incident analysis",
+      "author": { "name": "Microsoft" },
+      "homepage": "https://github.com/dotnet/skills",
+      "category": "development"
+    },
+    {
+      "name": "dotnet-advanced",
+      "source": "./plugins/dotnet-advanced",
+      "description": "Advanced .NET and C# skills: file-based C# scripts, P/Invoke, vectorization, NuGet trusted publishing",
+      "author": { "name": "Microsoft" },
+      "homepage": "https://github.com/dotnet/skills",
+      "category": "development"
+    },
+    {
+      "name": "csharp-patterns",
+      "source": "./plugins/csharp-patterns",
+      "description": "Curated C#/.NET design skills from Aaronontheweb/dotnet-skills: coding standards, concurrency, nullable types, API/type design, configuration, DI, serialization, project structure, package management, Testcontainers, AOT",
+      "author": { "name": "Aaron Stannard", "url": "https://github.com/Aaronontheweb" },
+      "homepage": "https://github.com/Aaronontheweb/dotnet-skills",
+      "category": "development"
+    },
+    {
+      "name": "powershell",
+      "source": "./plugins/powershell",
+      "description": "PowerShell skills: safe native-command invocation, quoting and escaping, plus script/module/Pester/CI development patterns",
+      "author": { "name": "Lucas", "url": "https://github.com/lucas4790" },
+      "category": "development"
+    },
+    {
       "name": "caveman",
       "source": { "source": "url", "url": "https://github.com/JuliusBrussee/caveman.git" },
       "description": "Ultra-compressed communication mode: cuts ~65% of output tokens by talking like caveman while keeping technical accuracy",
