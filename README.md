@@ -9,6 +9,14 @@ claude plugin marketplace add lucas4790/my-claude-skills
 claude plugin install anthropic-skills@my-claude-skills
 claude plugin install feature-dev@my-claude-skills
 claude plugin install pr-review-toolkit@my-claude-skills
+claude plugin install commit-commands@my-claude-skills
+claude plugin install claude-security@my-claude-skills
+claude plugin install code-modernization@my-claude-skills
+claude plugin install dotnet@my-claude-skills dotnet-aspnetcore@my-claude-skills dotnet-test@my-claude-skills \
+  dotnet-data@my-claude-skills dotnet-nuget@my-claude-skills dotnet-upgrade@my-claude-skills \
+  dotnet-diag@my-claude-skills dotnet-advanced@my-claude-skills
+claude plugin install csharp-patterns@my-claude-skills
+claude plugin install powershell@my-claude-skills
 claude plugin install caveman@my-claude-skills
 ```
 
@@ -21,6 +29,13 @@ Claude Code refreshes GitHub marketplaces on startup and auto-updates installed 
 | `anthropic-skills` | [anthropics/skills](https://github.com/anthropics/skills) | every skill under `skills/` (docx, pdf, pptx, xlsx, frontend-design, mcp-builder, skill-creator, webapp-testing, claude-api, ...) |
 | `feature-dev` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | `/feature-dev` command + code-explorer, code-architect, code-reviewer agents |
 | `pr-review-toolkit` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | `/review-pr` command + six review agents |
+| `commit-commands` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | `/commit`, `/commit-push-pr` and related git workflow commands |
+| `claude-security` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | deep vulnerability scanning with verified findings and patches |
+| `code-modernization` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | structured legacy-codebase modernization workflow and review agents |
+| `dotnet` | [dotnet/skills](https://github.com/dotnet/skills) (official Microsoft) | Roslyn C# language server (via `dnx`, needs .NET 10 SDK on PATH) + core .NET skills |
+| `dotnet-aspnetcore`, `dotnet-test`, `dotnet-data`, `dotnet-nuget`, `dotnet-upgrade`, `dotnet-diag`, `dotnet-advanced` | [dotnet/skills](https://github.com/dotnet/skills) | ASP.NET Core, testing (with agents), EF Core, NuGet, framework upgrades, diagnostics, P/Invoke & C# scripts |
+| `csharp-patterns` | [Aaronontheweb/dotnet-skills](https://github.com/Aaronontheweb/dotnet-skills) | 12 curated C# design skills: coding standards, concurrency, nullable, API/type design, config, DI, serialization, project structure, packages, Testcontainers, AOT |
+| `powershell` | [Misaka-Mikoto-Tech/agent-skills](https://github.com/Misaka-Mikoto-Tech/agent-skills), [ajinkyajacob/powershell-agent-skills](https://github.com/ajinkyajacob/powershell-agent-skills) | safe native-command invocation/quoting + script, module, Pester and CI/CD patterns |
 | `caveman` | [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) | terse "caveman mode" that cuts ~65% of output tokens; `/caveman` commands + skills |
 
 `caveman` is referenced directly from upstream (not vendored) because it is a full plugin with runtime hooks and a split MIT/BSL license. Claude Code clones and auto-updates it itself.

@@ -8,5 +8,25 @@
     "ref": "main",
     "repo": "https://github.com/anthropics/claude-plugins-official.git",
     "sha": "da823e86c8feef13b73b6712af11eadd38c992f6"
+  },
+  "dotnet-skills": {
+    "ref": "main",
+    "repo": "https://github.com/dotnet/skills.git",
+    "sha": "24f7cfbd42ad7bf52bcd67372816b982c38c64c6"
+  },
+  "misaka-agent-skills": {
+    "ref": "main",
+    "repo": "https://github.com/Misaka-Mikoto-Tech/agent-skills.git",
+    "sha": "bc411beeb9570781981fc6903804d9779511081b"
+  },
+  "powershell-agent-skills": {
+    "ref": "master",
+    "repo": "https://github.com/ajinkyajacob/powershell-agent-skills.git",
+    "sha": "29d04de205778f62a69c83861794695e1129c623"
+  },
+  "stannard-dotnet-skills": {
+    "ref": "master",
+    "repo": "https://github.com/Aaronontheweb/dotnet-skills.git",
+    "sha": "f4d0d393b431ed0d7130d1b3711d5dfc6b1744cf"
   }
 }

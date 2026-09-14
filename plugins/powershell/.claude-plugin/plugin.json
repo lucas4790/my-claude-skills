@@ -1,0 +1,5 @@
+{
+  "name": "powershell",
+  "description": "PowerShell skills: safe native-command invocation, quoting and escaping (Misaka-Mikoto-Tech/agent-skills) plus script, module, Pester and CI/CD development patterns (ajinkyajacob/powershell-agent-skills)",
+  "author": { "name": "Lucas", "url": "https://github.com/lucas4790" }
+}

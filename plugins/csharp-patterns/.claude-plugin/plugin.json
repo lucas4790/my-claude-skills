@@ -1,0 +1,6 @@
+{
+  "name": "csharp-patterns",
+  "description": "Curated C#/.NET design and coding-standard skills from Aaronontheweb/dotnet-skills: coding standards, concurrency, nullable types, API and type design, configuration, DI, serialization, project structure, package management, Testcontainers, AOT",
+  "author": { "name": "Aaron Stannard", "url": "https://github.com/Aaronontheweb" },
+  "homepage": "https://github.com/Aaronontheweb/dotnet-skills"
+}

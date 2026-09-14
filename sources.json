@@ -15,7 +15,63 @@
       "ref": "main",
       "copy": [
         { "from": "plugins/feature-dev", "to": "plugins/feature-dev" },
-        { "from": "plugins/pr-review-toolkit", "to": "plugins/pr-review-toolkit" }
+        { "from": "plugins/pr-review-toolkit", "to": "plugins/pr-review-toolkit" },
+        { "from": "plugins/commit-commands", "to": "plugins/commit-commands" },
+        { "from": "plugins/claude-security", "to": "plugins/claude-security" },
+        { "from": "plugins/code-modernization", "to": "plugins/code-modernization" }
+      ]
+    },
+    {
+      "name": "dotnet-skills",
+      "repo": "https://github.com/dotnet/skills.git",
+      "ref": "main",
+      "copy": [
+        { "from": "plugins/dotnet", "to": "plugins/dotnet" },
+        { "from": "plugins/dotnet-aspnetcore", "to": "plugins/dotnet-aspnetcore" },
+        { "from": "plugins/dotnet-test", "to": "plugins/dotnet-test" },
+        { "from": "plugins/dotnet-data", "to": "plugins/dotnet-data" },
+        { "from": "plugins/dotnet-nuget", "to": "plugins/dotnet-nuget" },
+        { "from": "plugins/dotnet-upgrade", "to": "plugins/dotnet-upgrade" },
+        { "from": "plugins/dotnet-diag", "to": "plugins/dotnet-diag" },
+        { "from": "plugins/dotnet-advanced", "to": "plugins/dotnet-advanced" },
+        { "from": "LICENSE", "to": "plugins/dotnet/LICENSE" }
+      ]
+    },
+    {
+      "name": "stannard-dotnet-skills",
+      "repo": "https://github.com/Aaronontheweb/dotnet-skills.git",
+      "ref": "master",
+      "copy": [
+        { "from": "skills/csharp-coding-standards", "to": "plugins/csharp-patterns/skills/csharp-coding-standards" },
+        { "from": "skills/csharp-concurrency-patterns", "to": "plugins/csharp-patterns/skills/csharp-concurrency-patterns" },
+        { "from": "skills/csharp-nullable-reference-types", "to": "plugins/csharp-patterns/skills/csharp-nullable-reference-types" },
+        { "from": "skills/csharp-api-design", "to": "plugins/csharp-patterns/skills/csharp-api-design" },
+        { "from": "skills/csharp-type-design-performance", "to": "plugins/csharp-patterns/skills/csharp-type-design-performance" },
+        { "from": "skills/microsoft-extensions-configuration", "to": "plugins/csharp-patterns/skills/microsoft-extensions-configuration" },
+        { "from": "skills/microsoft-extensions-dependency-injection", "to": "plugins/csharp-patterns/skills/microsoft-extensions-dependency-injection" },
+        { "from": "skills/serialization", "to": "plugins/csharp-patterns/skills/serialization" },
+        { "from": "skills/testcontainers", "to": "plugins/csharp-patterns/skills/testcontainers" },
+        { "from": "skills/project-structure", "to": "plugins/csharp-patterns/skills/project-structure" },
+        { "from": "skills/package-management", "to": "plugins/csharp-patterns/skills/package-management" },
+        { "from": "skills/aot-trimming", "to": "plugins/csharp-patterns/skills/aot-trimming" },
+        { "from": "LICENSE", "to": "plugins/csharp-patterns/LICENSE" }
+      ]
+    },
+    {
+      "name": "misaka-agent-skills",
+      "repo": "https://github.com/Misaka-Mikoto-Tech/agent-skills.git",
+      "ref": "main",
+      "copy": [
+        { "from": "skills/powershell-safe-invocation", "to": "plugins/powershell/skills/powershell-safe-invocation" },
+        { "from": "LICENSE", "to": "plugins/powershell/LICENSE.powershell-safe-invocation" }
+      ]
+    },
+    {
+      "name": "powershell-agent-skills",
+      "repo": "https://github.com/ajinkyajacob/powershell-agent-skills.git",
+      "ref": "master",
+      "copy": [
+        { "from": "SKILL.md", "to": "plugins/powershell/skills/powershell-agent-skills/SKILL.md" }
       ]
     }
   ]
