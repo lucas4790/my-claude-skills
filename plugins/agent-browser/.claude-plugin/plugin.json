@@ -1,0 +1,6 @@
+{
+  "name": "agent-browser",
+  "description": "Browser automation CLI for AI agents (Vercel Labs): navigate, fill forms, click, screenshot, extract data and test web apps via accessibility-tree snapshots; requires `npm i -g agent-browser && agent-browser install`",
+  "author": { "name": "Vercel Labs", "url": "https://github.com/vercel-labs" },
+  "homepage": "https://github.com/vercel-labs/agent-browser"
+}

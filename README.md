@@ -17,6 +17,7 @@ claude plugin install dotnet@my-claude-skills dotnet-aspnetcore@my-claude-skills
   dotnet-diag@my-claude-skills dotnet-advanced@my-claude-skills
 claude plugin install csharp-patterns@my-claude-skills
 claude plugin install powershell@my-claude-skills
+claude plugin install mattpocock-skills@my-claude-skills agent-browser@my-claude-skills spec-kit@my-claude-skills
 claude plugin install caveman@my-claude-skills
 ```
 
@@ -38,6 +39,9 @@ See [SKILLS.md](SKILLS.md) for the full catalog of every skill, command and agen
 | `dotnet-aspnetcore`, `dotnet-test`, `dotnet-data`, `dotnet-nuget`, `dotnet-upgrade`, `dotnet-diag`, `dotnet-advanced` | [dotnet/skills](https://github.com/dotnet/skills) | ASP.NET Core, testing (with agents), EF Core, NuGet, framework upgrades, diagnostics, P/Invoke & C# scripts |
 | `csharp-patterns` | [Aaronontheweb/dotnet-skills](https://github.com/Aaronontheweb/dotnet-skills) | 12 curated C# design skills: coding standards, concurrency, nullable, API/type design, config, DI, serialization, project structure, packages, Testcontainers, AOT |
 | `powershell` | [Misaka-Mikoto-Tech/agent-skills](https://github.com/Misaka-Mikoto-Tech/agent-skills), [ajinkyajacob/powershell-agent-skills](https://github.com/ajinkyajacob/powershell-agent-skills) | safe native-command invocation/quoting + script, module, Pester and CI/CD patterns |
+| `mattpocock-skills` | [mattpocock/skills](https://github.com/mattpocock/skills) | 25 engineering skills: grill-me / grill-with-docs, to-spec, to-tickets, code-review (standards + spec axes), tdd, domain-modeling, triage, implement, handoff… run `setup-matt-pocock-skills` once per repo |
+| `agent-browser` | [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) | browser automation CLI skill (navigate, forms, screenshots, extraction, QA); needs `npm i -g agent-browser && agent-browser install` |
+| `spec-kit` | [github/spec-kit](https://github.com/github/spec-kit) | repo-owned bootstrap skill: installs Spec Kit via `uvx`/`uv tool` and guides the `/speckit.*` workflow; the `speckit-*` skills are generated per project by the CLI |
 | `caveman` | [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) | terse "caveman mode" that cuts ~65% of output tokens; `/caveman` commands + skills |
 
 `caveman` is referenced directly from upstream (not vendored) because it is a full plugin with runtime hooks and a split MIT/BSL license. Claude Code clones and auto-updates it itself.
