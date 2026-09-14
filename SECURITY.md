@@ -35,7 +35,7 @@ Everything under `plugins/` is **third-party prompt text and code** that Claude 
 | Plugin | What runs |
 |---|---|
 | `caveman` | `node` hooks on `SessionStart` and every `UserPromptSubmit` |
-| `claude-security`, `explanatory-output-style` | shell hooks (from Anthropic) |
+| `claude-security` | shell hooks (from Anthropic) |
 | `dotnet`, `pyright-lsp` | language servers (`dnx roslyn-language-server`, `pyright-langserver`) |
 | `terraform` | `hashicorp/terraform-mcp-server` docker container |
 | `agent-browser` | Chrome via `agent-browser` CLI |

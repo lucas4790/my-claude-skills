@@ -214,16 +214,6 @@
       "category": "learning"
     },
     {
-      "name": "explanatory-output-style",
-      "source": "./plugins/explanatory-output-style",
-      "description": "Adds educational insights about implementation choices and codebase patterns while Claude works",
-      "author": {
-        "name": "Anthropic"
-      },
-      "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/explanatory-output-style",
-      "category": "learning"
-    },
-    {
       "name": "terraform",
       "source": "./plugins/terraform",
       "description": "HashiCorp Terraform MCP server (runs via docker): registry, provider and module docs lookup for IaC work",
