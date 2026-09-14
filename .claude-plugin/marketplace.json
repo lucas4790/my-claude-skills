@@ -1,0 +1,36 @@
+{
+  "name": "my-claude-skills",
+  "owner": {
+    "name": "Lucas",
+    "url": "https://github.com/lucas4790"
+  },
+  "metadata": {
+    "description": "Lucas's curated Claude Code skills and plugins, auto-synced daily from upstream"
+  },
+  "plugins": [
+    {
+      "name": "anthropic-skills",
+      "source": "./plugins/anthropic-skills",
+      "description": "All skills from anthropics/skills: docx, pdf, pptx, xlsx, frontend-design, mcp-builder, skill-creator, webapp-testing, claude-api and more",
+      "author": { "name": "Anthropic" },
+      "homepage": "https://github.com/anthropics/skills",
+      "category": "skills"
+    },
+    {
+      "name": "feature-dev",
+      "source": "./plugins/feature-dev",
+      "description": "Comprehensive feature development workflow with specialized agents for codebase exploration, architecture design, and quality review",
+      "author": { "name": "Anthropic" },
+      "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/feature-dev",
+      "category": "development"
+    },
+    {
+      "name": "pr-review-toolkit",
+      "source": "./plugins/pr-review-toolkit",
+      "description": "Comprehensive PR review agents specializing in comments, tests, error handling, type design, code quality, and code simplification",
+      "author": { "name": "Anthropic" },
+      "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/pr-review-toolkit",
+      "category": "productivity"
+    }
+  ]
+}

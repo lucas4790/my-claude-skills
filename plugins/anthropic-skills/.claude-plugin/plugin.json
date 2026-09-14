@@ -1,0 +1,6 @@
+{
+  "name": "anthropic-skills",
+  "description": "All skills from anthropics/skills, vendored and kept in sync automatically",
+  "author": { "name": "Anthropic" },
+  "homepage": "https://github.com/anthropics/skills"
+}
