@@ -362,6 +362,20 @@ Bootstraps GitHub Spec Kit (Spec-Driven Development) in a project and guides the
 |---|---|
 | [`spec-kit`](plugins/spec-kit/skills/spec-kit/SKILL.md) | Set up and drive GitHub Spec Kit (Spec-Driven Development) in a project. Use when the user mentions Spec Kit, spec-driven development, SDD, `specify init`, or any `/speckit.*` command, or wants a constitution → spec →… |
 
+## `codebase-onboarding`
+
+Generate a DeepWiki-style, source-linked, diagram-rich wiki for any repository to learn how its code works (eabait/codebase-onboarding-skill; optional `pip install -r scripts/requirements.txt` for deeper analysis)
+
+### Skills
+
+| Name | What it does |
+|---|---|
+| [`codebase-onboarding`](plugins/codebase-onboarding/skills/codebase-onboarding/SKILL.md) | Generate a DeepWiki-style structured wiki for any codebase to accelerate developer onboarding. Use this skill whenever a user wants to understand, document, or onboard into an unfamiliar repository — including requests… |
+
+## `explanatory-output-style`
+
+Adds educational insights about implementation choices and codebase patterns while Claude works
+
 ## `caveman`
 
 Ultra-compressed communication mode: cuts ~65% of output tokens by talking like caveman while keeping technical accuracy

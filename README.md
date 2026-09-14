@@ -18,6 +18,7 @@ claude plugin install dotnet@my-claude-skills dotnet-aspnetcore@my-claude-skills
 claude plugin install csharp-patterns@my-claude-skills
 claude plugin install powershell@my-claude-skills
 claude plugin install mattpocock-skills@my-claude-skills agent-browser@my-claude-skills spec-kit@my-claude-skills
+claude plugin install codebase-onboarding@my-claude-skills explanatory-output-style@my-claude-skills
 claude plugin install caveman@my-claude-skills
 ```
 
@@ -42,6 +43,8 @@ See [SKILLS.md](SKILLS.md) for the full catalog of every skill, command and agen
 | `mattpocock-skills` | [mattpocock/skills](https://github.com/mattpocock/skills) | 25 engineering skills: grill-me / grill-with-docs, to-spec, to-tickets, code-review (standards + spec axes), tdd, domain-modeling, triage, implement, handoff… run `setup-matt-pocock-skills` once per repo |
 | `agent-browser` | [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) | browser automation CLI skill (navigate, forms, screenshots, extraction, QA); needs `npm i -g agent-browser && agent-browser install` |
 | `spec-kit` | [github/spec-kit](https://github.com/github/spec-kit) | repo-owned bootstrap skill: installs Spec Kit via `uvx`/`uv tool` and guides the `/speckit.*` workflow; the `speckit-*` skills are generated per project by the CLI |
+| `codebase-onboarding` | [eabait/codebase-onboarding-skill](https://github.com/eabait/codebase-onboarding-skill) | generates a DeepWiki-style, source-linked wiki with diagrams to learn how a repo works; `pip install -r scripts/requirements.txt` optional for deeper analysis |
+| `explanatory-output-style` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | adds educational insights about implementation choices and codebase patterns while working |
 | `caveman` | [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) | terse "caveman mode" that cuts ~65% of output tokens; `/caveman` commands + skills |
 
 `caveman` is referenced directly from upstream (not vendored) because it is a full plugin with runtime hooks and a split MIT/BSL license. Claude Code clones and auto-updates it itself.

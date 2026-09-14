@@ -14,6 +14,11 @@
     "repo": "https://github.com/anthropics/claude-plugins-official.git",
     "sha": "da823e86c8feef13b73b6712af11eadd38c992f6"
   },
+  "codebase-onboarding": {
+    "ref": "main",
+    "repo": "https://github.com/eabait/codebase-onboarding-skill.git",
+    "sha": "1723ff4a248ed0ac125d9f3cf478ace896f48d92"
+  },
   "dotnet-skills": {
     "ref": "main",
     "repo": "https://github.com/dotnet/skills.git",
