@@ -34,7 +34,7 @@
     },
     {
       "name": "caveman",
-      "source": { "source": "github", "repo": "JuliusBrussee/caveman" },
+      "source": { "source": "url", "url": "https://github.com/JuliusBrussee/caveman.git" },
       "description": "Ultra-compressed communication mode: cuts ~65% of output tokens by talking like caveman while keeping technical accuracy",
       "author": { "name": "Julius Brussee", "url": "https://github.com/JuliusBrussee" },
       "homepage": "https://github.com/JuliusBrussee/caveman",
