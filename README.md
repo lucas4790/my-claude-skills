@@ -4,22 +4,23 @@ A Claude Code plugin marketplace with the skills and plugins I use, vendored fro
 
 ## Install
 
+One command installs the marketplace and every plugin in it:
+
+```bash
+# Linux / macOS / WSL
+curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/install.sh | bash
+```
+
+```powershell
+# Windows
+irm https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/install.ps1 | iex
+```
+
+Pass plugin names to install a subset (`./install.sh dotnet powershell`, `.\install.ps1 dotnet, powershell`). Re-running is safe: it updates the marketplace and skips plugins already installed. Or do it by hand:
+
 ```bash
 claude plugin marketplace add lucas4790/my-claude-skills
-claude plugin install anthropic-skills@my-claude-skills
-claude plugin install feature-dev@my-claude-skills
-claude plugin install pr-review-toolkit@my-claude-skills
-claude plugin install commit-commands@my-claude-skills
-claude plugin install claude-security@my-claude-skills
-claude plugin install code-modernization@my-claude-skills
-claude plugin install dotnet@my-claude-skills dotnet-aspnetcore@my-claude-skills dotnet-test@my-claude-skills \
-  dotnet-data@my-claude-skills dotnet-nuget@my-claude-skills dotnet-upgrade@my-claude-skills \
-  dotnet-diag@my-claude-skills dotnet-advanced@my-claude-skills
-claude plugin install csharp-patterns@my-claude-skills
-claude plugin install powershell@my-claude-skills
-claude plugin install mattpocock-skills@my-claude-skills agent-browser@my-claude-skills spec-kit@my-claude-skills
-claude plugin install codebase-onboarding@my-claude-skills explanatory-output-style@my-claude-skills
-claude plugin install caveman@my-claude-skills
+claude plugin install <plugin>@my-claude-skills
 ```
 
 Claude Code refreshes GitHub marketplaces on startup and auto-updates installed plugins when the repo changes, so nothing else is needed locally.
