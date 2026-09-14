@@ -1,0 +1,22 @@
+{
+  "sources": [
+    {
+      "name": "anthropics-skills",
+      "repo": "https://github.com/anthropics/skills.git",
+      "ref": "main",
+      "copy": [
+        { "from": "skills", "to": "plugins/anthropic-skills/skills" },
+        { "from": "THIRD_PARTY_NOTICES.md", "to": "plugins/anthropic-skills/THIRD_PARTY_NOTICES.md" }
+      ]
+    },
+    {
+      "name": "claude-plugins-official",
+      "repo": "https://github.com/anthropics/claude-plugins-official.git",
+      "ref": "main",
+      "copy": [
+        { "from": "plugins/feature-dev", "to": "plugins/feature-dev" },
+        { "from": "plugins/pr-review-toolkit", "to": "plugins/pr-review-toolkit" }
+      ]
+    }
+  ]
+}

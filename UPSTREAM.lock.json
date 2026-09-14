@@ -1,0 +1,12 @@
+{
+  "anthropics-skills": {
+    "ref": "main",
+    "repo": "https://github.com/anthropics/skills.git",
+    "sha": "34040c9c568585f6929bedeaad110ad08f079624"
+  },
+  "claude-plugins-official": {
+    "ref": "main",
+    "repo": "https://github.com/anthropics/claude-plugins-official.git",
+    "sha": "da823e86c8feef13b73b6712af11eadd38c992f6"
+  }
+}
