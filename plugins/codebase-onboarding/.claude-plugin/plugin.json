@@ -1,0 +1,6 @@
+{
+  "name": "codebase-onboarding",
+  "description": "DeepWiki-style codebase wiki generator for learning how a repository works: architecture diagrams, source-linked pages, key concepts, reading paths",
+  "author": { "name": "eabait", "url": "https://github.com/eabait" },
+  "homepage": "https://github.com/eabait/codebase-onboarding-skill"
+}
