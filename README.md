@@ -16,7 +16,17 @@ curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/ins
 irm https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/install.ps1 | iex
 ```
 
-Pass plugin names to install a subset (`./install.sh dotnet powershell`, `.\install.ps1 dotnet, powershell`). Re-running is safe: it updates the marketplace and skips plugins already installed. Or do it by hand:
+The script installs Claude Code itself if missing, then the marketplace and plugins, then the tools the selected plugins need — only when absent:
+
+| Tool | Needed by | Linux | Windows |
+|---|---|---|---|
+| git, curl, jq, Node.js | marketplace clone, manifest parsing, caveman hooks | apt / dnf / brew | winget |
+| agent-browser + Chrome (+ system libs on Linux) | `agent-browser` | npm, `agent-browser install --with-deps` | npm |
+| uv | `spec-kit` | astral.sh installer | astral.sh installer |
+| PowerShell 7 + PSScriptAnalyzer + Pester | `powershell` | snap / brew / dotnet tool | winget |
+| .NET 10 SDK | `dotnet` (Roslyn C# LSP) | apt / brew / dotnet-install.sh | winget |
+
+Pass plugin names to install a subset (`./install.sh dotnet powershell`, `.\install.ps1 dotnet, powershell`); only that subset's tools are installed. Re-running is safe. Or do it by hand:
 
 ```bash
 claude plugin marketplace add lucas4790/my-claude-skills
