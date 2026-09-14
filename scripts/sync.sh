@@ -24,7 +24,7 @@ for i in $(jq -r '.sources | keys[]' "$SOURCES"); do
   echo "==> $name ($repo @ $ref)"
   git clone --quiet --depth 1 --filter=blob:none --sparse --branch "$ref" "$repo" "$clone"
 
-  mapfile -t froms < <(jq -r ".sources[$i].copy[].from | \"/\" + .)" "$SOURCES")
+  mapfile -t froms < <(jq -r ".sources[$i].copy[].from | \"/\" + ." "$SOURCES")
   git -C "$clone" sparse-checkout set --no-cone "${froms[@]}"
   sha=$(git -C "$clone" rev-parse HEAD)
 
