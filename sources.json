@@ -7,26 +7,6 @@
       "trust": "high",
       "copy": [
         {
-          "from": "skills/docx",
-          "to": "plugins/anthropic-skills/skills/docx"
-        },
-        {
-          "from": "skills/pdf",
-          "to": "plugins/anthropic-skills/skills/pdf"
-        },
-        {
-          "from": "skills/pptx",
-          "to": "plugins/anthropic-skills/skills/pptx"
-        },
-        {
-          "from": "skills/xlsx",
-          "to": "plugins/anthropic-skills/skills/xlsx"
-        },
-        {
-          "from": "skills/claude-api",
-          "to": "plugins/anthropic-skills/skills/claude-api"
-        },
-        {
           "from": "skills/mcp-builder",
           "to": "plugins/anthropic-skills/skills/mcp-builder"
         },
@@ -53,6 +33,10 @@
         {
           "from": "plugins/feature-dev",
           "to": "plugins/feature-dev"
+        },
+        {
+          "from": "plugins/pr-review-toolkit",
+          "to": "plugins/pr-review-toolkit"
         },
         {
           "from": "plugins/commit-commands",
@@ -195,12 +179,11 @@
       "trust": "low",
       "copy": [
         {
-          "from": ".claude-plugin/plugin.json",
-          "to": "plugins/mattpocock-skills/.claude-plugin/plugin.json"
-        },
-        {
           "from": "skills/engineering",
-          "to": "plugins/mattpocock-skills/skills/engineering"
+          "to": "plugins/mattpocock-skills/skills/engineering",
+          "exclude": [
+            "code-review"
+          ]
         },
         {
           "from": "skills/productivity",

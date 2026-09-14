@@ -71,8 +71,10 @@ sync_source() {
     src="$clone/$from"
     [ -e "$src" ] || { echo "error: $from not found in $name" >&2; return 1; }
     if [ -d "$src" ]; then
+      local excludes=()
+      mapfile -t excludes < <(jq -r ".sources[$i].copy[$j].exclude // [] | .[] | \"--exclude=/\" + ." "$SOURCES")
       mkdir -p "$ROOT/$to"
-      rsync -a --delete --exclude '.git' "$src/" "$ROOT/$to/"
+      rsync -a --delete --exclude '.git' "${excludes[@]}" "$src/" "$ROOT/$to/"
     else
       mkdir -p "$(dirname "$ROOT/$to")"
       cp "$src" "$ROOT/$to"
