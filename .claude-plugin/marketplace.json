@@ -11,7 +11,7 @@
     {
       "name": "anthropic-skills",
       "source": "./plugins/anthropic-skills",
-      "description": "Curated skills from anthropics/skills: docx, pdf, pptx, xlsx, claude-api, mcp-builder, skill-creator, webapp-testing",
+      "description": "Curated skills from anthropics/skills: mcp-builder, skill-creator, webapp-testing",
       "author": {
         "name": "Anthropic"
       },
@@ -27,6 +27,16 @@
       },
       "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/feature-dev",
       "category": "development"
+    },
+    {
+      "name": "pr-review-toolkit",
+      "source": "./plugins/pr-review-toolkit",
+      "description": "Comprehensive PR review agents specializing in comments, tests, error handling, type design, code quality, and code simplification",
+      "author": {
+        "name": "Anthropic"
+      },
+      "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/pr-review-toolkit",
+      "category": "productivity"
     },
     {
       "name": "commit-commands",
@@ -142,7 +152,7 @@
     {
       "name": "mattpocock-skills",
       "source": "./plugins/mattpocock-skills",
-      "description": "Matt Pocock's engineering skills: grill-me / grill-with-docs interviews, to-spec, to-tickets, two-axis code-review, TDD, domain modeling, triage, implement, handoff and more (run setup-matt-pocock-skills once per repo)",
+      "description": "Matt Pocock's engineering skills: grill-me / grill-with-docs interviews, to-spec, to-tickets, TDD, domain modeling, triage, implement, handoff and more (code-review excluded; run setup-matt-pocock-skills once per repo)",
       "author": {
         "name": "Matt Pocock",
         "url": "https://www.aihero.dev"
