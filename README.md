@@ -9,6 +9,7 @@ claude plugin marketplace add lucas4790/my-claude-skills
 claude plugin install anthropic-skills@my-claude-skills
 claude plugin install feature-dev@my-claude-skills
 claude plugin install pr-review-toolkit@my-claude-skills
+claude plugin install caveman@my-claude-skills
 ```
 
 Claude Code refreshes GitHub marketplaces on startup and auto-updates installed plugins when the repo changes, so nothing else is needed locally.
@@ -20,6 +21,9 @@ Claude Code refreshes GitHub marketplaces on startup and auto-updates installed 
 | `anthropic-skills` | [anthropics/skills](https://github.com/anthropics/skills) | every skill under `skills/` (docx, pdf, pptx, xlsx, frontend-design, mcp-builder, skill-creator, webapp-testing, claude-api, ...) |
 | `feature-dev` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | `/feature-dev` command + code-explorer, code-architect, code-reviewer agents |
 | `pr-review-toolkit` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | `/review-pr` command + six review agents |
+| `caveman` | [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) | terse "caveman mode" that cuts ~65% of output tokens; `/caveman` commands + skills |
+
+`caveman` is referenced directly from upstream (not vendored) because it is a full plugin with runtime hooks and a split MIT/BSL license. Claude Code clones and auto-updates it itself.
 
 ## How syncing works
 

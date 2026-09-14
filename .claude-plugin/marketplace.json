@@ -31,6 +31,14 @@
       "author": { "name": "Anthropic" },
       "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/pr-review-toolkit",
       "category": "productivity"
+    },
+    {
+      "name": "caveman",
+      "source": { "source": "github", "repo": "JuliusBrussee/caveman" },
+      "description": "Ultra-compressed communication mode: cuts ~65% of output tokens by talking like caveman while keeping technical accuracy",
+      "author": { "name": "Julius Brussee", "url": "https://github.com/JuliusBrussee" },
+      "homepage": "https://github.com/JuliusBrussee/caveman",
+      "category": "productivity"
     }
   ]
 }
