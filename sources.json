@@ -7,8 +7,36 @@
       "trust": "high",
       "copy": [
         {
-          "from": "skills",
-          "to": "plugins/anthropic-skills/skills"
+          "from": "skills/docx",
+          "to": "plugins/anthropic-skills/skills/docx"
+        },
+        {
+          "from": "skills/pdf",
+          "to": "plugins/anthropic-skills/skills/pdf"
+        },
+        {
+          "from": "skills/pptx",
+          "to": "plugins/anthropic-skills/skills/pptx"
+        },
+        {
+          "from": "skills/xlsx",
+          "to": "plugins/anthropic-skills/skills/xlsx"
+        },
+        {
+          "from": "skills/claude-api",
+          "to": "plugins/anthropic-skills/skills/claude-api"
+        },
+        {
+          "from": "skills/mcp-builder",
+          "to": "plugins/anthropic-skills/skills/mcp-builder"
+        },
+        {
+          "from": "skills/skill-creator",
+          "to": "plugins/anthropic-skills/skills/skill-creator"
+        },
+        {
+          "from": "skills/webapp-testing",
+          "to": "plugins/anthropic-skills/skills/webapp-testing"
         },
         {
           "from": "THIRD_PARTY_NOTICES.md",
@@ -25,10 +53,6 @@
         {
           "from": "plugins/feature-dev",
           "to": "plugins/feature-dev"
-        },
-        {
-          "from": "plugins/pr-review-toolkit",
-          "to": "plugins/pr-review-toolkit"
         },
         {
           "from": "plugins/commit-commands",
@@ -77,14 +101,6 @@
         {
           "from": "plugins/dotnet-nuget",
           "to": "plugins/dotnet-nuget"
-        },
-        {
-          "from": "plugins/dotnet-upgrade",
-          "to": "plugins/dotnet-upgrade"
-        },
-        {
-          "from": "plugins/dotnet-diag",
-          "to": "plugins/dotnet-diag"
         },
         {
           "from": "plugins/dotnet-advanced",

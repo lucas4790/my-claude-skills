@@ -1,6 +1,8 @@
 {
   "name": "anthropic-skills",
-  "description": "All skills from anthropics/skills, vendored and kept in sync automatically",
-  "author": { "name": "Anthropic" },
+  "description": "Curated skills from anthropics/skills (documents, Claude API, MCP building, skill authoring, web app testing), kept in sync automatically",
+  "author": {
+    "name": "Anthropic"
+  },
   "homepage": "https://github.com/anthropics/skills"
 }
