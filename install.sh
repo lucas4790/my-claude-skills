@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Installs Claude Code if missing, adds the my-claude-skills marketplace, installs its plugins,
-# and installs the CLI tools some plugins depend on (agent-browser, uv, pwsh).
+# and installs the CLI tools some plugins depend on (agent-browser, uv, pwsh, .NET SDK, pyright).
 # Usage: install.sh [plugin ...]      (no args = every plugin in the marketplace)
 #        curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/install.sh | bash
 set -euo pipefail
@@ -130,7 +130,7 @@ if selected dotnet; then
   elif [ "$(uname -s)" = Darwin ] && has brew; then
     echo "==> installing .NET 10 SDK via Homebrew"
     brew install --cask dotnet-sdk || warn ".NET SDK install failed; see https://dot.net"
-  elif has apt-get && apt-cache policy dotnet-sdk-10.0 2>/dev/null | grep -q Candidate:.*[0-9]; then
+  elif has apt-get && apt-cache policy dotnet-sdk-10.0 2>/dev/null | grep -q "Candidate:.*[0-9]"; then
     echo "==> installing .NET 10 SDK via apt (sudo)"
     sudo apt-get install -y dotnet-sdk-10.0 || warn ".NET SDK install failed; see https://dot.net"
   else
@@ -138,6 +138,24 @@ if selected dotnet; then
     curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0 || warn ".NET SDK install failed; see https://dot.net"
     export DOTNET_ROOT="$HOME/.dotnet" PATH="$HOME/.dotnet:$PATH"
     echo "    add to your shell profile: export DOTNET_ROOT=\$HOME/.dotnet PATH=\$HOME/.dotnet:\$PATH"
+  fi
+fi
+
+if selected pyright-lsp; then
+  if has pyright-langserver; then
+    echo "==> pyright present"
+  else
+    echo "==> installing pyright"
+    if [ -w "$(npm config get prefix)/lib/node_modules" ] 2>/dev/null; then npm install -g pyright
+    else npm install -g --prefix "$HOME/.local" pyright; fi || warn "pyright install failed; run: npm i -g pyright"
+  fi
+fi
+
+if selected terraform; then
+  if has docker && docker info >/dev/null 2>&1; then
+    echo "==> docker present (terraform MCP server runs as a container)"
+  else
+    warn "docker not running; the terraform plugin's MCP server needs docker: https://docs.docker.com/engine/install/"
   fi
 fi
 

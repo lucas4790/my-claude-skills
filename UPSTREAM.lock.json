@@ -2,37 +2,44 @@
   "agent-browser": {
     "ref": "main",
     "repo": "https://github.com/vercel-labs/agent-browser.git",
-    "sha": "8c15ff9f71ae60c7e99e66afe1e2d4b9bf414fe2"
+    "sha": "8c15ff9f71ae60c7e99e66afe1e2d4b9bf414fe2",
+    "trust": "high"
   },
   "anthropics-skills": {
     "ref": "main",
     "repo": "https://github.com/anthropics/skills.git",
-    "sha": "34040c9c568585f6929bedeaad110ad08f079624"
+    "sha": "34040c9c568585f6929bedeaad110ad08f079624",
+    "trust": "high"
   },
   "claude-plugins-official": {
     "ref": "main",
     "repo": "https://github.com/anthropics/claude-plugins-official.git",
-    "sha": "da823e86c8feef13b73b6712af11eadd38c992f6"
+    "sha": "da823e86c8feef13b73b6712af11eadd38c992f6",
+    "trust": "high"
   },
   "codebase-onboarding": {
     "ref": "main",
     "repo": "https://github.com/eabait/codebase-onboarding-skill.git",
-    "sha": "1723ff4a248ed0ac125d9f3cf478ace896f48d92"
+    "sha": "1723ff4a248ed0ac125d9f3cf478ace896f48d92",
+    "trust": "low"
   },
   "dotnet-skills": {
     "ref": "main",
     "repo": "https://github.com/dotnet/skills.git",
-    "sha": "24f7cfbd42ad7bf52bcd67372816b982c38c64c6"
+    "sha": "24f7cfbd42ad7bf52bcd67372816b982c38c64c6",
+    "trust": "high"
   },
   "mattpocock-skills": {
     "ref": "main",
     "repo": "https://github.com/mattpocock/skills.git",
-    "sha": "3cca18b368ae95cdbdebbff572ccafa662551015"
+    "sha": "3cca18b368ae95cdbdebbff572ccafa662551015",
+    "trust": "low"
   },
   "misaka-agent-skills": {
     "ref": "main",
     "repo": "https://github.com/Misaka-Mikoto-Tech/agent-skills.git",
-    "sha": "bc411beeb9570781981fc6903804d9779511081b"
+    "sha": "bc411beeb9570781981fc6903804d9779511081b",
+    "trust": "low"
   },
   "powershell-agent-skills": {
     "ref": "master",
@@ -42,6 +49,7 @@
   "stannard-dotnet-skills": {
     "ref": "master",
     "repo": "https://github.com/Aaronontheweb/dotnet-skills.git",
-    "sha": "f4d0d393b431ed0d7130d1b3711d5dfc6b1744cf"
+    "sha": "f4d0d393b431ed0d7130d1b3711d5dfc6b1744cf",
+    "trust": "low"
   }
 }
