@@ -2,7 +2,7 @@
   "agent-browser": {
     "ref": "main",
     "repo": "https://github.com/vercel-labs/agent-browser.git",
-    "sha": "8c15ff9f71ae60c7e99e66afe1e2d4b9bf414fe2",
+    "sha": "8bbddb840c74d3c41b01d0b6804b059ba40de56e",
     "trust": "high"
   },
   "anthropics-skills": {
@@ -26,7 +26,7 @@
   "dotnet-skills": {
     "ref": "main",
     "repo": "https://github.com/dotnet/skills.git",
-    "sha": "24f7cfbd42ad7bf52bcd67372816b982c38c64c6",
+    "sha": "43dec99816ae6bfafae082698a01437d237a3f90",
     "trust": "high"
   },
   "mattpocock-skills": {
