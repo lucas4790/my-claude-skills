@@ -2,5 +2,6 @@
   "name": "azure-agent-skills",
   "description": "Curated subset of Microsoft's first-party Azure Agent Skills (MicrosoftDocs/agent-skills): DevOps, AKS, Key Vault, RBAC, Monitor, Policy, networking — structured Microsoft Learn indexes fetched live via the Learn MCP server; kept in sync automatically",
   "author": { "name": "Microsoft" },
-  "homepage": "https://github.com/MicrosoftDocs/agent-skills"
+  "homepage": "https://github.com/MicrosoftDocs/agent-skills",
+  "skills": ["./skills"]
 }
