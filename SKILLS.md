@@ -226,7 +226,7 @@ Advanced .NET and C# skills: file-based C# scripts, P/Invoke, vectorization, NuG
 
 ## `azure-agent-skills`
 
-31 of Microsoft's first-party Azure Agent Skills: Azure DevOps, Pipelines, Repos, Artifacts, Boards, Container Registry, AKS, Key Vault, RBAC, Monitor, Managed Grafana, Policy, Resource Manager, Cost Management, Logic Apps, Well-Architected, OpenTelemetry, and networking (VNet, DNS, Private Link, NAT, Load Balancer, App Gateway, WAF, Front Door, Firewall, Network Watcher, Bastion, VPN Gateway, DDoS). Each skill is a structured Microsoft Learn index; pair with the Learn MCP server
+32 of Microsoft's first-party Azure Agent Skills: Azure DevOps, Pipelines, Repos, Artifacts, Boards, Container Registry, AKS, Key Vault, RBAC, Monitor, Managed Grafana, Policy, Resource Manager, Cost Management, Logic Apps, Well-Architected, OpenTelemetry, Functions, and networking (VNet, DNS, Private Link, NAT, Load Balancer, App Gateway, WAF, Front Door, Firewall, Network Watcher, Bastion, VPN Gateway, DDoS). Each skill is a structured Microsoft Learn index; pair with the Learn MCP server
 
 ### Skills
 
@@ -243,6 +243,7 @@ Advanced .NET and C# skills: file-based C# scripts, P/Invoke, vectorization, NuG
 | [`azure-dns`](plugins/azure-agent-skills/skills/azure-dns/SKILL.md) | Expert knowledge for Azure DNS development including troubleshooting, decision making, architecture & design patterns, limits & quotas, security, configuration, and integrations & coding patterns. Use when automating… |
 | [`azure-firewall`](plugins/azure-agent-skills/skills/azure-firewall/SKILL.md) | Expert knowledge for Azure Firewall development including troubleshooting, best practices, decision making, architecture & design patterns, limits & quotas, security, configuration, integrations & coding patterns, and… |
 | [`azure-front-door`](plugins/azure-agent-skills/skills/azure-front-door/SKILL.md) | Expert knowledge for Azure Front Door development including troubleshooting, best practices, decision making, architecture & design patterns, limits & quotas, security, configuration, integrations & coding patterns, and… |
+| [`azure-functions`](plugins/azure-agent-skills/skills/azure-functions/SKILL.md) | Expert knowledge for Azure Functions development including troubleshooting, best practices, decision making, architecture & design patterns, limits & quotas, security, configuration, integrations & coding patterns, and… |
 | [`azure-key-vault`](plugins/azure-agent-skills/skills/azure-key-vault/SKILL.md) | Expert knowledge for Azure Key Vault development including troubleshooting, best practices, decision making, architecture & design patterns, limits & quotas, security, configuration, integrations & coding patterns, and… |
 | [`azure-kubernetes-service`](plugins/azure-agent-skills/skills/azure-kubernetes-service/SKILL.md) | Expert knowledge for Azure Kubernetes Service (AKS) development including troubleshooting, best practices, decision making, architecture & design patterns, limits & quotas, security, configuration, integrations & coding… |
 | [`azure-load-balancer`](plugins/azure-agent-skills/skills/azure-load-balancer/SKILL.md) | Expert knowledge for Azure Load Balancer development including troubleshooting, best practices, decision making, architecture & design patterns, limits & quotas, security, configuration, integrations & coding patterns,… |

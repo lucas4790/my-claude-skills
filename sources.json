@@ -227,6 +227,10 @@
           "to": "plugins/azure-agent-skills/skills/azure-ddos-protection"
         },
         {
+          "from": "skills/azure-functions",
+          "to": "plugins/azure-agent-skills/skills/azure-functions"
+        },
+        {
           "from": "LICENSE",
           "to": "plugins/azure-agent-skills/LICENSE"
         },
