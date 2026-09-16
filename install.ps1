@@ -29,11 +29,29 @@ function Install-Winget([string] $id, [string] $label) {
     if ($LASTEXITCODE -notin 0, -1978335189) { Write-Warning "$label install returned $LASTEXITCODE" }
     Initialize-Path
 }
+function Test-DesktopClaude { [bool](Get-AppxPackage -Name '*Claude*' -ErrorAction SilentlyContinue) }
 
 # --- base dependencies ------------------------------------------------------
 if (-not (Test-Cmd git))  { Install-Winget 'Git.Git' 'Git' }
 if (-not (Test-Cmd node)) { Install-Winget 'OpenJS.NodeJS.LTS' 'Node.js LTS' }
 Write-Host "==> base deps: git $(& git --version), node $(& node --version)"
+
+# --- desktop app check ---------------------------------------------------------
+# Plugins live in ~/.claude/plugins, which both the desktop app and the CLI read, so
+# installing via the CLI here also reaches the desktop app (after it is restarted).
+# The desktop app has no plugin-install command of its own, so the CLI is still needed
+# either way; this just makes sure that's not a surprise when only the desktop app is around.
+if (Test-DesktopClaude) {
+    if (Test-Cmd claude) {
+        Write-Host "==> found both the Claude desktop app and the claude CLI"
+    } else {
+        Write-Host "==> found the Claude desktop app (no claude CLI yet)"
+    }
+    if (-not $env:MY_CLAUDE_SKILLS_YES) {
+        $reply = Read-Host "    Continue installing/updating plugins via the CLI, shared with the desktop app? [y/N]"
+        if ($reply -notmatch '^[yY]') { Write-Host "Aborted at your request."; exit 0 }
+    }
+}
 
 # --- Claude Code --------------------------------------------------------------
 if (-not (Test-Cmd claude)) {
