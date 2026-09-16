@@ -57,7 +57,8 @@ SUSPICIOUS = [
     (r"\b(irm|iwr|Invoke-RestMethod|Invoke-WebRequest)\b[^\n|]*\|\s*(iex|Invoke-Expression)\b", "irm | iex pipeline", "high"),
     (r"base64\s+(-d|--decode)[^\n|]*\|\s*(ba|z)?sh\b", "base64 | sh pipeline", "high"),
     (r"base64\s+(-d|--decode)", "base64 decode", "low"),
-    (r"[A-Za-z0-9+/]{120,}={0,2}", "long base64-looking blob", "low"),
+    # line-scoped (works without re.M) and skipped on lines containing "http": long URLs match the class too
+    (r"(?<![^\n])(?![^\n]*http)[^\n]*?[A-Za-z0-9+/]{120,}={0,2}", "long base64-looking blob", "low"),
     (r"\b(eval|exec|Invoke-Expression|iex)\s*\(", "dynamic code execution", "low"),
     # hooks run automatically; a newly added one deserves eyes
     (r"\"(SessionStart|UserPromptSubmit|PreToolUse|PostToolUse|Stop|SubagentStop|Notification|PreCompact)\"\s*:",
@@ -82,7 +83,7 @@ def scan(rel: str, text: str, line_numbers: list[int] | None, fail_high: bool) -
             sev = "low"
         idx = text.count("\n", 0, m.start())
         ln = line_numbers[idx] if line_numbers and idx < len(line_numbers) else idx + 1
-        n = len(rx.findall(text))
+        n = sum(1 for _ in rx.finditer(text))
         more = f" (+{n - 1} more)" if n > 1 else ""
         msg = f"{rel}:{ln}: [{sev}] {label}{more}"
         if sev == "high" and fail_high:
@@ -100,9 +101,16 @@ def added_lines(ref: str) -> dict[str, tuple[list[int], list[str]]]:
     including whole untracked files (sync.sh copies new files in unstaged)."""
     out: dict[str, tuple[list[int], list[str]]] = {}
     cur, ln = None, 0
-    for line in git("diff", ref, "-U0", "--no-color", "--", "plugins/").splitlines():
+    try:
+        diff = git("diff", ref, "-U0", "--no-color", "--", "plugins/")
+    except subprocess.CalledProcessError:
+        print(f"✗ --diff: unknown git ref '{ref}'")
+        sys.exit(1)
+    for line in diff.splitlines():
         if line.startswith("+++ "):
-            cur = line[6:] if line.startswith("+++ b/") else None
+            # same file-type filter as the untracked-file loop below, so a modified .png/.csv is
+            # skipped just like a new one
+            cur = line[6:] if line.startswith("+++ b/") and Path(line[6:]).suffix in TEXT_EXT else None
         elif line.startswith("@@"):
             m = re.match(r"@@ -\S+ \+(\d+)", line)
             ln = int(m.group(1)) if m else 0
@@ -209,7 +217,7 @@ if args.diff:
 else:
     for f in ROOT.glob("plugins/**/*"):
         if f.is_file() and f.suffix in TEXT_EXT and f.stat().st_size <= 5_000_000:
-            scan(str(f.relative_to(ROOT)), f.read_text(encoding="utf-8", errors="replace"), None, fail_high=False)
+            scan(f.relative_to(ROOT).as_posix(), f.read_text(encoding="utf-8", errors="replace"), None, fail_high=False)
 
 before = (ROOT / "SKILLS.md").read_text(encoding="utf-8") if (ROOT / "SKILLS.md").exists() else ""
 subprocess.run([sys.executable, str(ROOT / "scripts/gen-catalog.py")], check=True, capture_output=True)
