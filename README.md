@@ -42,6 +42,20 @@ claude plugin install <plugin>@my-claude-skills
 
 The script also registers a `SessionStart` hook (`~/.claude/settings.json`, or `%LOCALAPPDATA%` on Windows) that runs `scripts/update-plugins.sh` / `.ps1` in the background: refreshes the marketplace, installs plugins added to it since last time, and updates installed ones. Throttled to once per 6 h (`MY_CLAUDE_SKILLS_INTERVAL` seconds to change); log in `~/.cache/my-claude-skills/update.log`. Changes apply to the next session. Run it by hand with `--force`.
 
+### Permissions baseline (opt-in, manual)
+
+[`settings/permissions.json`](settings/permissions.json) is a curated `permissions.allow` list of **read-only** inspection commands — `git status`/`diff`/`log`, `gh pr view`, `az … show`/`list`, `kubectl get`/`describe`/`logs`, `helm list`/`status`, `terraform plan`/`validate`/`show`, build and test runners — so Claude Code stops asking for those. Nothing that mutates state is in it, and there are no broad wildcards (`az *`, `kubectl *`, `git *`).
+
+The installer does **not** apply it: widening what Claude may run without asking is a decision to make deliberately, per machine, after reading the list. To merge it into `~/.claude/settings.json` yourself (union, existing entries first, nothing else touched):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/settings/permissions.json -o /tmp/perms.json
+jq --slurpfile p /tmp/perms.json '(.permissions.allow // []) as $a
+  | .permissions.allow = $a + ($p[0].permissions.allow | map(select(. as $x | $a | index($x) | not)))'   ~/.claude/settings.json > /tmp/settings.json && mv /tmp/settings.json ~/.claude/settings.json
+```
+
+Changes to the list are part of reviewing this repo: a PR that adds a rule here is a PR that changes what runs unprompted on every machine that merged it.
+
 ## Plugins
 
 See [SKILLS.md](SKILLS.md) for the full catalog of every skill, command and agent (regenerated on each sync).
