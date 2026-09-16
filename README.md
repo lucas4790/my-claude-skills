@@ -44,9 +44,11 @@ The script also registers a `SessionStart` hook (`~/.claude/settings.json`, or `
 
 ### Permissions baseline (opt-in, manual)
 
-[`settings/permissions.json`](settings/permissions.json) is a curated `permissions.allow` list of **read-only** inspection commands — `git status`/`diff`/`log`, `gh pr view`, `az … show`/`list`, `kubectl get`/`describe`/`logs`, `helm list`/`status`, `terraform plan`/`validate`/`show`, build and test runners — so Claude Code stops asking for those. Nothing that mutates state is in it, and there are no broad wildcards (`az *`, `kubectl *`, `git *`).
+[`settings/permissions.json`](settings/permissions.json) is a curated `permissions.allow` list of **read-only** inspection commands — `git status`/`diff`/`log`, `gh pr view`, `az … show`/`list`, `kubectl get`/`describe`/`logs`, `helm list`/`status`, `terraform plan`/`validate`/`show`, `jq` — so Claude Code stops asking for those. Nothing that mutates state or runs code from the checked-out repository is in it, and there are no broad wildcards (`az *`, `kubectl *`, `git *`). Two edge cases are in on purpose: `git fetch` talks to the network (it writes only `.git/`), and `terraform plan` runs provider and data-source code against the configured backend (it does not apply). Shell redirection is a residual risk of every rule in the list, not just `jq *`: Claude Code matches the command prefix, so `jq . a > b` or `git log > file` can still write a file; `jq *` stays because `az … | jq` pipes need every segment allowed.
 
-The installer does **not** apply it: widening what Claude may run without asking is a decision to make deliberately, per machine, after reading the list. To merge it into `~/.claude/settings.json` yourself (union, existing entries first, nothing else touched):
+[`settings/permissions-trusted-repo.json`](settings/permissions-trusted-repo.json) is a second, separate list of build, test and lint runners (`dotnet build`/`test`/`format --verify-no-changes`, `python -m pytest`/`unittest`, `npm test`, `npm run lint`). Every one of them executes code from the clone (MSBuild targets, `conftest.py`, `package.json` scripts), which in an untrusted repository is arbitrary code running unprompted. Merge it only on machines where every clone Claude Code opens is one you trust.
+
+The installer does **not** apply either file: widening what Claude may run without asking is a decision to make deliberately, per machine, after reading the list. To merge the read-only list into `~/.claude/settings.json` yourself (union, existing entries first, nothing else touched):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/settings/permissions.json -o /tmp/perms.json
@@ -54,7 +56,15 @@ jq --slurpfile p /tmp/perms.json '(.permissions.allow // []) as $a
   | .permissions.allow = $a + ($p[0].permissions.allow | map(select(. as $x | $a | index($x) | not)))'   ~/.claude/settings.json > /tmp/settings.json && mv /tmp/settings.json ~/.claude/settings.json
 ```
 
-Changes to the list are part of reviewing this repo: a PR that adds a rule here is a PR that changes what runs unprompted on every machine that merged it.
+Same merge for the trusted-repo list, if you want it:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/settings/permissions-trusted-repo.json -o /tmp/perms.json
+jq --slurpfile p /tmp/perms.json '(.permissions.allow // []) as $a
+  | .permissions.allow = $a + ($p[0].permissions.allow | map(select(. as $x | $a | index($x) | not)))'   ~/.claude/settings.json > /tmp/settings.json && mv /tmp/settings.json ~/.claude/settings.json
+```
+
+Changes to either list are part of reviewing this repo: a PR that adds a rule here is a PR that changes what runs unprompted on every machine that merged it.
 
 ## Plugins
 

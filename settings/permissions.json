@@ -1,5 +1,5 @@
 {
-  "$comment": "Read-only inspection commands the installer merges into ~/.claude/settings.json permissions.allow. Nothing here mutates state; anything that can (apply, delete, push, set, create, upgrade) stays out on purpose.",
+  "$comment": "Read-only inspection commands, merged by hand into ~/.claude/settings.json permissions.allow (the installer does not apply this file). Nothing here mutates state or runs code from the checked-out repository; anything that can (apply, delete, push, set, create, upgrade, build, test) stays out on purpose. Build and test runners live in permissions-trusted-repo.json.",
   "permissions": {
     "allow": [
       "Bash(git status)",
@@ -100,18 +100,10 @@
 
       "Bash(dotnet --version)",
       "Bash(dotnet --list-sdks)",
-      "Bash(dotnet build *)",
-      "Bash(dotnet test *)",
-      "Bash(dotnet format --verify-no-changes *)",
-      "Bash(python -m pytest *)",
-      "Bash(python -m unittest *)",
       "Bash(python --version)",
       "Bash(node --version)",
       "Bash(npm --version)",
-      "Bash(npm test)",
-      "Bash(npm run lint)",
-      "Bash(jq *)",
-      "Bash(yq *)"
+      "Bash(jq *)"
     ]
   }
 }
