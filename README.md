@@ -28,6 +28,11 @@ The script installs Claude Code itself if missing, then the marketplace and plug
 | pyright | `pyright-lsp` | npm | npm |
 | docker (checked, not installed) | `terraform` MCP server | — | — |
 
+If the Claude desktop app (macOS/Windows) is also installed, the script says so and asks before
+proceeding, since installing plugins still needs the CLI even then — the desktop app has no
+plugin-install command of its own, but reads the same `~/.claude/plugins` the CLI writes to, so
+one install reaches both. Set `MY_CLAUDE_SKILLS_YES=1` to skip that prompt (e.g. for automation).
+
 Pass plugin names to install a subset (`./install.sh dotnet powershell`, `.\install.ps1 dotnet, powershell`); only that subset's tools are installed. Re-running is safe. Or do it by hand:
 
 ```bash

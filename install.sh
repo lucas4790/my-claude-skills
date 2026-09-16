@@ -34,6 +34,28 @@ if [ "${#missing[@]}" -gt 0 ]; then
 fi
 echo "==> base deps: git $(git --version | awk '{print $3}'), node $(node --version), jq $(jq --version)"
 
+# --- desktop app check ---------------------------------------------------------
+# Plugins live in ~/.claude/plugins, which both the desktop app and the CLI read, so
+# installing via the CLI here also reaches the desktop app (after it is restarted).
+# The desktop app has no plugin-install command of its own, so the CLI is still needed
+# either way; this just makes sure that's not a surprise when only the desktop app is around.
+# (The desktop app only ships for macOS and Windows; there is nothing to detect on Linux.)
+has_desktop_claude() { [ "$(uname -s)" = Darwin ] && [ -d "/Applications/Claude.app" ]; }
+if has_desktop_claude; then
+  if has claude; then
+    echo "==> found both the Claude desktop app and the claude CLI"
+  else
+    echo "==> found the Claude desktop app (no claude CLI yet)"
+  fi
+  if [ -z "${MY_CLAUDE_SKILLS_YES:-}" ]; then
+    read -r -p "    Continue installing/updating plugins via the CLI, shared with the desktop app? [y/N] " reply
+    case "$reply" in
+      [yY]*) ;;
+      *) echo "Aborted at your request."; exit 0 ;;
+    esac
+  fi
+fi
+
 # --- Claude Code -------------------------------------------------------------
 if ! has claude; then
   echo "==> Claude Code not found, installing"
