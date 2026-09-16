@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-MARKETPLACE = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text())
+MARKETPLACE = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
 
 
 def frontmatter(path: Path) -> dict:
@@ -42,7 +42,7 @@ def first_sentence(text: str, limit: int = 220) -> str:
 
 def skill_files(plugin_dir: Path):
     manifest = plugin_dir / ".claude-plugin/plugin.json"
-    declared = json.loads(manifest.read_text()).get("skills") if manifest.exists() else None
+    declared = json.loads(manifest.read_text(encoding="utf-8")).get("skills") if manifest.exists() else None
     if isinstance(declared, list):
         explicit = [plugin_dir / d / "SKILL.md" for d in declared]
         if explicit and all(f.exists() for f in explicit):
