@@ -183,6 +183,16 @@
       "category": "development"
     },
     {
+      "name": "component-documentation",
+      "source": "./plugins/component-documentation",
+      "description": "Repo-owned skill: writes complete operational documentation for one infrastructure component (purpose, architecture, deployment order, per-environment config, availability, monitoring, backup/recovery, runbooks, risks, ownership) with section packs for ingress, telemetry, alerting, security tooling, cluster services and Terraform",
+      "author": {
+        "name": "Lucas",
+        "url": "https://github.com/lucas4790"
+      },
+      "category": "documentation"
+    },
+    {
       "name": "codebase-onboarding",
       "source": "./plugins/codebase-onboarding",
       "description": "Generate a DeepWiki-style, source-linked, diagram-rich wiki for any repository to learn how its code works (eabait/codebase-onboarding-skill; optional `pip install -r scripts/requirements.txt` for deeper analysis)",

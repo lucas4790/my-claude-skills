@@ -308,6 +308,16 @@ Bootstraps GitHub Spec Kit (Spec-Driven Development) in a project and guides the
 |---|---|
 | [`spec-kit`](plugins/spec-kit/skills/spec-kit/SKILL.md) | Set up and drive GitHub Spec Kit (Spec-Driven Development) in a project. Use when the user mentions Spec Kit, spec-driven development, SDD, `specify init`, or any `/speckit.*` command, or wants a constitution → spec →… |
 
+## `component-documentation`
+
+Repo-owned skill: writes complete operational documentation for one infrastructure component (purpose, architecture, deployment order, per-environment config, availability, monitoring, backup/recovery, runbooks, risks, ownership) with section packs for ingress, telemetry, alerting, security tooling, cluster services and Terraform
+
+### Skills
+
+| Name | What it does |
+|---|---|
+| [`component-documentation`](plugins/component-documentation/skills/component-documentation/SKILL.md) | Analyze a platform component and produce complete operational documentation — purpose, architecture, deployment order, configuration per environment, availability, monitoring, backup and recovery, runbook procedures,… |
+
 ## `codebase-onboarding`
 
 Generate a DeepWiki-style, source-linked, diagram-rich wiki for any repository to learn how its code works (eabait/codebase-onboarding-skill; optional `pip install -r scripts/requirements.txt` for deeper analysis)
