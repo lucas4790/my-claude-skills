@@ -35,6 +35,12 @@
     "sha": "959a8e9f1edc3adbe2f7e3054bb6fbefa6696260",
     "trust": "low"
   },
+  "microsoft-agent-skills": {
+    "ref": "main",
+    "repo": "https://github.com/MicrosoftDocs/agent-skills.git",
+    "sha": "d5ad46424db3892ebaa27e39fb62a54f4b22cb6e",
+    "trust": "high"
+  },
   "misaka-agent-skills": {
     "ref": "main",
     "repo": "https://github.com/Misaka-Mikoto-Tech/agent-skills.git",

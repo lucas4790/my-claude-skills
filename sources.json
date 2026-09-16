@@ -97,6 +97,150 @@
       ]
     },
     {
+      "name": "microsoft-agent-skills",
+      "repo": "https://github.com/MicrosoftDocs/agent-skills.git",
+      "ref": "main",
+      "trust": "high",
+      "copy": [
+        {
+          "from": "skills/azure-devops",
+          "to": "plugins/azure-agent-skills/skills/azure-devops"
+        },
+        {
+          "from": "skills/azure-pipelines",
+          "to": "plugins/azure-agent-skills/skills/azure-pipelines"
+        },
+        {
+          "from": "skills/azure-repos",
+          "to": "plugins/azure-agent-skills/skills/azure-repos"
+        },
+        {
+          "from": "skills/azure-artifacts",
+          "to": "plugins/azure-agent-skills/skills/azure-artifacts"
+        },
+        {
+          "from": "skills/azure-boards",
+          "to": "plugins/azure-agent-skills/skills/azure-boards"
+        },
+        {
+          "from": "skills/azure-container-registry",
+          "to": "plugins/azure-agent-skills/skills/azure-container-registry"
+        },
+        {
+          "from": "skills/azure-kubernetes-service",
+          "to": "plugins/azure-agent-skills/skills/azure-kubernetes-service"
+        },
+        {
+          "from": "skills/azure-key-vault",
+          "to": "plugins/azure-agent-skills/skills/azure-key-vault"
+        },
+        {
+          "from": "skills/azure-rbac",
+          "to": "plugins/azure-agent-skills/skills/azure-rbac"
+        },
+        {
+          "from": "skills/azure-monitor",
+          "to": "plugins/azure-agent-skills/skills/azure-monitor"
+        },
+        {
+          "from": "skills/azure-managed-grafana",
+          "to": "plugins/azure-agent-skills/skills/azure-managed-grafana"
+        },
+        {
+          "from": "skills/azure-policy",
+          "to": "plugins/azure-agent-skills/skills/azure-policy"
+        },
+        {
+          "from": "skills/azure-resource-manager",
+          "to": "plugins/azure-agent-skills/skills/azure-resource-manager"
+        },
+        {
+          "from": "skills/azure-cost-management",
+          "to": "plugins/azure-agent-skills/skills/azure-cost-management"
+        },
+        {
+          "from": "skills/azure-logic-apps",
+          "to": "plugins/azure-agent-skills/skills/azure-logic-apps"
+        },
+        {
+          "from": "skills/azure-well-architected",
+          "to": "plugins/azure-agent-skills/skills/azure-well-architected"
+        },
+        {
+          "from": "skills/azure-microsoft-opentelemetry",
+          "to": "plugins/azure-agent-skills/skills/azure-microsoft-opentelemetry"
+        },
+        {
+          "from": "skills/azure-virtual-network",
+          "to": "plugins/azure-agent-skills/skills/azure-virtual-network"
+        },
+        {
+          "from": "skills/azure-networking",
+          "to": "plugins/azure-agent-skills/skills/azure-networking"
+        },
+        {
+          "from": "skills/azure-dns",
+          "to": "plugins/azure-agent-skills/skills/azure-dns"
+        },
+        {
+          "from": "skills/azure-private-link",
+          "to": "plugins/azure-agent-skills/skills/azure-private-link"
+        },
+        {
+          "from": "skills/azure-nat-gateway",
+          "to": "plugins/azure-agent-skills/skills/azure-nat-gateway"
+        },
+        {
+          "from": "skills/azure-load-balancer",
+          "to": "plugins/azure-agent-skills/skills/azure-load-balancer"
+        },
+        {
+          "from": "skills/azure-application-gateway",
+          "to": "plugins/azure-agent-skills/skills/azure-application-gateway"
+        },
+        {
+          "from": "skills/azure-web-application-firewall",
+          "to": "plugins/azure-agent-skills/skills/azure-web-application-firewall"
+        },
+        {
+          "from": "skills/azure-front-door",
+          "to": "plugins/azure-agent-skills/skills/azure-front-door"
+        },
+        {
+          "from": "skills/azure-firewall",
+          "to": "plugins/azure-agent-skills/skills/azure-firewall"
+        },
+        {
+          "from": "skills/azure-network-watcher",
+          "to": "plugins/azure-agent-skills/skills/azure-network-watcher"
+        },
+        {
+          "from": "skills/azure-bastion",
+          "to": "plugins/azure-agent-skills/skills/azure-bastion"
+        },
+        {
+          "from": "skills/azure-vpn-gateway",
+          "to": "plugins/azure-agent-skills/skills/azure-vpn-gateway"
+        },
+        {
+          "from": "skills/azure-ddos-protection",
+          "to": "plugins/azure-agent-skills/skills/azure-ddos-protection"
+        },
+        {
+          "from": "skills/azure-functions",
+          "to": "plugins/azure-agent-skills/skills/azure-functions"
+        },
+        {
+          "from": "LICENSE",
+          "to": "plugins/azure-agent-skills/LICENSE"
+        },
+        {
+          "from": "ThirdPartyNotices.md",
+          "to": "plugins/azure-agent-skills/ThirdPartyNotices.md"
+        }
+      ]
+    },
+    {
       "name": "stannard-dotnet-skills",
       "repo": "https://github.com/Aaronontheweb/dotnet-skills.git",
       "ref": "master",
