@@ -71,8 +71,8 @@ See [SKILLS.md](SKILLS.md) for the full catalog of every skill, command and agen
 
 - `sources.json` lists each upstream repo, the ref to track, a `trust` tier, and which paths to copy where.
 - `scripts/sync.sh` sparse-clones each source, copies the paths in (deleting anything upstream removed), records the synced commit in `UPSTREAM.lock.json`, then regenerates `SKILLS.md`. Flags: `--trust high|low`, `--only NAME`, `--locked` (rebuild from lockfile SHAs).
-- `scripts/validate.py` checks manifests, skill frontmatter, file sizes, sha pins and catalog freshness; warns on suspicious content.
-- `.github/workflows/sync-upstream.yml` runs daily at 06:00 UTC (and on dispatch): high-trust sources commit to `main` after validation; low-trust sources and pinned-sha bumps go to a PR on `sync/low-trust`. Pull requests touching plugins run the validator plus `claude plugin validate`.
+- `scripts/validate.py` checks manifests, skill frontmatter, file sizes, sha pins and catalog freshness, and scans every text file under `plugins/` for prompt-injection, exfiltration, credential-access and remote-execution patterns (`--diff REF` limits the scan to lines added since `REF`; see [SECURITY.md](SECURITY.md)).
+- `.github/workflows/sync-upstream.yml` runs daily at 06:00 UTC (and on dispatch) and opens one PR per tier (`sync/high-trust`, `sync/low-trust`, the latter also carrying pinned-sha bumps) with the validator's hits for the added lines in the body; automation never pushes to `main`. Pull requests touching plugins run the validator plus `claude plugin validate`, and a high-severity hit in the added lines fails the check.
 
 See [SECURITY.md](SECURITY.md) for the trust model. Run locally with `scripts/sync.sh` (needs `git`, `rsync`, `jq`, `python3`).
 
@@ -82,8 +82,6 @@ See [SECURITY.md](SECURITY.md) for the trust model. Run locally with `scripts/sy
 2. If it is a bare skills folder (not a full plugin), add `plugins/<name>/.claude-plugin/plugin.json`.
 3. Add a plugin entry to `.claude-plugin/marketplace.json` pointing at `./plugins/<name>`.
 4. Run `scripts/sync.sh --only <name>` and `python3 scripts/validate.py`, then commit.
-
-To have the workflow open a PR instead of pushing to `main`, replace the commit step with `peter-evans/create-pull-request`.
 
 ## Licensing
 
