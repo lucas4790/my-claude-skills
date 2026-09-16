@@ -12,7 +12,7 @@ Everything under `plugins/` is **third-party prompt text and code** that Claude 
 | low | community repos (Aaronontheweb, Misaka-Mikoto-Tech, mattpocock, eabait) | Daily sync opens a **pull request** on branch `sync/low-trust`; read it |
 | pinned external | `caveman` (runs hooks via `node` on every prompt) | Referenced by exact `sha` in `marketplace.json`; `scripts/bump-pinned.sh` proposes bumps in the low-trust PR |
 
-Nothing under `plugins/` reaches `main` without a pull request — automation never pushes to `main`. The tier only decides which PR a change lands in, so trusted vendors don't hold up review of community sources.
+Nothing reaches `main` without a pull request: branch protection requires a PR and a green `validate-pr` check, for admins too, and automation never pushes to `main`. Sync PRs are created with `GITHUB_TOKEN`, which does not trigger workflows, so the sync job validates them itself and reports the `validate-pr` status (structural problems fail it; injection hits only annotate the PR). The tier only decides which PR a change lands in, so trusted vendors don't hold up review of community sources.
 
 Both sync PRs regenerate `SKILLS.md` and `UPSTREAM.lock.json`, so after merging one the other may show a conflict. Don't resolve it by hand: the next run (daily, or `workflow_dispatch`) rebuilds each branch from `main` with `--force`.
 
