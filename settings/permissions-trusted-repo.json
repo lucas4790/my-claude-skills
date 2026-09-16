@@ -1,0 +1,14 @@
+{
+  "$comment": "Build, test and lint runners for repositories you trust. Every rule here executes code from the checked-out repository (MSBuild targets, conftest.py, package.json scripts), so an untrusted clone can run arbitrary code unprompted. Merge by hand into ~/.claude/settings.json only on machines where every clone Claude Code opens is one you would run these commands in yourself; the installer does not apply this file.",
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build *)",
+      "Bash(dotnet test *)",
+      "Bash(dotnet format --verify-no-changes *)",
+      "Bash(python -m pytest *)",
+      "Bash(python -m unittest *)",
+      "Bash(npm test)",
+      "Bash(npm run lint)"
+    ]
+  }
+}
