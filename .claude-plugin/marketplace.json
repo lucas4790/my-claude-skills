@@ -129,6 +129,16 @@
       "category": "development"
     },
     {
+      "name": "azure-agent-skills",
+      "source": "./plugins/azure-agent-skills",
+      "description": "31 of Microsoft's first-party Azure Agent Skills: Azure DevOps, Pipelines, Repos, Artifacts, Boards, Container Registry, AKS, Key Vault, RBAC, Monitor, Managed Grafana, Policy, Resource Manager, Cost Management, Logic Apps, Well-Architected, OpenTelemetry, and networking (VNet, DNS, Private Link, NAT, Load Balancer, App Gateway, WAF, Front Door, Firewall, Network Watcher, Bastion, VPN Gateway, DDoS). Each skill is a structured Microsoft Learn index; pair with the Learn MCP server",
+      "author": {
+        "name": "Microsoft"
+      },
+      "homepage": "https://github.com/MicrosoftDocs/agent-skills",
+      "category": "cloud"
+    },
+    {
       "name": "csharp-patterns",
       "source": "./plugins/csharp-patterns",
       "description": "Curated C#/.NET design skills from Aaronontheweb/dotnet-skills: coding standards, concurrency, nullable types, API/type design, configuration, DI, serialization, project structure, package management, Testcontainers, AOT",
