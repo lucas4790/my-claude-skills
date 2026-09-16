@@ -308,6 +308,16 @@ Bootstraps GitHub Spec Kit (Spec-Driven Development) in a project and guides the
 |---|---|
 | [`spec-kit`](plugins/spec-kit/skills/spec-kit/SKILL.md) | Set up and drive GitHub Spec Kit (Spec-Driven Development) in a project. Use when the user mentions Spec Kit, spec-driven development, SDD, `specify init`, or any `/speckit.*` command, or wants a constitution → spec →… |
 
+## `azure-devops`
+
+Repo-owned Azure DevOps skill for the az CLI: build URL / PR number → run → timeline → failed task → log → root cause, pipeline-run and PR inspection, Windows / Git Bash / pipeline-YAML pitfalls (defaults for the Movares Dataplatform org)
+
+### Skills
+
+| Name | What it does |
+|---|---|
+| [`azure-devops`](plugins/azure-devops/skills/azure-devops/SKILL.md) | Work with Azure DevOps (ADO) through the az CLI — pipelines, builds, pull requests, repos. Use whenever the user pastes an Azure DevOps URL (dev.azure.com or *.visualstudio.com, `_build/results?buildId=`,… |
+
 ## `codebase-onboarding`
 
 Generate a DeepWiki-style, source-linked, diagram-rich wiki for any repository to learn how its code works (eabait/codebase-onboarding-skill; optional `pip install -r scripts/requirements.txt` for deeper analysis)

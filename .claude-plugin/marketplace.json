@@ -183,6 +183,17 @@
       "category": "development"
     },
     {
+      "name": "azure-devops",
+      "source": "./plugins/azure-devops",
+      "description": "Repo-owned Azure DevOps skill for the az CLI: build URL / PR number → run → timeline → failed task → log → root cause, pipeline-run and PR inspection, Windows / Git Bash / pipeline-YAML pitfalls (defaults for the Movares Dataplatform org)",
+      "author": {
+        "name": "Lucas",
+        "url": "https://github.com/lucas4790"
+      },
+      "homepage": "https://github.com/lucas4790/my-claude-skills/tree/main/plugins/azure-devops",
+      "category": "development"
+    },
+    {
       "name": "codebase-onboarding",
       "source": "./plugins/codebase-onboarding",
       "description": "Generate a DeepWiki-style, source-linked, diagram-rich wiki for any repository to learn how its code works (eabait/codebase-onboarding-skill; optional `pip install -r scripts/requirements.txt` for deeper analysis)",

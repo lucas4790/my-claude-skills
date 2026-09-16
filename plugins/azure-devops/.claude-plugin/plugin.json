@@ -1,0 +1,7 @@
+{
+  "name": "azure-devops",
+  "version": "1.0.0",
+  "description": "Azure DevOps via the az CLI: find why a pipeline run failed (build URL -> timeline -> failed task -> log), inspect pipeline runs and pull requests, and know the Windows / Git Bash pitfalls; tuned for the Movares Dataplatform org",
+  "author": { "name": "Lucas", "url": "https://github.com/lucas4790" },
+  "homepage": "https://github.com/lucas4790/my-claude-skills/tree/main/plugins/azure-devops"
+}
