@@ -4,16 +4,19 @@ on:
   schedule:
     - cron: "0 6 * * *"
   workflow_dispatch:
-  pull_request:
-    paths: ["plugins/**", ".claude-plugin/**", "scripts/**", "sources.json"]
+  pull_request:  # every PR, so `validate-pr` can be a required check on main
 
 permissions:
   contents: write
   pull-requests: write
+  statuses: write
 
+# One group per PR branch, one for the scheduled sync: a shared group lets GitHub drop a queued
+# PR run when several PRs push at once (only one run may wait per group), which leaves the
+# required `validate-pr` check missing on that PR.
 concurrency:
-  group: sync-upstream
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || 'sync' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   GIT_AUTHOR_NAME: github-actions[bot]
@@ -22,66 +25,83 @@ env:
   GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
 
 jobs:
+  # Human PRs: structural checks, and any high-severity injection pattern in lines
+  # added by the PR fails the check (exit 2) so it cannot be merged unnoticed.
+  # Sync PRs never reach this job (GITHUB_TOKEN-created PRs don't trigger workflows);
+  # the sync job below validates them itself and reports the same status context.
   validate-pr:
-    if: github.event_name == 'pull_request' && github.event.pull_request.user.login != 'github-actions[bot]'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - run: python3 scripts/validate.py
+        with:
+          fetch-depth: 0
+      - run: python3 scripts/validate.py --diff "origin/${{ github.base_ref }}"
       - name: Claude Code manifest validation
+        # Gated inside the step rather than with a `paths:` trigger filter so the job still
+        # reports on every PR (it is a required check on main).
         run: |
+          if ! git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -qE '^(plugins/|\.claude-plugin/)'; then
+            echo "No changes under plugins/ or .claude-plugin/; skipping manifest validation."
+            exit 0
+          fi
           curl -fsSL https://claude.ai/install.sh | bash
           "$HOME/.local/bin/claude" plugin validate .
 
-  # Anthropic / Microsoft / Vercel sources: sync, validate, push straight to main.
-  sync-high-trust:
+  # Every upstream tier lands as a pull request; nothing is pushed to main by automation.
+  # The validator scans only the lines this sync adds and puts its hits in the PR body,
+  # so the reviewer sees exactly what changed and what looked instruction-shaped.
+  sync:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - run: scripts/sync.sh --trust high
-      - run: python3 scripts/validate.py
-      - name: Commit and push
-        run: |
-          if [ -z "$(git status --porcelain)" ]; then echo "No high-trust changes."; exit 0; fi
-          shas=$(jq -r 'to_entries | map(select(.value.trust=="high") | "\(.key)@\(.value.sha[0:7])") | join(", ")' UPSTREAM.lock.json)
-          git add -A
-          git commit -m "chore: sync high-trust upstream skills ($shas)"
-          git push
-
-  # Community sources and sha-pinned external plugins: open a PR for review instead of pushing.
-  sync-low-trust:
-    if: github.event_name != 'pull_request'
-    needs: sync-high-trust
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        trust: [high, low]
     env:
       GH_TOKEN: ${{ github.token }}
-      BRANCH: sync/low-trust
+      BRANCH: sync/${{ matrix.trust }}-trust
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: main
-      - run: scripts/sync.sh --trust low
-      - run: scripts/bump-pinned.sh
-      - name: Validate (warnings surface in the PR body)
-        run: python3 scripts/validate.py | tee "$RUNNER_TEMP/validate.log"
+      - run: scripts/sync.sh --trust ${{ matrix.trust }}
+      - if: matrix.trust == 'low'
+        run: scripts/bump-pinned.sh
+      # The pipe deliberately masks validate's exit code (no pipefail): the PR must be opened even on
+      # a structural problem; the next step turns any ✗ line into a failed `validate-pr` status.
+      - name: Validate (injection hits surface in the PR body)
+        run: python3 scripts/validate.py --diff HEAD --warn-only | tee "$RUNNER_TEMP/validate.log"
       - name: Open or update PR
         run: |
           if [ -z "$(git status --porcelain)" ]; then
-            echo "No low-trust changes."
+            echo "No ${{ matrix.trust }}-trust changes."
             gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' | xargs -r gh pr close --delete-branch || true
             exit 0
           fi
-          shas=$(jq -r 'to_entries | map(select(.value.trust=="low") | "\(.key)@\(.value.sha[0:7])") | join(", ")' UPSTREAM.lock.json)
+          shas=$(jq -r 'to_entries | map(select(.value.trust=="${{ matrix.trust }}") | "\(.key)@\(.value.sha[0:7])") | join(", ")' UPSTREAM.lock.json)
           changed=$(git status --porcelain | wc -l)
+          hits=$(grep -E '^(‼|⚠|✗)' "$RUNNER_TEMP/validate.log" || echo 'validator: no hits in added lines')
+          # grep -c prints 0 but exits 1 on no match, which `bash -e` would treat as failure;
+          # only a real grep error (exit 2) aborts the step.
+          high=$(grep -c '\[high\]' "$RUNNER_TEMP/validate.log" || [ $? -eq 1 ])
           git checkout -B "$BRANCH"
           git add -A
-          git commit -m "chore: sync low-trust upstream skills ($shas)"
+          git commit -m "chore: sync ${{ matrix.trust }}-trust upstream skills ($shas)"
           git push --force -u origin "$BRANCH"
-          body=$(printf '## Low-trust upstream changes — review before merging\n\n%s files changed.\n\nSources: %s\n\nRead every changed `SKILL.md` for prompt-injection or unexpected instructions.\n\n```\n%s\n```\n' "$changed" "$shas" "$(grep -E '^(⚠|✗)' "$RUNNER_TEMP/validate.log" || echo 'validator: no warnings')")
+          title="chore: ${{ matrix.trust }}-trust upstream sync"
+          [ "$high" -eq 0 ] || title="$title ($high high-severity hit(s))"
+          body=$(printf '## %s-trust upstream changes — review before merging\n\n%s files changed. Sources: %s\n\nThe validator scanned only the lines this sync adds. `[high]` = instruction-shaped text, exfiltration channel, credential access, remote code execution or a new hook: read that line in context before merging. `[low]` = worth a glance.\n\n```\n%s\n```\n\nSee SECURITY.md for the review checklist.\n' "${{ matrix.trust }}" "$changed" "$shas" "$hits")
           if gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' | grep -q .; then
-            gh pr edit "$BRANCH" --body "$body"
+            gh pr edit "$BRANCH" --title "$title" --body "$body"
           else
-            gh pr create --base main --head "$BRANCH" --title "chore: low-trust upstream sync" --body "$body" --label upstream-sync || \
-            gh pr create --base main --head "$BRANCH" --title "chore: low-trust upstream sync" --body "$body"
+            gh pr create --base main --head "$BRANCH" --title "$title" --body "$body" --label upstream-sync || \
+            gh pr create --base main --head "$BRANCH" --title "$title" --body "$body"
           fi
+          # Satisfy the required `validate-pr` check: structural problems (✗) fail it, injection
+          # hits only annotate the PR body — merging with hits is the reviewer's call. Posted only
+          # after the PR exists so a failed create never leaves a green context on a PR-less branch.
+          state=success; grep -q '^✗' "$RUNNER_TEMP/validate.log" && state=failure
+          gh api -X POST "repos/${{ github.repository }}/statuses/$(git rev-parse HEAD)" \
+            -f state="$state" -f context=validate-pr -f description="validated by sync job ($high high-severity hit(s) in PR body)"
