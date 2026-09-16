@@ -35,7 +35,13 @@ jobs:
           fetch-depth: 0
       - run: python3 scripts/validate.py --diff "origin/${{ github.base_ref }}"
       - name: Claude Code manifest validation
+        # Gated inside the step rather than with a `paths:` trigger filter so the job still
+        # reports on every PR (it is a required check on main).
         run: |
+          if ! git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -qE '^(plugins/|\.claude-plugin/)'; then
+            echo "No changes under plugins/ or .claude-plugin/; skipping manifest validation."
+            exit 0
+          fi
           curl -fsSL https://claude.ai/install.sh | bash
           "$HOME/.local/bin/claude" plugin validate .
 
@@ -60,6 +66,8 @@ jobs:
       - run: scripts/sync.sh --trust ${{ matrix.trust }}
       - if: matrix.trust == 'low'
         run: scripts/bump-pinned.sh
+      # The pipe deliberately masks validate's exit code (no pipefail): the PR must be opened even on
+      # a structural problem; the next step turns any ✗ line into a failed `validate-pr` status.
       - name: Validate (injection hits surface in the PR body)
         run: python3 scripts/validate.py --diff HEAD --warn-only | tee "$RUNNER_TEMP/validate.log"
       - name: Open or update PR
@@ -72,16 +80,13 @@ jobs:
           shas=$(jq -r 'to_entries | map(select(.value.trust=="${{ matrix.trust }}") | "\(.key)@\(.value.sha[0:7])") | join(", ")' UPSTREAM.lock.json)
           changed=$(git status --porcelain | wc -l)
           hits=$(grep -E '^(‼|⚠|✗)' "$RUNNER_TEMP/validate.log" || echo 'validator: no hits in added lines')
-          high=$(grep -c '\[high\]' "$RUNNER_TEMP/validate.log" || true)
+          # grep -c prints 0 but exits 1 on no match, which `bash -e` would treat as failure;
+          # only a real grep error (exit 2) aborts the step.
+          high=$(grep -c '\[high\]' "$RUNNER_TEMP/validate.log" || [ $? -eq 1 ])
           git checkout -B "$BRANCH"
           git add -A
           git commit -m "chore: sync ${{ matrix.trust }}-trust upstream skills ($shas)"
           git push --force -u origin "$BRANCH"
-          # Satisfy the required `validate-pr` check: structural problems (✗) fail it, injection
-          # hits only annotate the PR body — merging with hits is the reviewer's call.
-          state=success; grep -q '^✗' "$RUNNER_TEMP/validate.log" && state=failure
-          gh api -X POST "repos/${{ github.repository }}/statuses/$(git rev-parse HEAD)" \
-            -f state="$state" -f context=validate-pr -f description="validated by sync job ($high high-severity hit(s) in PR body)"
           title="chore: ${{ matrix.trust }}-trust upstream sync"
           [ "$high" -eq 0 ] || title="$title ($high high-severity hit(s))"
           body=$(printf '## %s-trust upstream changes — review before merging\n\n%s files changed. Sources: %s\n\nThe validator scanned only the lines this sync adds. `[high]` = instruction-shaped text, exfiltration channel, credential access, remote code execution or a new hook: read that line in context before merging. `[low]` = worth a glance.\n\n```\n%s\n```\n\nSee SECURITY.md for the review checklist.\n' "${{ matrix.trust }}" "$changed" "$shas" "$hits")
@@ -91,3 +96,9 @@ jobs:
             gh pr create --base main --head "$BRANCH" --title "$title" --body "$body" --label upstream-sync || \
             gh pr create --base main --head "$BRANCH" --title "$title" --body "$body"
           fi
+          # Satisfy the required `validate-pr` check: structural problems (✗) fail it, injection
+          # hits only annotate the PR body — merging with hits is the reviewer's call. Posted only
+          # after the PR exists so a failed create never leaves a green context on a PR-less branch.
+          state=success; grep -q '^✗' "$RUNNER_TEMP/validate.log" && state=failure
+          gh api -X POST "repos/${{ github.repository }}/statuses/$(git rev-parse HEAD)" \
+            -f state="$state" -f context=validate-pr -f description="validated by sync job ($high high-severity hit(s) in PR body)"
