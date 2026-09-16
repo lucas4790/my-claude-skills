@@ -150,6 +150,10 @@ source of truth, which is worse than one.
 
 ## Repository-specific knowledge
 
-A per-repository component map (directories → family → namespace → existing doc) speeds this
-skill up considerably, but it belongs in that repository — a project-level skill or `CLAUDE.md`
-— not here. When one exists, read it first and verify it before relying on it.
+A per-repository component map (directory → family → namespace → existing doc) speeds this skill
+up considerably, but it belongs in that repository, not here. Look for it in this order, and verify
+whatever you find against the tree before relying on it:
+
+1. A project skill at `.claude/skills/<repo>-components/SKILL.md` holding that table.
+2. A "Components" section in the repository's `CLAUDE.md`.
+3. Neither: derive the map from the tree in Step 1, then offer to write it to the first location.
