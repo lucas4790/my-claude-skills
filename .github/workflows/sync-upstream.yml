@@ -11,9 +11,12 @@ permissions:
   pull-requests: write
   statuses: write
 
+# One group per PR branch, one for the scheduled sync: a shared group lets GitHub drop a queued
+# PR run when several PRs push at once (only one run may wait per group), which leaves the
+# required `validate-pr` check missing on that PR.
 concurrency:
-  group: sync-upstream
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || 'sync' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   GIT_AUTHOR_NAME: github-actions[bot]
