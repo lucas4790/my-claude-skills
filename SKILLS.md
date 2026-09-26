@@ -73,18 +73,19 @@ Deep vulnerability scanning of your own code at a chosen effort tier, with every
 
 | Name | What it does |
 |---|---|
-| [`claude-security`](plugins/claude-security/skills/claude-security/SKILL.md) | The Claude Security menu — pick a job: scan the codebase (the whole repository or a scoped part of it), scan changes (this branch's or a pull request's diff, or one commit), or suggest patches (findings turned into… |
+| [`claude-security`](plugins/claude-security/skills/claude-security/SKILL.md) | Claude Security: scan the codebase (the whole repository or a scoped part of it), scan changes (this branch's or a pull request's diff, or one commit), or suggest patches (findings turned into targeted patch files, each… |
 
 ### Agents
 
 | Name | What it does |
 |---|---|
-| [`claude-security`](plugins/claude-security/agents/claude-security.md) | The dedicated Claude Security orchestrator. Hand it an unattended job — "fully scan this repository and patch what you find; I understand it will use a lot of tokens" — and it runs the whole thing itself: capturing the… |
+| [`claude-security`](plugins/claude-security/agents/claude-security.md) | The Claude Security orchestrator, for use only as the main agent of a session (claude --agent claude-security:claude-security), where it runs a scan end to end and can turn its findings into targeted patch files, each… |
 | [`explore`](plugins/claude-security/agents/explore.md) | Read-only code explorer that the plugin's other agents dispatch to map a codebase — locate files, trace how a flow is wired, find every caller of a symbol, answer "where does X happen". |
 | [`patch-generator`](plugins/claude-security/agents/patch-generator.md) | Implements the fix for one finding inside a scratch workspace clone, staged for review and delivery as a patch file; dispatched by the fix job, not for direct invocation. |
 | [`patch-verifier`](plugins/claude-security/agents/patch-verifier.md) | The single verifier per fix round — reviews the workspace's staged diff against the finding, runs the tests, and states the three confidence claims a patch file must earn; dispatched by the fix job, not for direct… |
 | [`scan-inventory`](plugins/claude-security/agents/scan-inventory.md) | Restricted read-only repository cartographer dispatched by the Claude Security scan workflow to partition the tree into components and account for every top-level directory; not for direct invocation or vulnerability… |
-| [`scan-loader`](plugins/claude-security/agents/scan-loader.md) | Restricted read-only loader dispatched by the Claude Security scan workflow to return one candidates file from the run directory; not for direct invocation. |
+| [`scan-loader`](plugins/claude-security/agents/scan-loader.md) | Restricted read-only loader dispatched by the Claude Security scan workflow to return one JSON file from the run directory; not for direct invocation. |
+| [`scan-redactor`](plugins/claude-security/agents/scan-redactor.md) | Restricted agent dispatched by the Claude Security scan jobs to replace the credential values in a finished scan's report files with [REDACTED]; not for direct invocation. |
 | [`scan-researcher`](plugins/claude-security/agents/scan-researcher.md) | Restricted read-only vulnerability researcher dispatched by the Claude Security scan workflow; not for direct invocation or general exploration. |
 | [`scan-verifier`](plugins/claude-security/agents/scan-verifier.md) | Restricted read-only verifier dispatched by the Claude Security scan workflow to vote on one candidate finding; not for direct invocation. |
 
@@ -96,16 +97,19 @@ Modernize legacy codebases with a structured preflight / assess / map / extract-
 
 | Name | What it does |
 |---|---|
-| [`modernize-assess`](plugins/code-modernization/commands/modernize-assess.md) | Full discovery & portfolio analysis of a legacy system — inventory, complexity, debt, relative scale |
-| [`modernize-brief`](plugins/code-modernization/commands/modernize-brief.md) | Generate a phased Modernization Brief — the approved plan that transformation agents will execute against |
-| [`modernize-extract-rules`](plugins/code-modernization/commands/modernize-extract-rules.md) | Mine business logic from legacy code into testable, human-readable rule specifications |
-| [`modernize-harden`](plugins/code-modernization/commands/modernize-harden.md) | Security vulnerability scan with a reviewable remediation patch — OWASP, CWE, CVE, secrets, injection |
-| [`modernize-map`](plugins/code-modernization/commands/modernize-map.md) | Dependency & topology mapping — call graphs, data lineage, batch flows, rendered as navigable diagrams |
-| [`modernize-preflight`](plugins/code-modernization/commands/modernize-preflight.md) | Environment readiness check — analysis tools, build toolchain, source completeness, telemetry access |
-| [`modernize-reimagine`](plugins/code-modernization/commands/modernize-reimagine.md) | Multi-agent greenfield rebuild — extract specs from legacy, design AI-native, scaffold & validate with HITL |
-| [`modernize-status`](plugins/code-modernization/commands/modernize-status.md) | Where am I in the modernization workflow — artifact inventory, staleness, secrets hygiene, next step |
-| [`modernize-transform`](plugins/code-modernization/commands/modernize-transform.md) | Transform one legacy module to the target stack — idiomatic rewrite with behavior-equivalence tests |
-| [`modernize-uplift`](plugins/code-modernization/commands/modernize-uplift.md) | Same-stack version uplift (e.g. .NET Framework 4.8 → .NET 8) — preserve the code, fix the version deltas, prove equivalence by running one test suite on both runtimes |
+| [`modernize-assess`](plugins/code-modernization/commands/modernize-assess.md) | What am I dealing with? Inventory, complexity, debt, security and a recommended modernization pattern |
+| [`modernize-brief`](plugins/code-modernization/commands/modernize-brief.md) | Write the phased Modernization Brief — the plan a steering committee approves and the build commands execute against |
+| [`modernize-extract-rules`](plugins/code-modernization/commands/modernize-extract-rules.md) | Mine the business rules out of the code into testable Given/When/Then rule cards with file:line citations |
+| [`modernize-harden`](plugins/code-modernization/commands/modernize-harden.md) | Security scan of the legacy system with a reviewable remediation patch (OWASP, CWE, CVEs, secrets, injection) |
+| [`modernize-map`](plugins/code-modernization/commands/modernize-map.md) | Show me the structure — dependencies, data flow, entry points and business flows, as an interactive map |
+| [`modernize-preflight`](plugins/code-modernization/commands/modernize-preflight.md) | Run this first — checks the environment, records where the code lives, and says what to fix before anything else runs |
+| [`modernize-reimagine`](plugins/code-modernization/commands/modernize-reimagine.md) | Rebuild the system from its extracted intent on a new architecture, with two human checkpoints |
+| [`modernize-review`](plugins/code-modernization/commands/modernize-review.md) | Confirm or correct the business rules that need a person's judgement; the plan and the build read your answers |
+| [`modernize-status`](plugins/code-modernization/commands/modernize-status.md) | Where am I? Progress, what is stale, and the exact next command to run — start here when unsure |
+| [`modernize-transform`](plugins/code-modernization/commands/modernize-transform.md) | Rewrite one legacy module in the target stack, with tests that prove it behaves the same |
+| [`modernize-uplift`](plugins/code-modernization/commands/modernize-uplift.md) | Same-stack version uplift (e.g. .NET Framework 4.8 to .NET 8, Java 8 to 17) — keep the code, fix the version deltas, prove nothing changed |
+| [`modernize-verify`](plugins/code-modernization/commands/modernize-verify.md) | Prove the modernized code behaves like the legacy, with an independent re-check and one verdict per module |
+| [`modernize`](plugins/code-modernization/commands/modernize.md) | Start here — say what you want done with your code and get the plan and the first step |
 
 ### Agents
 
@@ -153,7 +157,7 @@ Skills and agents for running, generating, analyzing, and improving .NET tests: 
 | Name | What it does |
 |---|---|
 | [`assertion-quality`](plugins/dotnet-test/skills/assertion-quality/SKILL.md) | Analyze assertion quality, depth, variety, and false confidence in existing tests. ALWAYS USE when asked about weak, shallow, trivial, always-true, self-referential, assertion-free, presence/truthiness-only, or… |
-| [`code-testing-agent`](plugins/dotnet-test/skills/code-testing-agent/SKILL.md) | ALWAYS USE whenever asked to write, add, or generate unit tests for existing code, including one helper, function, class, or missing regression case as well as project-wide suites. Also use for "cover this untested… |
+| [`code-testing-agent`](plugins/dotnet-test/skills/code-testing-agent/SKILL.md) | ALWAYS USE whenever asked to write, add, or generate unit tests for existing code in xUnit, MSTest, NUnit, pytest, Vitest/Jest, Go, or another framework, including "tests only for" one helper, function, class, or… |
 | [`code-testing-extensions`](plugins/dotnet-test/skills/code-testing-extensions/SKILL.md) | Provides file paths to language-specific extension files for the code-testing pipeline. Call this skill to discover available extension guidance files (e.g., dotnet.md for .NET, cpp.md for C++). Do not use directly —… |
 | [`coverage-analysis`](plugins/dotnet-test/skills/coverage-analysis/SKILL.md) | Activation requires either supplied .NET coverage reports/percentages/line, branch, or condition metrics, or an explicit request to collect .NET coverage for analysis. USE FOR: interpreting that evidence, including… |
 | [`crap-score`](plugins/dotnet-test/skills/crap-score/SKILL.md) | Calculates CRAP (Change Risk Anti-Patterns) for a named .NET method, class, or file. USE FOR: explicit CRAP calculation or coverage-and-complexity risk within that named target, including which tests to prioritize. DO… |
@@ -181,14 +185,14 @@ Skills and agents for running, generating, analyzing, and improving .NET tests: 
 |---|---|
 | [`code-testing-builder`](plugins/dotnet-test/agents/code-testing-builder.agent.md) | Runs build/compile commands for any language and reports results. |
 | [`code-testing-fixer`](plugins/dotnet-test/agents/code-testing-fixer.agent.md) | Fixes compilation errors in source or test files. |
-| [`code-testing-generator`](plugins/dotnet-test/agents/code-testing-generator.agent.md) | Internal implementation agent for the code-testing-agent skill. Orchestrates the Research-Plan-Implement pipeline after that public entry-point skill delegates a test-generation request. Do not route user prompts here… |
+| [`code-testing-generator`](plugins/dotnet-test/agents/code-testing-generator.agent.md) | Required internal implementation agent for broad or comprehensive code-testing-agent requests spanning a project, package, or multiple modules. Orchestrates the Research-Plan-Implement pipeline after the public… |
 | [`code-testing-implementer`](plugins/dotnet-test/agents/code-testing-implementer.agent.md) | Implements a single phase from the test plan. Writes test files and verifies they compile and pass. |
 | [`code-testing-linter`](plugins/dotnet-test/agents/code-testing-linter.agent.md) | Runs code formatting and linting for any language. |
 | [`code-testing-planner`](plugins/dotnet-test/agents/code-testing-planner.agent.md) | Creates structured test implementation plans from research findings. |
 | [`code-testing-researcher`](plugins/dotnet-test/agents/code-testing-researcher.agent.md) | Analyzes codebases to understand structure, testing patterns, and testability. |
 | [`code-testing-tester`](plugins/dotnet-test/agents/code-testing-tester.agent.md) | Runs test commands for any language and reports pass/fail results. |
-| [`test-quality-auditor`](plugins/dotnet-test/agents/test-quality-auditor.agent.md) | Runs multi-skill audit pipelines for comprehensive test suite assessment across a workspace or project, combining assertion quality, test smell detection, mock usage analysis, test gap analysis, coverage risk, and test… |
-| [`testability-migration`](plugins/dotnet-test/agents/testability-migration.agent.md) | Orchestrates end-to-end testability migration for .NET codebases: detects untestable static dependencies, generates wrapper abstractions or guides built-in adoption, performs mechanical migration of call sites, and… |
+| [`test-quality-auditor`](plugins/dotnet-test/agents/test-quality-auditor.agent.md) | MUST USE for test-suite quality audits, from focused assertion, anti-pattern, smell, gap, coverage, mock, or tagging reviews through broad multi-dimensional health checks across a project/workspace. For a focused… |
+| [`testability-migration`](plugins/dotnet-test/agents/testability-migration.agent.md) | MUST USE for .NET testability migration requests, from static-dependency inventories and one named dependency migration through broad end-to-end work coordinating seam selection, call-site migration, production wiring,… |
 
 ## `dotnet-data`
 
@@ -248,12 +252,12 @@ Advanced .NET and C# skills: file-based C# scripts, P/Invoke, vectorization, NuG
 | [`azure-kubernetes-service`](plugins/azure-agent-skills/skills/azure-kubernetes-service/SKILL.md) | Expert knowledge for Azure Kubernetes Service (AKS) development including troubleshooting, best practices, decision making, architecture & design patterns, limits & quotas, security, configuration, integrations & coding… |
 | [`azure-load-balancer`](plugins/azure-agent-skills/skills/azure-load-balancer/SKILL.md) | Expert knowledge for Azure Load Balancer development including troubleshooting, best practices, decision making, architecture & design patterns, limits & quotas, security, configuration, integrations & coding patterns,… |
 | [`azure-logic-apps`](plugins/azure-agent-skills/skills/azure-logic-apps/SKILL.md) | Expert knowledge for Azure Logic Apps development including troubleshooting, best practices, decision making, architecture & design patterns, limits & quotas, security, configuration, integrations & coding patterns, and… |
-| [`azure-managed-grafana`](plugins/azure-agent-skills/skills/azure-managed-grafana/SKILL.md) | Expert knowledge for Azure Managed Grafana development including troubleshooting, decision making, limits & quotas, security, configuration, and integrations & coding patterns. Use when configuring private endpoints,… |
+| [`azure-managed-grafana`](plugins/azure-agent-skills/skills/azure-managed-grafana/SKILL.md) | Expert knowledge for Azure Managed Grafana development including troubleshooting, decision making, limits & quotas, security, configuration, and integrations & coding patterns. Use when configuring MCP/AI Foundry… |
 | [`azure-microsoft-opentelemetry`](plugins/azure-agent-skills/skills/azure-microsoft-opentelemetry/SKILL.md) | Expert knowledge for Azure Microsoft Opentelemetry development including configuration. Use when setting sampling, exporters, resource attributes, env vars, or tuning tracing/metrics behavior, and other Azure Microsoft… |
 | [`azure-monitor`](plugins/azure-agent-skills/skills/azure-monitor/SKILL.md) | Expert knowledge for Azure Monitor development including troubleshooting, best practices, decision making, architecture & design patterns, limits & quotas, security, configuration, integrations & coding patterns, and… |
 | [`azure-nat-gateway`](plugins/azure-agent-skills/skills/azure-nat-gateway/SKILL.md) | Expert knowledge for Azure NAT Gateway development including troubleshooting, best practices, decision making, architecture & design patterns, limits & quotas, security, configuration, and deployment. Use when planning… |
-| [`azure-network-watcher`](plugins/azure-agent-skills/skills/azure-network-watcher/SKILL.md) | Expert knowledge for Azure Network Watcher development including troubleshooting, decision making, limits & quotas, security, configuration, and integrations & coding patterns. Use when configuring flow logs, Traffic… |
-| [`azure-networking`](plugins/azure-agent-skills/skills/azure-networking/SKILL.md) | Expert knowledge for Azure Networking development including troubleshooting, best practices, decision making, architecture & design patterns, security, and configuration. Use when designing VNets/VWAN, hub-spoke, Azure… |
+| [`azure-network-watcher`](plugins/azure-agent-skills/skills/azure-network-watcher/SKILL.md) | Expert knowledge for Azure Network Watcher development including troubleshooting, decision making, limits & quotas, security, configuration, and integrations & coding patterns. Use when configuring VNet flow logs,… |
+| [`azure-networking`](plugins/azure-agent-skills/skills/azure-networking/SKILL.md) | Expert knowledge for Azure Networking development including troubleshooting, best practices, decision making, architecture & design patterns, security, and configuration. Use when designing VNets/VWAN, load balancers,… |
 | [`azure-pipelines`](plugins/azure-agent-skills/skills/azure-pipelines/SKILL.md) | Expert knowledge for Azure Pipelines development including troubleshooting, best practices, decision making, architecture & design patterns, limits & quotas, security, configuration, integrations & coding patterns, and… |
 | [`azure-policy`](plugins/azure-agent-skills/skills/azure-policy/SKILL.md) | Expert knowledge for Azure Policy development including troubleshooting, best practices, decision making, architecture & design patterns, security, configuration, integrations & coding patterns, and deployment. Use when… |
 | [`azure-private-link`](plugins/azure-agent-skills/skills/azure-private-link/SKILL.md) | Expert knowledge for Azure Private Link development including best practices, decision making, architecture & design patterns, limits & quotas, security, and configuration. Use when configuring Private Endpoints, NSP… |
