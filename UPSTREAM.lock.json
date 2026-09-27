@@ -32,7 +32,7 @@
   "mattpocock-skills": {
     "ref": "main",
     "repo": "https://github.com/mattpocock/skills.git",
-    "sha": "959a8e9f1edc3adbe2f7e3054bb6fbefa6696260",
+    "sha": "c55ee46073ed923f86ce59a5eb3b6d895095d1b7",
     "trust": "low"
   },
   "microsoft-agent-skills": {
@@ -44,7 +44,7 @@
   "misaka-agent-skills": {
     "ref": "main",
     "repo": "https://github.com/Misaka-Mikoto-Tech/agent-skills.git",
-    "sha": "bc411beeb9570781981fc6903804d9779511081b",
+    "sha": "711abaf61e1b8d770d355e05b75e9641afa7b25e",
     "trust": "low"
   },
   "powershell-agent-skills": {
@@ -55,7 +55,7 @@
   "stannard-dotnet-skills": {
     "ref": "master",
     "repo": "https://github.com/Aaronontheweb/dotnet-skills.git",
-    "sha": "f4d0d393b431ed0d7130d1b3711d5dfc6b1744cf",
+    "sha": "e426ed93a9f3215cd21b277fdfa6bfccd3457945",
     "trust": "low"
   }
 }
