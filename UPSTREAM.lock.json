@@ -11,6 +11,12 @@
     "sha": "8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4",
     "trust": "high"
   },
+  "awesome-copilot": {
+    "ref": "main",
+    "repo": "https://github.com/github/awesome-copilot.git",
+    "sha": "6c4d33b9cfca967a28bb2962ef4d55e4a384c88c",
+    "trust": "low"
+  },
   "claude-plugins-official": {
     "ref": "main",
     "repo": "https://github.com/anthropics/claude-plugins-official.git",
