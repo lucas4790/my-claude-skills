@@ -27,7 +27,9 @@ guarantees and where it stops.
    workflow runs whose commit message carries attribution), and delete the old revisions in each
    PR's edit history by hand.
 4. On every machine: run `install.sh` / `install.ps1` (Claude Code) and `install-copilot.*`
-   (Copilot CLI, VS Code). After that the session-start updater keeps the guard current.
+   (Copilot CLI, VS Code). After that the session-start updater keeps the guard current. On Windows the updater refreshes
+   the git guard but not the Claude Code hook registration: re-run `install.ps1` after an update that
+   changes the hook.
 5. Cloud environment (claude.ai, Environment settings, Environment variables): see
    [Cloud sessions](#cloud-sessions-claudeaicode-mobile-routines-known-limits).
 6. Work repositories on Azure DevOps: an administrator runs the setup in [Azure DevOps](#azure-devops).
@@ -53,9 +55,9 @@ guarantees and where it stops.
    - VS Code: `"git.addAICoAuthor": "off"` (see [`settings/vscode-settings.jsonc`](../settings/vscode-settings.jsonc)).
    - Each tool honours its own setting, but the model or agent still writes the text, so none of these is a guarantee on its own.
 2. **Agents are denied the usual publish and merge tools.**
-   - `.claude/settings.json` `permissions.deny` (Bash and PowerShell alike): every GitHub MCP tool that creates PR, issue or comment text, merges, or commits through the API; `gh pr create/new/edit/merge/comment/review/close/reopen/ready` and `gh issue create/new/edit/comment`; the usual spellings of hook bypasses (`--no-verify` anywhere in `git commit/merge/push`, `git commit -n`, `git config` on `core.hooksPath` or `hook.*`, `git config --global`, `git -c`).
+   - `.claude/settings.json` `permissions.deny` (Bash and PowerShell alike): every GitHub MCP tool that creates PR, issue or comment text, merges, or commits through the API; `gh pr create/new/edit/merge/comment/review/close/reopen/ready` and `gh issue create/new/edit/comment`; the usual spellings of hook bypasses (`--no-verify` anywhere in `git commit/merge/push`, `git commit -n`, `git config` on `core.hooksPath` or `hook.*`, `git config --global`, `git -c`; for PowerShell only `git -c core.hooksPath` and `git -c hook.*`, because PowerShell rules ignore case and `git -c *` would also deny `git -C <dir>`; the hook below covers the other keys).
    - A PreToolUse hook ([`claude-pretooluse.sh`](../tools/attribution-guard/claude-pretooluse.sh), matcher `Bash|PowerShell|Monitor|Write|Edit|MultiEdit|NotebookEdit|mcp__.*([Gg]it[Hh]ub|[Aa]do|[Aa]zure|[Dd]ev[Oo]ps).*`) sees the whole command text. It joins line continuations, ignores quotes, backslashes and backticks inside words, and finds git and gh by name even behind a path (`/usr/bin/git`, `git.exe`), so it also catches other spellings and flag orders:
-     - always: `--no-verify` in any position, `commit -n`/`-nm`/`-sn`, writing `core.hooksPath` / `hook.*` / `include.path` / `attributionguard.*` config (reads pass), `-c`/`--config-env` overrides of those, `--git-dir`/`--work-tree` on a git write, `GIT_CONFIG_*` / `GIT_DIR` / `HOME` assignments next to a git write, writes to `.git/config`, deleting or disabling hook files, and file-tool edits of `.git/config`, `.git/hooks`, `~/.gitconfig` or `~/.config/git`; and any git, gh or az command, GitHub or Azure DevOps REST call (curl, Invoke-RestMethod) or GitHub/Azure DevOps MCP write whose text carries attribution, also when `\n`, `` `n `` or quotes split it into arguments;
+     - always: `--no-verify` in any position, `commit -n`/`-nm`/`-sn`, writing `core.hooksPath` / `hook.*` / `include.path` / `attributionguard.*` config (reads pass), `-c`/`--config-env` overrides of those, `--git-dir`/`--work-tree` on a git write, `GIT_CONFIG_*` / `GIT_DIR` / `HOME` assignments next to a git write, writes to `.git/config`, deleting or disabling hook files, and file-tool edits of `.git/config`, `.git/hooks`, `~/.gitconfig` or `~/.config/git`; and any git write command (commit, merge, push, tag, notes, rebase, am, cherry-pick, revert, commit-tree, mktag, replace, update-ref), gh pr/issue/api/release command, az repos/boards/devops/pipelines command, GitHub or Azure DevOps REST call (curl, Invoke-RestMethod) or GitHub/Azure DevOps MCP write whose text carries attribution, also when `\n`, `` `n `` or quotes split it into arguments;
      - with `--strict` (this repository only): any `gh pr|issue create|new|edit|merge|comment|review|...` in any flag order, `gh api` writes (an explicit `--method GET` reads) and GraphQL mutations or queries read from a file, and REST writes to `api.github.com`.
      - Read-only MCP tools (`get_`, `list_`, `search_`, `_read`) are not checked. Internal errors fail open with a warning, so a broken install never blocks every tool call; the git hooks and CI stand behind it.
    - **Claude Code, every repository**: `install.sh` / `install.ps1` register the same hook (without `--strict`) in `~/.claude/settings.json`:
@@ -83,9 +85,9 @@ guarantees and where it stops.
      - strips attribution lines from the PR description;
      - then fails the `attribution-guard` check on any hit in the title, description or commit messages, and on a commit authored **or committed** by an `@anthropic.com` address. Repository variable `ATTRIBUTION_ALLOW_CLOUD_COMMITTER=true` turns the committer into a warning.
    - [`attribution-audit.yml`](../.github/workflows/attribution-audit.yml):
-     - fails loudly when attribution, or a vendor author or committer, lands on main, or a pushed tag carries it (red X and failure e-mail);
-     - strips attribution from new issue descriptions, comments and reviews (issue titles are only reported; commit comments start no workflow, so only cleanup covers them);
-     - has a manual **cleanup** run for existing PR and issue descriptions, all comments and workflow runs.
+     - fails loudly when attribution, or a vendor author or committer, lands on main, or a pushed tag carries it (message, tagger, nested tags, tagged commit; patterns from main) (red X and failure e-mail). A tag on a commit whose workflow file predates the tag trigger starts no run; the cleanup run lists such tags;
+     - strips attribution from new issue descriptions, comments and reviews (an issue title is reported and the run fails, so you get an e-mail; commit comments start no workflow, so only cleanup covers them);
+     - has a manual **cleanup** run for existing PR and issue descriptions, all comments, annotated tags (reported) and workflow runs; it fails when anything could not be cleaned.
    - `validate-pr` runs the PR's own code with a read-only token and no stored credentials, so it cannot edit the PR after the check passed.
    - A required check is matched by name: a PR that adds a workflow with a job named `attribution-guard` could report it as passed. Review every change under `.github/workflows/` before merging.
 5. **GitHub settings** ([`scripts/github-hardening.sh`](../scripts/github-hardening.sh), run once with an admin `gh` login, after step 1 above):
@@ -104,7 +106,7 @@ guarantees and where it stops.
 
 ## Cloud sessions (claude.ai/code, mobile, routines): known limits
 
-- **Committer.** Every commit a cloud session pushes has committer `Claude <noreply@anthropic.com>` (the environment requires it for signing) and shows "Claude committed" on GitHub. The branch is public as soon as it is pushed, and once a PR references a commit it stays reachable for good. Before opening a PR from cloud work, run on your own machine (with the global guard installed):
+- **Committer.** Every commit a cloud session pushes has committer `Claude <noreply@anthropic.com>` (the environment requires it for signing) and shows "Claude committed" on GitHub. The branch is public as soon as it is pushed, and once a PR references a commit it stays reachable for good. Before opening a PR from cloud work, run on your own machine, from a checkout of the cloud branch (the script brings its own copy of the guard):
   ```bash
   bash scripts/adopt-branch.sh claude/<branch> [new-branch] [base]
   ```
@@ -137,7 +139,7 @@ the Azure DevOps MCP server and dev.azure.com REST calls.
   - squash-only merges (*Limit merge types*);
   - required build validation [`pipelines/attribution-guard.yml`](../tools/attribution-guard/azure-devops/pipelines/attribution-guard.yml) (copy to the work repository as `.azure-pipelines/attribution-guard.yml`). It checks the PR title, description (after stripping attribution lines), the auto-complete merge message, every commit message, author and committer, and every comment. Patterns come from the target branch, never from the PR;
   - a required reviewer for changes to the guard files;
-  - [`pipelines/attribution-audit.yml`](../tools/attribution-guard/azure-devops/pipelines/attribution-audit.yml) on every push to main: checks every commit since the one its previous run checked, so it catches a merge message edited in the completion dialog and pushes by people with bypass rights (detection only).
+  - [`pipelines/attribution-audit.yml`](../tools/attribution-guard/azure-devops/pipelines/attribution-audit.yml) on every push to main (batched, one run at a time): checks every commit since the one the last run that finished the check covered (runs are tagged `attribution-audited`), with the patterns of that commit, so it catches a merge message edited in the completion dialog and pushes by people with bypass rights (detection only). It fails closed when that commit is gone (force-push) or beyond the fetched history. Its trigger names `main`; change it for another protected branch. Limit: Azure runs CI with the YAML of the pushed commit, so a push by someone with bypass rights can change the audit itself; review changes to `.azure-pipelines/`.
 - **Layer 2, text edits and comments** (build validation only re-runs on pushes): the status and
   sweep pipelines run from a protected guard project that imports this repository. Service hooks
   on *PR created/updated/commented* trigger a check that posts the required status

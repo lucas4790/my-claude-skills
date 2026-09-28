@@ -93,7 +93,12 @@ stop clean
 ( mk "$work/g3" && mkdir -p tools/attribution-guard && echo forbidden-marker >tools/attribution-guard/patterns.ere \
   && git add . && git commit -qm init && echo a >a && git add a && git commit -qm "Merged PR 8: clean" ) >/dev/null 2>&1
 audit() { # $1 = previous checked commit ("" = first run); runs the audit step against the mock
-  export MOCK_PREV_SHA=$1; start clean 18097; agent_env 18097
+  # patterns come from the previous commit (the neutral marker) or, on a first run, the real default
+  export MOCK_PREV_SHA=$1
+  if [ -n "${CANARY:-}" ]; then export ATTRIB_CANARY=$CANARY
+  elif [ -n "$1" ]; then export ATTRIB_CANARY=FORBIDDEN-MARKER
+  else unset ATTRIB_CANARY; fi
+  start clean 18097; agent_env 18097
   out=$(cd "$work/g3" && SYSTEM_TEAMPROJECTID=$P SYSTEM_DEFINITIONID=5 BUILD_SOURCEBRANCH=refs/heads/main \
     BUILD_SOURCEBRANCHNAME=main bash "$ex/attribution-audit.yml.step1.sh" 2>&1); rc=$?
   stop clean
@@ -116,5 +121,22 @@ audit "$c3"
   && ok "audit: vendor committer flagged, only new commits checked" || { ko "audit committer rc=$rc"; echo "$out"; }
 audit 0123456789abcdef0123456789abcdef01234567
 [ $rc -eq 2 ] && echo "$out" | grep -q 'not in the fetched history' && ok "audit: unknown previous commit fails closed" || { ko "audit unknown prev rc=$rc"; echo "$out"; }
+grep -q 'tagFilters=attribution-audited' "$work/req-clean.log" && ok "audit: baseline is the last run that finished the check (tag)" || ko "audit tagFilters"
+c4=$(git -C "$work/g3" rev-parse HEAD)
+audit "$c4"
+[ $rc -eq 0 ] && echo "$out" | grep -q '##vso\[build.addbuildtag\]attribution-audited' && ok "audit: a finished check tags its run" || { ko "audit tag rc=$rc"; echo "$out"; }
+# a push that weakens the patterns is still judged by the patterns of the last checked commit
+( cd "$work/g3" && echo zzz >tools/attribution-guard/patterns.ere && git commit -qam "Tune patterns" \
+  && echo e >e && git add e && git commit -qm "Merged PR 11: x" -m "Forbidden-Marker again" ) >/dev/null 2>&1
+audit "$c4"
+[ $rc -eq 1 ] && echo "$out" | grep -q 'Checked 2 commit(s)' && ok "audit: patterns come from the last checked commit, not the push" || { ko "audit patterns source rc=$rc"; echo "$out"; }
+# a slower run for an older push finds that a later run already covered it
+audit "$(git -C "$work/g3" rev-parse HEAD)"
+old=$(cd "$work/g3" && git rev-parse HEAD~1); ( cd "$work/g3" && git checkout -q "$old" ) >/dev/null 2>&1
+audit "$(git -C "$work/g3" rev-parse main)"
+[ $rc -eq 0 ] && echo "$out" | grep -q 'already checked' && ok "audit: out-of-order run exits clean" || { ko "audit out-of-order rc=$rc"; echo "$out"; }
+( cd "$work/g3" && git checkout -q main ) >/dev/null 2>&1
+CANARY='this never matches' audit ''
+[ $rc -eq 2 ] && echo "$out" | grep -q 'self-test' && ok "audit: a pattern that fails its self-test fails closed" || { ko "audit canary rc=$rc"; echo "$out"; }
 echo "passed=$pass failed=$failn"
 [ $failn -eq 0 ]

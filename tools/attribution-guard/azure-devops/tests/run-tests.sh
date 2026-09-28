@@ -109,14 +109,14 @@ g="$work/git"; mkdir -p "$g"
   git merge -q --no-ff feature -m "Merge pull request 7"
 ) >/dev/null 2>&1
 start clean 18088; common 18088
-out=$(cd "$g" && ATTRIB_RE='forbidden-marker' IDENT_RE='bot@example\.invalid' GUARD_GIT_RANGE='HEAD^1..HEAD^2' bash "$guard" 2>&1); rc=$?
+out=$(cd "$g" && ATTRIB_RE='forbidden-marker' ATTRIB_CANARY=FORBIDDEN-MARKER IDENT_RE='bot@example\.invalid' GUARD_GIT_RANGE='HEAD^1..HEAD^2' bash "$guard" 2>&1); rc=$?
 [ $rc -eq 1 ] && ok "git mode exits 1" || { ko "git mode rc=$rc"; echo "$out"; }
 echo "$out" | grep -q '2 commit(s)' && ok "git mode checks exactly the 2 PR commits" || { ko "git count"; echo "$out"; }
 echo "$out" | grep -qE 'AI attribution in commit [0-9a-f]{8}: authored by the vendor identity' && ok "git mode flags vendor author" || ko "git author"
 echo "$out" | grep -qE 'AI attribution in commit [0-9a-f]{8}, line 3' && ok "git mode flags the message line" || ko "git message"
 [ "$(echo "$out" | grep -c 'AI attribution in commit')" = 2 ] && ok "target-branch commits excluded" || { ko "target-branch commit checked"; echo "$out"; }
 grep -q '/commits?' "$work/req-clean.log" && ko "git mode must not call commits API" || ok "git mode skips commits API"
-out2=$(cd "$g" && git checkout -q HEAD^2 && ATTRIB_RE='forbidden-marker' GUARD_GIT_RANGE='HEAD^1..HEAD^2' bash "$guard" 2>&1); rc=$?
+out2=$(cd "$g" && git checkout -q HEAD^2 && ATTRIB_RE='forbidden-marker' ATTRIB_CANARY=FORBIDDEN-MARKER GUARD_GIT_RANGE='HEAD^1..HEAD^2' bash "$guard" 2>&1); rc=$?
 [ $rc -eq 2 ] && echo "$out2" | grep -q 'not the PR merge commit' && ok "non-merge HEAD fails closed" || { ko "non-merge rc=$rc"; echo "$out2"; }
 stop clean
 

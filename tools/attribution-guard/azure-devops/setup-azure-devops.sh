@@ -76,6 +76,10 @@ else
 fi
 
 section "pipelines attribution-guard (build validation) and attribution-audit (push audit)"
+if [ "$BRANCH" != main ]; then
+  echo "    NOTE: .azure-pipelines/attribution-audit.yml triggers on main; change its 'include: [main]' to [$BRANCH]" >&2
+  echo "    before committing it, or the push audit never runs on $BRANCH." >&2
+fi
 BV_ID=$(pipeline_id "$WORK_PROJECT" attribution-guard)
 [ -n "$BV_ID" ] || BV_ID=$(mut az pipelines create --project "$WORK_PROJECT" --name attribution-guard \
   --repository "$WORK_REPO" --repository-type tfsgit --branch "$BRANCH" \

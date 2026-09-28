@@ -68,8 +68,12 @@ jobs:
         run: |
           set -euo pipefail
           ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
-          # A pattern that does not compile would pass everything: fail the job instead.
+          # Self-test: a pattern that does not compile, is empty or matches everything must fail the
+          # job, never pass (or strip) everything.
           printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" >/dev/null
+          [ -n "$(printf 'Co-Authored-By: Claude <noreply@anthropic.com>\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
+            && [ -z "$(printf 'x\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
+            || { echo "::error::the attribution pattern fails its self-test"; exit 1; }
           gh api "repos/$REPO/pulls/$PR" --jq '.body // ""' > "$RUNNER_TEMP/body.md"
           hits=$(awk -v mode=report "$ATTRIB_AWK" "$RUNNER_TEMP/body.md")
           if [ -z "$hits" ]; then echo "Description is clean."; exit 0; fi
@@ -102,8 +106,12 @@ jobs:
         run: |
           set -euo pipefail
           ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
-          # A pattern that does not compile would pass everything: fail the job instead.
+          # Self-test: a pattern that does not compile, is empty or matches everything must fail the
+          # job, never pass (or strip) everything.
           printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" >/dev/null
+          [ -n "$(printf 'Co-Authored-By: Claude <noreply@anthropic.com>\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
+            && [ -z "$(printf 'x\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
+            || { echo "::error::the attribution pattern fails its self-test"; exit 1; }
           t=$RUNNER_TEMP
           fail=0
           flag() { # $1 = where; stdin = line numbers with a hit
@@ -155,7 +163,7 @@ jobs:
           if [ "$fail" -ne 0 ]; then
             cat <<'EOF'
           Fix: edit the PR title/description, and rewrite the listed commits as yourself:
-            sh scripts/adopt-branch.sh <branch>        (new branch name, clean messages, you as author and committer)
+            bash scripts/adopt-branch.sh <cloud-branch> [new-branch]   (clean messages, you as author and committer)
           or, on the same branch:
             git rebase -r --exec 'git commit --amend --no-edit --reset-author' origin/main
           with the attribution-guard commit-msg hook installed (strip mode), then force-push the branch.

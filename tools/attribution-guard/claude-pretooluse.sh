@@ -104,7 +104,7 @@ GIT="${B}git(\\.exe)?[[:space:]]+([^[:space:]]+[[:space:]]+)*"
 GH="${B}gh(\\.exe)?[[:space:]]+([^[:space:]]+[[:space:]]+)*"
 AZ="${B}az(\\.cmd|\\.exe)?[[:space:]]+([^[:space:]]+[[:space:]]+)*"
 GIT_WORD="${B}git(\\.exe)?([^[:alnum:]_.-]|\$)"
-GIT_WRITE="${GIT}(commit|merge|push|am|rebase|cherry-pick|revert|pull|tag|notes)([[:space:]]|\$)"
+GIT_WRITE="${GIT}(commit|commit-tree|mktag|merge|push|am|rebase|cherry-pick|revert|pull|tag|notes|replace|update-ref)([[:space:]]|\$)"
 HOOK_KEYS='hookspath|(^|[^[:alnum:]_])hook\.[^[:space:]=]+\.(command|enabled|event)|\[hook[[:space:]]|(^|[^[:alnum:]_])include\.path|includeif\.|attributionguard\.|(^|[^[:alnum:]_])url\.[^[:space:]]*\.(push)?insteadof|extensions\.worktreeconfig|(remove|rename)-section[[:space:]]+(hook|core|include|attributionguard|url)'
 ENV_VARS='home|xdg_config_home|userprofile|git_config[a-z0-9_]*|git_dir|git_work_tree|git_common_dir|git_exec_path|git_template_dir'
 ENV_SET="^[[:space:]]*((export|env|set)[[:space:]]+(-[^[:space:]]+[[:space:]]+)*|\\\$env:)?([a-z_][a-z0-9_]*=[^[:space:]]*[[:space:]]+)*($ENV_VARS)[[:space:]]*=|^[[:space:]]*(unset[[:space:]]+([a-z_0-9]+[[:space:]]+)*|remove-item[[:space:]]+env:|env[[:space:]]+(-[^[:space:]]+[[:space:]]+)*-u[[:space:]]*)($ENV_VARS)([[:space:]]|\$)"
