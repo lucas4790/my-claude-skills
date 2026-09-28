@@ -1,9 +1,9 @@
 ---
 name: azure-cost-management
-description: Expert knowledge for Cost Management development including troubleshooting, best practices, decision making, limits & quotas, security, configuration, integrations & coding patterns, and deployment. Use when managing Azure cost exports, budgets/alerts, tags, reservations/savings plans, or billing APIs, and other Cost Management related development tasks. Not for Azure Advisor (use azure-advisor), Azure Monitor (use azure-monitor), Azure Quotas (use azure-quotas), Azure Policy (use azure-policy).
+description: Expert knowledge for Cost Management development including troubleshooting, best practices, decision making, limits & quotas, security, configuration, integrations & coding patterns, and deployment. Use when configuring cost exports, budgets/alerts, tags/views, billing APIs, or reservations/savings plans, and other Cost Management related development tasks. Not for Azure Advisor (use azure-advisor), Azure Monitor (use azure-monitor), Azure Impact Reporting (use azure-impact-reporting), Azure Carbon Optimization (use azure-carbon-optimization).
 compatibility: Requires network access. Uses mcp_microsoftdocs:microsoft_docs_fetch or fetch_webpage to retrieve documentation.
 metadata:
-  generated_at: "2026-09-13"
+  generated_at: "2026-09-27"
   generator: "docs2skills/1.0.0"
 ---
 # Cost Management Skill
@@ -26,10 +26,10 @@ This skill requires **network access** to fetch documentation content:
 |----------|-------|-------------|
 | Troubleshooting | L36-L65 | Diagnosing and fixing Azure billing, subscription, and reservation issues (sign-up, access, payments, invoices, utilization, and error codes) including EA, MCA, CSP, and student accounts. |
 | Best Practices | L66-L78 | Best practices for analyzing and optimizing Azure costs, using Advisor, managing subscriptions and agreements, leveraging savings plans and SQL licensing, and setting up cost governance processes. |
-| Decision Making | L79-L115 | Guidance for choosing and configuring Azure billing, cost allocation, reservations, savings plans, EA→MCA migrations, account/offer changes, and partner/CSP billing to optimize costs. |
-| Limits & Quotas | L116-L128 | Limits, quotas, and timing for Cost Management data; free account credits and spending limits; subscription creation and dormancy limits; and savings plan exclusions/utilization. |
-| Security | L129-L150 | Roles, permissions, and security for accessing Azure cost, billing, EA, MCA, CSP, reservations, savings plans, credit balance, and tax documents across tenants and subscriptions. |
-| Configuration | L151-L173 | Configuring Cost Management: tags, budgets, alerts, exports, views, filters, reservations/savings plans, SQL licensing, purchase policies, subscription moves, and partner/admin links. |
+| Decision Making | L79-L114 | Guidance for choosing and configuring Azure billing, cost allocation, reservations, savings plans, EA→MCA migrations, account/offer changes, and partner/CSP billing to optimize costs. |
+| Limits & Quotas | L115-L127 | Limits, quotas, and timing for Cost Management data; free account and credit limits; subscription spending limits; savings plan exclusions/utilization; multi-sub limits; dormant billing accounts. |
+| Security | L128-L150 | Managing secure access to cost, billing, subscriptions, reservations, and savings plans using RBAC and billing roles, including admin elevation, directory transfers, and compliance (e.g., PSD2, tax docs). |
+| Configuration | L151-L173 | Configuring Cost Management: tags, views, filters, exports, budgets, alerts, reservations/savings plans, SQL licensing, and subscription/billing ownership and policies. |
 | Integrations & Coding Patterns | L174-L191 | APIs, scripts, and PowerShell patterns to automate cost analysis, billing data retrieval, and programmatic creation/migration of Azure subscriptions and reservations. |
 | Deployment | L192-L195 | Configuring automated, large-scale exports of Azure cost and usage data to storage (like Azure Storage), including setup, scheduling, and management for ongoing cost analysis. |
 
@@ -104,7 +104,6 @@ This skill requires **network access** to fetch documentation content:
 | Decide between Azure savings plans and reservations | https://learn.microsoft.com/en-us/azure/cost-management-billing/savings-plan/decide-between-savings-plan-reservation |
 | Understand how Azure savings plan discounts are applied | https://learn.microsoft.com/en-us/azure/cost-management-billing/savings-plan/discount-application |
 | Interpret and use Azure savings plan recommendations | https://learn.microsoft.com/en-us/azure/cost-management-billing/savings-plan/purchase-recommendations |
-| Decide when and how to trade reservations for savings plans | https://learn.microsoft.com/en-us/azure/cost-management-billing/savings-plan/reservation-trade-in |
 | Choose and understand Azure savings plan scopes | https://learn.microsoft.com/en-us/azure/cost-management-billing/savings-plan/scope-savings-plan |
 | Decide and manage scope for Azure Hybrid Benefit | https://learn.microsoft.com/en-us/azure/cost-management-billing/scope-level/faq-azure-hybrid-benefit-scope |
 | Plan transition to centrally managed Azure Hybrid Benefit | https://learn.microsoft.com/en-us/azure/cost-management-billing/scope-level/transition-existing |
@@ -124,15 +123,16 @@ This skill requires **network access** to fetch documentation content:
 | Identify Azure savings plan software cost exclusions | https://learn.microsoft.com/en-us/azure/cost-management-billing/savings-plan/software-costs-not-included |
 | Check Azure savings plan utilization and data latency | https://learn.microsoft.com/en-us/azure/cost-management-billing/savings-plan/view-utilization |
 | Understand limits when creating multiple Azure subscriptions | https://learn.microsoft.com/en-us/azure/cost-management-billing/troubleshoot-subscription/create-subscriptions-deploy-resources |
-| Understand and manage Azure billing account dormancy limits | https://learn.microsoft.com/en-us/azure/cost-management-billing/understand/keep-billing-accounts-active |
+| Understand and avoid dormant Azure billing accounts | https://learn.microsoft.com/en-us/azure/cost-management-billing/understand/keep-billing-accounts-active |
 
 ### Security
 | Topic | URL |
 |-------|-----|
-| Check Azure credit balance and required roles | https://learn.microsoft.com/en-us/azure/cost-management-billing/benefits/credits/mca-check-azure-credits-balance |
+| Check Azure credit balance using portal and APIs | https://learn.microsoft.com/en-us/azure/cost-management-billing/benefits/credits/mca-check-azure-credits-balance |
 | Assign RBAC access to Azure Cost Management data | https://learn.microsoft.com/en-us/azure/cost-management-billing/costs/assign-access-acm-data |
 | Assign and change Azure subscription admin roles with RBAC | https://learn.microsoft.com/en-us/azure/cost-management-billing/manage/add-change-subscription-administrator |
 | Migrate from Azure classic admins to RBAC roles | https://learn.microsoft.com/en-us/azure/cost-management-billing/manage/classic-administrator-retire |
+| Administer EA billing roles and access in Azure portal | https://learn.microsoft.com/en-us/azure/cost-management-billing/manage/direct-ea-administration |
 | Elevate Global Administrator access to billing accounts | https://learn.microsoft.com/en-us/azure/cost-management-billing/manage/elevate-access-global-admin |
 | Grant RBAC permissions to create Azure EA subscriptions | https://learn.microsoft.com/en-us/azure/cost-management-billing/manage/grant-access-to-create-subscription |
 | Configure Azure subscription transfer policies between directories | https://learn.microsoft.com/en-us/azure/cost-management-billing/manage/manage-azure-subscription-policy |
