@@ -1,9 +1,9 @@
 ---
 name: azure-network-watcher
-description: Expert knowledge for Azure Network Watcher development including troubleshooting, decision making, limits & quotas, security, configuration, and integrations & coding patterns. Use when configuring flow logs, Traffic Analytics, packet capture, VPN monitoring, or KQL/Terraform integrations, and other Azure Network Watcher related development tasks. Not for Azure Monitor (use azure-monitor), Azure Networking (use azure-networking), Azure Virtual Network (use azure-virtual-network), Azure Firewall (use azure-firewall).
+description: Expert knowledge for Azure Network Watcher development including troubleshooting, decision making, limits & quotas, security, configuration, and integrations & coding patterns. Use when configuring flow logs, Traffic Analytics, Connection Monitor migrations, packet captures, or KQL-based investigations, and other Azure Network Watcher related development tasks. Not for Azure Monitor (use azure-monitor), Azure Networking (use azure-networking), Azure Virtual Network (use azure-virtual-network), Azure Virtual Network Manager (use azure-virtual-network-manager).
 compatibility: Requires network access. Uses mcp_microsoftdocs:microsoft_docs_fetch or fetch_webpage to retrieve documentation.
 metadata:
-  generated_at: "2026-08-31"
+  generated_at: "2026-09-27"
   generator: "docs2skills/1.0.0"
 ---
 # Azure Network Watcher Skill
@@ -24,11 +24,11 @@ This skill requires **network access** to fetch documentation content:
 
 | Category | Lines | Description |
 |----------|-------|-------------|
-| Troubleshooting | L34-L44 | Diagnosing and fixing outbound connectivity, NSG/admin rule issues, and VPN gateway/on-prem VPN connection problems, plus automating VPN monitoring with Azure Network Watcher. |
+| Troubleshooting | L34-L44 | Diagnosing and fixing outbound connectivity, NSG/admin rule issues, and VPN gateway/on-prem VPN problems, plus automating VPN monitoring with Azure Network Watcher. |
 | Decision Making | L45-L51 | Guidance for migrating network monitoring: moving from classic Connection Monitor and Network Performance Monitor tests, and switching NSG flow logs to VNet flow logs. |
 | Limits & Quotas | L52-L56 | How to configure and run Network Watcher packet capture, storage and filtering options, and the key limits/quotas (size, duration, concurrency) that apply to captures |
-| Security | L57-L64 | Securing Network Watcher: RBAC setup, hardening deployments and data access, Zero Trust segmentation with Traffic Analytics, and protecting VNet flow logs using managed identities. |
-| Configuration | L65-L80 | Configuring and managing Network Watcher agents, NSG/VNet flow logs, schemas, filters, Traffic Analytics, and deployment/governance via Bicep, ARM templates, and Azure Policy |
+| Security | L57-L65 | Securing Network Watcher: RBAC and least-privilege setup, Zero Trust segmentation with Traffic Analytics, investigating security issues, and protecting VNet flow logs with managed identities. |
+| Configuration | L66-L80 | Configuring and deploying Network Watcher/virtual network flow logs, agents, filters, schemas, and Azure Policy/Bicep/ARM templates for monitoring and Traffic Analytics. |
 | Integrations & Coding Patterns | L81-L86 | Using Network Watcher programmatically: triggering packet captures from Functions alerts, querying Traffic Analytics with KQL, and provisioning VNet flow logs via Terraform. |
 
 ### Troubleshooting
@@ -59,6 +59,7 @@ This skill requires **network access** to fetch documentation content:
 |-------|-----|
 | Configure RBAC permissions for Azure Network Watcher | https://learn.microsoft.com/en-us/azure/network-watcher/rbac-permissions |
 | Secure Azure Network Watcher deployment and data access | https://learn.microsoft.com/en-us/azure/network-watcher/secure-network-watcher |
+| Investigate network security issues with Traffic Analytics prompts | https://learn.microsoft.com/en-us/azure/network-watcher/traffic-analytics-insights |
 | Apply Zero Trust segmentation using Traffic Analytics | https://learn.microsoft.com/en-us/azure/network-watcher/traffic-analytics-zero-trust |
 | Secure VNet flow logs with managed identities | https://learn.microsoft.com/en-us/azure/network-watcher/vnet-flow-logs-managed-identity |
 
@@ -67,8 +68,7 @@ This skill requires **network access** to fetch documentation content:
 |-------|-----|
 | Install and manage Azure Monitor Agent on Arc servers | https://learn.microsoft.com/en-us/azure/network-watcher/connection-monitor-install-azure-monitor-agent |
 | Understand Connection Monitor Log Analytics data schemas | https://learn.microsoft.com/en-us/azure/network-watcher/connection-monitor-schema |
-| Install and manage Azure Network Watcher VM extension | https://learn.microsoft.com/en-us/azure/network-watcher/network-watcher-agent-manage |
-| Update Azure Network Watcher Agent VM extension | https://learn.microsoft.com/en-us/azure/network-watcher/network-watcher-agent-update |
+| Configure and manage Network Watcher Agent VM extension | https://learn.microsoft.com/en-us/azure/network-watcher/network-watcher-agent-manage |
 | Configure and manage Azure NSG flow logs | https://learn.microsoft.com/en-us/azure/network-watcher/nsg-flow-logs-manage |
 | Govern Traffic Analytics with Azure Policy | https://learn.microsoft.com/en-us/azure/network-watcher/traffic-analytics-policy-portal |
 | Understand Traffic Analytics schema and aggregation | https://learn.microsoft.com/en-us/azure/network-watcher/traffic-analytics-schema |
