@@ -194,7 +194,7 @@ See [SKILLS.md](SKILLS.md) for the full catalog of every skill, command and agen
 
 - `sources.json` lists each upstream repo, the ref to track, a `trust` tier, and which paths to copy where.
 - `scripts/sync.sh` sparse-clones each source, copies the paths in (deleting anything upstream removed), applies the source's patches (below), records the synced commit in `UPSTREAM.lock.json`, then regenerates `SKILLS.md`. A source that fails (a patch that no longer applies, a path upstream removed) is put back to the last commit and keeps its old lock entry; the other sources still sync and the script exits 1. Flags: `--trust high|low`, `--only NAME`, `--locked` (rebuild from lockfile SHAs; patches apply there too).
-- `scripts/validate.py` checks manifests, skill frontmatter, file sizes, sha pins and catalog freshness, and scans every text file under `plugins/` for prompt-injection, exfiltration, credential-access and remote-execution patterns (`--diff REF` limits the scan to lines added since `REF`; see [SECURITY.md](SECURITY.md)).
+- `scripts/validate.py` checks manifests, skill frontmatter, file sizes, sha pins and catalog freshness, and scans every text file under `plugins/` for prompt-injection, exfiltration, credential-access and remote-execution patterns (`--diff REF` limits the scan to lines added since `REF`; see [SECURITY.md](SECURITY.md)); it also warns about skill descriptions that route badly (under 80 or over 1024 characters, no "Use when ..." phrase, or two skills sharing most of their distinctive words without naming each other; with `--diff` only for the SKILL.md files that changed), see [Skill trigger evals](#skill-trigger-evals).
 - `.github/workflows/sync-upstream.yml` runs daily at 06:00 UTC (and on dispatch) and opens one PR per tier (`sync/high-trust`, `sync/low-trust`, the latter also carrying pinned-sha bumps) with the validator's hits for the added lines in the body; automation never pushes to `main`. Before that it runs the repo tests (`scripts/run-tests.sh`, see [Tests](#tests)) and `scripts/test-skill-examples.sh` (the code blocks of the skills in `tests/skill-examples.json`, see [Skill example tests](#skill-example-tests)) on the synced tree, as a throwaway user without the workflow token, since that tree is unreviewed upstream code; a failure goes on top of the PR (see below). Pull requests touching plugins run the validator plus `claude plugin validate`, and a high-severity hit in the added lines fails the check; every pull request also runs the repo tests and the skill examples.
 
 See [SECURITY.md](SECURITY.md) for the trust model. Run locally with `scripts/sync.sh` (needs `git`, `rsync`, `jq`, `python3`).
@@ -306,6 +306,24 @@ exit 2; `SKILL_EXAMPLES_ALLOW_MISSING_TOOLS=1` makes it a warning for local runs
 (CI) makes any missing tool exit 2, report mode included. `TEST_SKILL_EXAMPLES_KEEP=1` keeps the generated files.
 The Pester runner and runnable python blocks execute the examples: only run this on SKILL.md files you trust (the sync
 job runs it as a throwaway user on a copy of the tree).
+
+### Skill trigger evals
+
+`tests/evals/triggers.yaml` holds ~50 prompts from daily cloud work (kubectl/helm, Azure DevOps, AKS, Key Vault, networking, Terraform, PowerShell/Pester, .NET tests; a few in Dutch). Each names the skills that must load (`expect`; `a|b` = either one), may load (`accept`) and must not load (`forbid`, the look-alikes); `expect: []` is a negative control. `scripts/eval-triggers.py` runs every prompt through `claude -p` with this repo's plugins (`--plugin-dir`), reads which skills the model loaded (its `Skill` tool calls in the stream-json output) and prints a pass/fail table, per-skill precision/recall and a summary.
+
+```bash
+python3 scripts/eval-triggers.py --dry-run                # validate triggers.yaml, print the commands; no model calls
+python3 scripts/eval-triggers.py                          # every case (needs `claude` logged in or ANTHROPIC_API_KEY, and PyYAML)
+python3 scripts/eval-triggers.py --filter pester --runs 3 # a subset, 3 runs per case (loaded = in at least half)
+python3 scripts/eval-triggers.py --profile cloud          # only the plugins of one profile
+python3 scripts/eval-triggers.py --listing-budget 0.03 --json out.json --markdown summary.md
+```
+
+The model can only load skills: every other tool is removed (`--tools Skill`), no MCP server starts, hooks, skill shell injection and Claude Code's bundled skills are off, and each run gets its own session, an empty working directory, `--max-turns 4` and `--max-budget-usd 0.5`; a run stops as soon as the model starts answering. Without credentials the script prints `SKIPPED` and exits 0; it exits 1 when a case fails (`--no-fail` reports only) and 2 on a bad `triggers.yaml`. A full run costs roughly $3 with Sonnet (the skill listing is ~12k input tokens per prompt; an Azure skill adds 15-40k when it loads).
+
+`.github/workflows/skill-evals.yml` runs it every Monday and on demand (inputs: model, filter, runs, listing budget, strict) with the `ANTHROPIC_API_KEY` secret, skips with a notice when the secret is not set, and writes the table to the run summary. It never runs on pull requests; those only run the offline checks: `tests/evals/` and the description warnings of `scripts/validate.py`.
+
+**Skill listing budget.** Claude Code fits every skill description into about 1% of the context window. With every plugin of this repo installed the listing is ~58k characters against a 30k budget, so descriptions are cut and some skills stop loading (in the evals azure-boards, azure-private-link and run-tests loaded only with full descriptions). Install a profile instead of everything, or raise the budget in `~/.claude/settings.json`: `"skillListingBudgetFraction": 0.03`.
 
 ## Licensing
 

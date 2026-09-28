@@ -114,7 +114,7 @@ class Result:
 
 def _base_layout(repo: FakeRepo) -> None:
     (repo.root / "scripts").mkdir(parents=True)
-    for s in ("validate.py", "gen-catalog.py"):
+    for s in ("validate.py", "gen-catalog.py", "skill_descriptions.py"):
         shutil.copy2(REPO / "scripts" / s, repo.root / "scripts" / s)
     repo.write_json(".claude-plugin/marketplace.json", {
         "name": "fixture", "owner": {"name": "test"},
@@ -145,7 +145,7 @@ def bare_layout(tmp_path: Path) -> FakeRepo:
     """Just scripts/ in an empty root, for tests that build their own marketplace (no git)."""
     r = FakeRepo(tmp_path / "repo")
     (r.root / "scripts").mkdir(parents=True)
-    for s in ("validate.py", "gen-catalog.py"):
+    for s in ("validate.py", "gen-catalog.py", "skill_descriptions.py"):
         shutil.copy2(REPO / "scripts" / s, r.root / "scripts" / s)
     return r
 
