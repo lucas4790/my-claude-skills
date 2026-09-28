@@ -118,7 +118,9 @@ def scan(rel: str, text: str, line_numbers: list[int] | None, fail_high: bool) -
 
 
 def git(*args: str) -> str:
-    return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+    # errors="replace": diffs of UTF-16 or Latin-1 files (--text shows them) must not crash the scan
+    return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
+                          errors="replace", check=True).stdout
 
 
 def added_lines(ref: str) -> dict[str, tuple[list[int], list[str]]]:
@@ -292,6 +294,9 @@ reviewed_file = ROOT / "scripts/reviewed-hooks.json"
 if reviewed_file.exists():
     listed = (check_json(reviewed_file) or {}).get("reviewed", {})
     for rel, digest in (listed.items() if isinstance(listed, dict) else []):
+        if not rel.startswith("plugins/") or ".." in Path(rel).parts:
+            problems.append(f"scripts/reviewed-hooks.json: {rel!r} is not a path under plugins/")
+            continue
         current = content_sha256(rel)
         if not current:
             warnings.append(f"scripts/reviewed-hooks.json: {rel} does not exist; remove the entry")
@@ -339,7 +344,7 @@ if problems:
     print("\n".join(f"✗ {p}" for p in problems))
     sys.exit(1)
 if injections:
-    print(f"‼ {len(injections)} high-severity hit(s) in lines added since {args.diff} — review before merging")
+    print(f"‼ {len(injections)} high-severity hit(s) in changes since {args.diff} — review before merging")
     sys.exit(2)
 scope = f"lines added since {args.diff}" if args.diff else "full scan"
 desc_scope = f"changed since {args.diff}" if args.diff else "all skills"

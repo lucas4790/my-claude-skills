@@ -279,7 +279,7 @@ def test_diff_added_high_hit_exits_2(repo):
     res = repo.validate("--diff", "HEAD")
     assert res.rc == 2, res
     assert f"{SKILL}:9: [high] curl | sh pipeline" in res.hits
-    assert res.out.splitlines()[-1] == "‼ 1 high-severity hit(s) in lines added since HEAD — review before merging"
+    assert res.out.splitlines()[-1] == "‼ 1 high-severity hit(s) in changes since HEAD — review before merging"
 
 
 def test_diff_untracked_file_is_scanned_whole(repo):
@@ -487,3 +487,26 @@ def test_reviewed_entry_for_a_missing_file_warns(repo):
     res = repo.validate()
     assert res.rc == 0, res
     assert f"{REVIEWED}: plugins/alpha/hooks/gone.json does not exist; remove the entry" in res.warnings
+
+
+@pytest.mark.parametrize("flags,rc", [((), 0), (("--warn-only",), 0)])
+def test_diff_survives_utf16_and_latin1_files(repo, flags, rc):
+    ps1 = "plugins/alpha/skills/alpha-skill/script.ps1"
+    repo.write(ps1, "Write-Host 'ok'\n")
+    repo.commit("add script")
+    repo.path(ps1).write_bytes("Write-Host 'caf\u00e9'\r\n".encode("utf-16"))   # BOM ff fe, NUL bytes
+    repo.path("plugins/alpha/skills/alpha-skill/latin.md").write_bytes("caf\xe9\n".encode("latin-1"))
+    res = repo.validate("--diff", "HEAD", *flags)
+    assert res.rc == rc, res
+    assert "Traceback" not in res.err, res
+    assert res.out.splitlines()[-1].startswith("✓ "), res
+
+
+def test_reviewed_entry_outside_plugins_is_a_problem(repo):
+    repo.write_json(REVIEWED, {"reviewed": {"../outside.json": "0" * 64, "/etc/hosts": "0" * 64}})
+    res = repo.validate("--diff", "HEAD")
+    assert res.rc == 1, res
+    assert "Traceback" not in res.err, res
+    assert f"{REVIEWED}: '../outside.json' is not a path under plugins/" in res.problems
+    assert f"{REVIEWED}: '/etc/hosts' is not a path under plugins/" in res.problems
+
