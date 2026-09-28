@@ -1,12 +1,11 @@
 {
-  "$comment": "Named plugin subsets for the installers. Every marketplace plugin belongs to exactly one profile (scripts/validate.py checks this). install-copilot.sh/.ps1 default to copilotDefault; install.sh/.ps1 keep installing every plugin unless --profile is given. claude-only plugins rely on Claude Code features (Workflow engine, !`cmd` injection, Claude-only hook events) and are skipped by install-copilot unless named explicitly.",
+  "$comment": "Named plugin subsets for the installers. Every marketplace plugin belongs to exactly one profile (scripts/validate.py checks this). install-copilot.sh/.ps1 default to copilotDefault; install.sh/.ps1 (Claude Code) still install every plugin, or the names passed to them. claude-only plugins rely on Claude Code features (Workflow engine, !`cmd` injection, Claude-only hook events) and are skipped by install-copilot unless named explicitly.",
   "profiles": {
     "cloud": [
       "terraform",
       "azure-agent-skills",
       "pyright-lsp",
       "component-documentation",
-      "codebase-onboarding",
       "mattpocock-skills",
       "powershell",
       "feature-dev",
@@ -23,6 +22,7 @@
     ],
     "extras": [
       "anthropic-skills",
+      "codebase-onboarding",
       "agent-browser",
       "caveman"
     ],
@@ -33,5 +33,7 @@
       "pr-review-toolkit"
     ]
   },
-  "copilotDefault": ["cloud"]
+  "copilotDefault": [
+    "cloud"
+  ]
 }

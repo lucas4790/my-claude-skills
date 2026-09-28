@@ -74,9 +74,9 @@ lists the other useful settings. With VS Code on Windows and Remote-WSL, run the
 
 | Profile | Plugins | Copilot default |
 |---|---|---|
-| `cloud` | terraform, azure-agent-skills, pyright-lsp, component-documentation, codebase-onboarding, mattpocock-skills, powershell, feature-dev, spec-kit | yes |
+| `cloud` | terraform, azure-agent-skills, pyright-lsp, component-documentation, mattpocock-skills, powershell, feature-dev, spec-kit | yes |
 | `dotnet` | dotnet, dotnet-aspnetcore, dotnet-test, dotnet-data, dotnet-nuget, dotnet-advanced, csharp-patterns | no |
-| `extras` | anthropic-skills, agent-browser, caveman (skipped on native Windows: POSIX-only hooks) | no |
+| `extras` | anthropic-skills, codebase-onboarding, agent-browser, caveman (skipped on native Windows: POSIX-only hooks) | no |
 | `claude-only` | claude-security, commit-commands, code-modernization, pr-review-toolkit | never (name them explicitly to force) |
 
 `claude-only` plugins depend on Claude Code features (Workflow engine, `` !`cmd` `` injection, `$ARGUMENTS`,
