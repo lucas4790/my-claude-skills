@@ -59,11 +59,17 @@ Regexes catch the obvious, not the paraphrased: the PR body tells you *where* to
 | Plugin | What runs |
 |---|---|
 | `caveman` | `node` hooks on `SessionStart` and every `UserPromptSubmit` |
-| `claude-security` | shell hooks (from Anthropic) |
+| `claude-security` | `sh`/`python3` hooks (from Anthropic): banner on `/claude-security`, metrics after its own scripts, a one-line tip after `git push` / `gh pr create` (local `git` calls, off with `CLAUDE_SECURITY_SCAN_TIP=off`), and a `PermissionRequest` hook on `AskUserQuestion` that only acts on the scan's own start confirmation |
+| `code-modernization` | `sh` + `python3` hooks (from Anthropic) on `SessionStart`, `UserPromptSubmit`, `Stop`, `PostToolUseFailure`, `StopFailure` in every session: whole-number usage counts only, gated to `/modernize` work except a once-per-version `health` count; no network of their own (counts go through Claude Code telemetry, which drops them for this marketplace today; turn off via the plugin's `telemetry` option). Also a TypeScript function-hook module (`register.ts`, progress pane and x-ray context) that loads only when `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` is on or Anthropic enables the rollout flag; set `"env": {"CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "0"}` in `~/.claude/settings.json` to keep it off |
 | `dotnet`, `pyright-lsp` | language servers (`dnx roslyn-language-server`, `pyright-langserver`) |
 | `terraform` | `hashicorp/terraform-mcp-server` docker container |
 | `agent-browser` | Chrome via `agent-browser` CLI |
 | `codebase-onboarding` | `scripts/analyze.py` (python) |
+
+GitHub Copilot differs in two ways: VS Code starts a plugin's MCP servers without a trust prompt once the
+plugin is installed, and Copilot CLI keeps a skill's `allowed-tools` approvals for the rest of the session
+(`/reset-allowed-tools` clears them). `install-copilot.*` therefore skips the `claude-only` profile and keeps
+`codebase-onboarding` (which pre-approves `python3`, `pip`, `git`) out of the default.
 
 ## Reporting
 
