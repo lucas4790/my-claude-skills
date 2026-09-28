@@ -201,7 +201,7 @@ See [SECURITY.md](SECURITY.md) for the trust model. Run locally with `scripts/sy
 
 ### A red sync run
 
-- **PR titled "... (sync/test failure)"** with a *Sync failure*, *Repo tests failed* or *Skill example tests failed* section at the top and a failed `validate-pr` status: the rest of the tier synced, but the listed sources stayed at their last synced commit, a test no longer passes on the synced tree (e.g. `tests/evals/triggers.yaml` names a skill upstream renamed), or upstream now ships an example that fails. Do not merge a failing example as is: fix it with a patch (below) or drop the source.
+- **PR titled "... (sync/test failure)"** with a *Sync failure*, *Repo tests failed*, *Skill example tests failed* or *Validator did not finish* section at the top and a failed `validate-pr` status: the rest of the tier synced, but the listed sources stayed at their last synced commit, a test no longer passes on the synced tree (e.g. `tests/evals/triggers.yaml` names a skill upstream renamed), or upstream now ships an example that fails. Do not merge a failing example as is: fix it with a patch (below) or drop the source.
 - **Failed workflow run, no PR**: a source failed and nothing else changed. The `error:` lines of the run name the source.
 - `error: patches/<name>.patch no longer applies to <source>@<sha>; refresh it (see README)`: upstream changed the lines the patch touches. Refresh the patch as below. The CI clone is shallow, so the 3-way fallback that `sync.sh` tries after a plain `git apply` only succeeds locally, where the patch's base version is in the object store.
 
