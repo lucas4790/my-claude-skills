@@ -88,17 +88,33 @@ out=$(cd "$work/g2" && bash "$ex/attribution-guard.yml.step2.sh" 2>&1); rc=$?
 [ $rc -eq 0 ] && echo "$out" | grep -q '1 commit(s)' && ok "embedded guard step runs in git mode" || { ko "embedded guard rc=$rc"; echo "$out"; }
 stop clean
 
-# h) push audit on the protected branch: patterns from the branch itself (neutral marker here)
+# h) push audit on the protected branch: every commit since the one the previous run checked
+#    (read from the Builds API); patterns from the branch itself (a neutral marker here).
 ( mk "$work/g3" && mkdir -p tools/attribution-guard && echo forbidden-marker >tools/attribution-guard/patterns.ere \
   && git add . && git commit -qm init && echo a >a && git add a && git commit -qm "Merged PR 8: clean" ) >/dev/null 2>&1
-out=$(cd "$work/g3" && BUILD_SOURCEBRANCHNAME=main bash "$ex/attribution-audit.yml.step1.sh" 2>&1); rc=$?
-[ $rc -eq 0 ] && ok "audit: clean squash commit passes" || { ko "audit clean rc=$rc"; echo "$out"; }
+audit() { # $1 = previous checked commit ("" = first run); runs the audit step against the mock
+  export MOCK_PREV_SHA=$1; start clean 18097; agent_env 18097
+  out=$(cd "$work/g3" && SYSTEM_TEAMPROJECTID=$P SYSTEM_DEFINITIONID=5 BUILD_SOURCEBRANCH=refs/heads/main \
+    BUILD_SOURCEBRANCHNAME=main bash "$ex/attribution-audit.yml.step1.sh" 2>&1); rc=$?
+  stop clean
+}
+audit ''
+[ $rc -eq 0 ] && echo "$out" | grep -q 'First run' && ok "audit: first run checks the latest commit" || { ko "audit first rc=$rc"; echo "$out"; }
+c1=$(git -C "$work/g3" rev-parse HEAD)
 ( cd "$work/g3" && echo b >b && git add b && git commit -qm "Merged PR 9: x" -m "Forbidden-Marker in the completion dialog" \
-  && echo c >c && git add c && GIT_COMMITTER_EMAIL=bot@anthropic.com git commit -qm "Direct push" ) >/dev/null 2>&1
-out=$(cd "$work/g3" && git reset -q --hard HEAD~1 && BUILD_SOURCEBRANCHNAME=main bash "$ex/attribution-audit.yml.step1.sh" 2>&1); rc=$?
-[ $rc -eq 1 ] && echo "$out" | grep -q 'in commit [0-9a-f]\{8\}, line(s) 3' && ! echo "$out" | grep -qi 'forbidden-marker' \
-  && ok "audit: edited merge message flagged by line, text not echoed" || { ko "audit message rc=$rc"; echo "$out"; }
-out=$(cd "$work/g3" && git reset -q --hard 'HEAD@{1}' && BUILD_SOURCEBRANCHNAME=main bash "$ex/attribution-audit.yml.step1.sh" 2>&1); rc=$?
-[ $rc -eq 1 ] && echo "$out" | grep -q 'vendor identity as committer' && ok "audit: vendor committer flagged" || { ko "audit committer rc=$rc"; echo "$out"; }
+  && echo c >c && git add c && git commit -qm "Merged PR 10: clean" ) >/dev/null 2>&1
+audit "$c1"
+[ $rc -eq 1 ] && echo "$out" | grep -q 'Checked 2 commit(s)' && echo "$out" | grep -q 'in commit [0-9a-f]\{8\}, line(s) 3' \
+  && ! echo "$out" | grep -qi 'forbidden-marker' \
+  && ok "audit: a bad commit below a clean HEAD is flagged by line, text not echoed" || { ko "audit range rc=$rc"; echo "$out"; }
+grep -q '/_apis/build/builds?definitions=5&branchName=refs/heads/main&statusFilter=completed' "$work/req-clean.log" \
+  && ok "audit: previous run looked up for this pipeline and branch" || ko "audit builds URL"
+c3=$(git -C "$work/g3" rev-parse HEAD)
+( cd "$work/g3" && echo d >d && git add d && GIT_COMMITTER_EMAIL=bot@anthropic.com git commit -qm "Direct push" ) >/dev/null 2>&1
+audit "$c3"
+[ $rc -eq 1 ] && echo "$out" | grep -q 'vendor identity as committer' && echo "$out" | grep -q 'Checked 1 commit(s)' \
+  && ok "audit: vendor committer flagged, only new commits checked" || { ko "audit committer rc=$rc"; echo "$out"; }
+audit 0123456789abcdef0123456789abcdef01234567
+[ $rc -eq 2 ] && echo "$out" | grep -q 'not in the fetched history' && ok "audit: unknown previous commit fails closed" || { ko "audit unknown prev rc=$rc"; echo "$out"; }
 echo "passed=$pass failed=$failn"
 [ $failn -eq 0 ]

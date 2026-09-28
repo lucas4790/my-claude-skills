@@ -75,8 +75,10 @@ plugin is installed, and Copilot CLI keeps a skill's `allowed-tools` approvals f
 
 `.claude/settings.json` denies agents (Bash and PowerShell alike) the usual GitHub tools and `gh` commands that
 publish PR/issue text, comments, merges or API commits, and the usual spellings of git hook bypasses. A PreToolUse
-hook blocks other spellings, GitHub API writes and any tool call whose text carries attribution. None of this is
-airtight against a determined agent; the git hooks, the required check and the main audit stand behind it. See [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md). A PR that loosens these rules changes what agents may
+hook blocks other spellings, GitHub API writes, edits of git config and hook files, and git, gh and az commands,
+GitHub/Azure DevOps REST calls and MCP writes whose text carries attribution. None of this is airtight against a
+determined agent; the git hooks, the required check and the main audit stand behind it. A PR that changes
+`.github/workflows/` can add a job named like a required check, so review those changes before merging. See [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md). A PR that loosens these rules changes what agents may
 publish under the owner's name.
 
 ## Reporting

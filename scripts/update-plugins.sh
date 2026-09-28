@@ -40,9 +40,7 @@ claude plugin marketplace update "$NAME" || { echo "marketplace update failed"; 
 guard="$HOME/.claude/plugins/marketplaces/$NAME/tools/attribution-guard/install.sh"
 guard_home="${XDG_CONFIG_HOME:-$HOME/.config}/git/attribution-guard"
 if [ "${MY_CLAUDE_SKILLS_ATTRIBUTION:-}" != keep ] && [ -f "$guard" ] && [ -d "$guard_home" ]; then
-  args=("$(git config --global --get attributionguard.mode || echo strip)")
-  [ "$(git config --global --get core.hooksPath || true)" = "$guard_home/hooks" ] && args+=(--global-hooks-path)
-  sh "$guard" "${args[@]}" || echo "attribution guard refresh failed"
+  sh "$guard" || echo "attribution guard refresh failed"   # install.sh keeps the mode and an opted-in hooks path
 fi
 
 mp="$HOME/.claude/plugins/marketplaces/$NAME/.claude-plugin/marketplace.json"

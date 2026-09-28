@@ -82,6 +82,10 @@ out=$(bash "$guard" 2>&1); rc=$?
   && ok "mid-check edit: re-checked, final verdict covers the edit" || { ko "flip rc=$rc"; echo "$out"; }
 stop flip
 
+# 5b. a pattern that does not compile fails closed instead of passing everything
+common 1; out=$(ATTRIB_RE='x|(' bash "$guard" 2>&1); rc=$?
+[ $rc -eq 2 ] && echo "$out" | grep -q 'does not compile' && ok "broken pattern fails closed (rc 2)" || { ko "broken pattern rc=$rc"; echo "$out"; }
+
 # 6. unset PR id macro (manual run) -> exit 2
 common 1; out=$(PR_ID='$(System.PullRequest.PullRequestId)' bash "$guard" 2>&1); rc=$?
 [ $rc -eq 2 ] && echo "$out" | grep -q 'is not a pull request id' && ok "manual run fails closed (rc 2)" || { ko "manual run rc=$rc"; echo "$out"; }

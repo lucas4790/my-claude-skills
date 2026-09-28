@@ -3,7 +3,8 @@ name: Attribution audit
 # What the required `attribution-guard` check cannot see or prevent:
 #  - main-audit: the final squash/merge message is composed at merge time, and an API merge sets
 #    its own. This job fails loudly (red X on main plus a failure e-mail) when attribution or a
-#    vendor author/committer lands on main. Detection only.
+#    vendor author/committer lands on main, or a pushed tag (its message, tagger, nested tags and
+#    the tagged commit) carries it. Detection only.
 #  - comment-sanitize: strips attribution lines from PR/issue comments, review bodies and issue
 #    descriptions (issue titles are only reported). Commit comments start no workflow; cleanup
 #    covers them.
@@ -17,6 +18,7 @@ name: Attribution audit
 on:
   push:
     branches: [main]
+    tags: ['**']
   issues:
     types: [opened, edited]
   issue_comment:
@@ -66,9 +68,12 @@ jobs:
           persist-credentials: false
           sparse-checkout: tools/attribution-guard
       - name: Check the commits that just landed on main
+        if: startsWith(github.ref, 'refs/heads/')
         run: |
           set -euo pipefail
           ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
+          # A pattern that does not compile would pass everything: fail the job instead.
+          printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" >/dev/null
           t=$RUNNER_TEMP
           fail=0
           jq -r '.commits[] | @base64' "$GITHUB_EVENT_PATH" > "$t/commits.b64"
@@ -90,6 +95,48 @@ jobs:
             exit 1
           fi
           echo "No AI attribution in the pushed commits."
+      - name: Check a pushed tag
+        if: startsWith(github.ref, 'refs/tags/') && !github.event.deleted
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
+          # A pattern that does not compile would pass everything: fail the job instead.
+          printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" >/dev/null
+          t=$RUNNER_TEMP
+          fail=0
+          obj=$(jq -r '.after' "$GITHUB_EVENT_PATH")
+          type=$(gh api "repos/$REPO/git/ref/tags/$TAG" --jq '.object.type')
+          depth=0
+          while [ "$type" = tag ] && [ "$depth" -lt 10 ]; do
+            gh api "repos/$REPO/git/tags/$obj" > "$t/tag.json"
+            jq -r '.message // ""' "$t/tag.json" > "$t/msg.txt"
+            while IFS= read -r n; do
+              echo "::error title=AI attribution in a tag::tag object ${obj:0:7} message, line $n"; fail=1
+            done < <(awk -v mode=report "$ATTRIB_AWK" "$t/msg.txt")
+            if jq -r '.tagger.email // ""' "$t/tag.json" | grep -Eiq -e "$IDENT_RE"; then
+              echo "::error title=AI attribution in a tag::tag object ${obj:0:7} tagger is the vendor identity"; fail=1
+            fi
+            obj=$(jq -r '.object.sha' "$t/tag.json"); type=$(jq -r '.object.type' "$t/tag.json")
+            depth=$((depth + 1))
+          done
+          if [ "$type" = commit ]; then
+            gh api "repos/$REPO/commits/$obj" > "$t/c.json"
+            jq -r '.commit.message // ""' "$t/c.json" > "$t/msg.txt"
+            while IFS= read -r n; do
+              echo "::error title=AI attribution in a tag::tagged commit ${obj:0:7} message, line $n"; fail=1
+            done < <(awk -v mode=report "$ATTRIB_AWK" "$t/msg.txt")
+            for who in author committer; do
+              if jq -r ".commit.$who.email // \"\"" "$t/c.json" | grep -Eiq -e "$IDENT_RE"; then
+                echo "::error title=AI attribution in a tag::tagged commit ${obj:0:7} $who is the vendor identity"; fail=1
+              fi
+            done
+          fi
+          [ "$fail" -eq 0 ] || { echo "Delete the tag and re-create it with a clean message; see docs/ATTRIBUTION.md."; exit 1; }
+          echo "No AI attribution in the pushed tag."
 
   comment-sanitize:
     if: contains(fromJSON('["issues","issue_comment","pull_request_review_comment","pull_request_review"]'), github.event_name)
@@ -112,6 +159,8 @@ jobs:
         run: |
           set -euo pipefail
           ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
+          # A pattern that does not compile would pass everything: fail the job instead.
+          printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" >/dev/null
           t=$RUNNER_TEMP
           case $EVENT in
             issues)
@@ -159,6 +208,8 @@ jobs:
         run: |
           set -euo pipefail
           ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
+          # A pattern that does not compile would pass everything: fail the job instead.
+          printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" >/dev/null
           t=$RUNNER_TEMP
           fix() { # $1 = api path, $2 = method, $3 = field, text in $t/in.md; returns 1 when the edit failed
             local hits
@@ -205,6 +256,8 @@ jobs:
         run: |
           set -euo pipefail
           ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
+          # A pattern that does not compile would pass everything: fail the job instead.
+          printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" >/dev/null
           t=$RUNNER_TEMP
           gh api --paginate "repos/$REPO/actions/runs?per_page=100" --jq '.workflow_runs[] | select(.status == "completed") | @base64' > "$t/runs"
           while IFS= read -r r; do

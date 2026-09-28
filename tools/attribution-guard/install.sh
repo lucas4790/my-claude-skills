@@ -15,7 +15,11 @@
 set -eu
 src=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 dst="${XDG_CONFIG_HOME:-$HOME/.config}/git/attribution-guard"
-mode=strip global_hooks_path=0
+# Re-running keeps earlier choices: the mode, and an opted-in global hooks path.
+mode=$(git config --global --get attributionguard.mode 2>/dev/null || true)
+[ "$mode" = reject ] || mode='strip'
+global_hooks_path=0
+[ "$(git config --global --get core.hooksPath 2>/dev/null || true)" = "$dst/hooks" ] && global_hooks_path=1
 for a in "$@"; do
     case $a in
         strip | reject) mode=$a ;;
@@ -59,8 +63,10 @@ elif [ "$global_hooks_path" = 1 ]; then
     mkdir -p "$dst/hooks"
     for h in applypatch-msg pre-applypatch post-applypatch pre-commit pre-merge-commit prepare-commit-msg \
              commit-msg post-commit pre-rebase post-checkout post-merge pre-push post-rewrite pre-auto-gc \
-             reference-transaction post-index-change push-to-checkout sendemail-validate fsmonitor-watchman \
-             p4-changelist p4-prepare-changelist p4-post-changelist p4-pre-submit; do
+             sendemail-validate fsmonitor-watchman p4-changelist p4-prepare-changelist p4-post-changelist p4-pre-submit; do
+        # Not push-to-checkout (its mere presence changes updateInstead pushes), post-index-change
+        # or reference-transaction (overhead on every ref update); a repository's own copies of
+        # those three stop running under a global hooks path.
         cp "$dst/dispatch" "$dst/hooks/$h"
         chmod +x "$dst/hooks/$h"
     done
@@ -111,7 +117,7 @@ tmp=$(mktemp)
 jq --arg cmd "$cmd" '
     .hooks.PreToolUse = ([(.hooks.PreToolUse // [])[]
         | select(([.hooks[]?.command // ""] | map(test("attribution-guard/claude-pretooluse\\.sh")) | any) | not)]
-      + [{matcher: "Bash|PowerShell|Monitor|mcp__.*([Gg]it[Hh]ub|[Aa]do|[Aa]zure|[Dd]ev[Oo]ps).*",
+      + [{matcher: "Bash|PowerShell|Monitor|Write|Edit|MultiEdit|NotebookEdit|mcp__.*([Gg]it[Hh]ub|[Aa]do|[Aa]zure|[Dd]ev[Oo]ps).*",
           hooks: [{type: "command", shell: "bash", command: $cmd}]}])' \
     "$settings" >"$tmp" || { rm -f "$tmp"; exit 1; }
 # Rewrite only on change: the session-start updater re-runs this while Claude Code is open.
