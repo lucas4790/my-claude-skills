@@ -1,0 +1,6 @@
+{
+  "name": "yaml-hooks",
+  "description": "PostToolUse hook that runs yamllint on .yaml/.yml files after Claude writes or edits them and adds the errors to Claude's context; uses the project's yamllint config if present, else a relaxed default, and skips Helm templates. Requires yamllint (pipx install yamllint); silently does nothing without it",
+  "author": { "name": "Lucas", "url": "https://github.com/lucas4790" },
+  "homepage": "https://github.com/adrienverge/yamllint"
+}

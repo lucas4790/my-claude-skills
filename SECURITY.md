@@ -39,6 +39,8 @@ Every text file under `plugins/` (`.md`, `.json`, `.yaml`, `.sh`, `.ps1`, `.py`,
 
 A `high` phrase that sits inside quotes (`"ignore previous instructions"`) is downgraded to `low`: that is a skill *describing* injection so it can resist it, which several vendored agents do.
 
+A hook registration in a repo-owned plugin that the owner reviewed is listed with the sha256 of its file in [`scripts/reviewed-hooks.json`](scripts/reviewed-hooks.json) and then reported as `[reviewed]`. The entry covers only the hook registration, only while the file is unchanged: any edit makes it `high` again (validate.py prints the new hash), so adding or changing an entry is part of reviewing that hook.
+
 The scan is **diff-aware**. With `--diff REF` only lines added since `REF` (plus whole new files) are scanned, so the same known text does not raise the same warning every day:
 
 | Where | Invocation | Effect of a `high` hit |
@@ -67,6 +69,8 @@ Regexes catch the obvious, not the paraphrased: the PR body tells you *where* to
 | `terraform` | `hashicorp/terraform-mcp-server` docker container |
 | `agent-browser` | Chrome via `agent-browser` CLI |
 | `codebase-onboarding` | `scripts/analyze.py` (python) |
+| `yaml-lsp` | `yaml-language-server`, which downloads the SchemaStore catalog and the schemas it matches (and any `$schema` modeline URL) on first use |
+| `yaml-hooks` | `sh` hook after every Write/Edit of a `.yaml`/`.yml` file: runs the local `yamllint` on it (no network) and passes the errors to Claude |
 
 `azure-agent-skills` runs no local code but connects to one remote MCP server, Microsoft Learn (`https://learn.microsoft.com/api/mcp`, read-only documentation search and fetch, no credentials): the questions the model looks up leave the machine as search queries. Remove `mcpServers` from its `.claude-plugin/plugin.json`, or disable the server, where that is not acceptable.
 

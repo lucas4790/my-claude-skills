@@ -234,6 +234,28 @@
       "category": "development"
     },
     {
+      "name": "yaml-lsp",
+      "source": "./plugins/yaml-lsp",
+      "description": "YAML language server (Red Hat yaml-language-server): syntax errors plus SchemaStore validation (GitHub Actions, Azure Pipelines, GitLab CI, docker-compose, Kustomize, Helm Chart.yaml, ...) and per-file schemas via modelines; requires `npm i -g yaml-language-server`",
+      "author": {
+        "name": "Lucas",
+        "url": "https://github.com/lucas4790"
+      },
+      "homepage": "https://github.com/redhat-developer/yaml-language-server",
+      "category": "development"
+    },
+    {
+      "name": "yaml-hooks",
+      "source": "./plugins/yaml-hooks",
+      "description": "Claude Code PostToolUse hook: runs yamllint on .yaml/.yml files after Write/Edit and adds the errors to Claude's context (the project's yamllint config if present, else a relaxed default; Helm templates skipped); requires yamllint",
+      "author": {
+        "name": "Lucas",
+        "url": "https://github.com/lucas4790"
+      },
+      "homepage": "https://github.com/adrienverge/yamllint",
+      "category": "development"
+    },
+    {
       "name": "caveman",
       "source": {
         "source": "url",
