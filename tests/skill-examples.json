@@ -1,0 +1,70 @@
+{
+  "$comment": "Per-skill settings for scripts/test-skill-examples.sh; format in README ('Skill example tests'). Paths are relative to the repository root. Repo-controlled skills (repo-owned, or vendored with a patch in patches/) use mode enforce; vendored skills without a patch use mode report (fixes go through patches/, never through edits). Every skip and shellcheck exclusion needs a reason.",
+  "defaults": {
+    "shellcheck": {
+      "exclude": [
+        "SC1091",
+        "SC2034",
+        "SC2154"
+      ],
+      "reason": "Snippets are fragments: they assign variables that later text uses (SC2034), use variables set elsewhere (SC2154) and source files that do not exist in the test directory (SC1091)."
+    },
+    "placeholders": true
+  },
+  "skills": {
+    "plugins/powershell/skills/pester/SKILL.md": {
+      "$comment": "Vendored from github/awesome-copilot with patches/pester.patch, so repo-controlled: a failing example is fixed in the patch.",
+      "mode": "enforce",
+      "powershell": {
+        "runner": "pester",
+        "stubs": "scripts/skill-examples/support/pester/stubs.ps1",
+        "fixtures": "scripts/skill-examples/support/pester/fixtures",
+        "allowed_skips": [
+          {
+            "test": "Should work on Windows",
+            "when": "not-windows",
+            "reason": "Windows-only example on a non-Windows host"
+          }
+        ],
+        "required_passing": [
+          "handles a",
+          "handles b"
+        ]
+      }
+    },
+    "plugins/component-documentation/skills/component-documentation/SKILL.md": {
+      "mode": "enforce"
+    },
+    "plugins/spec-kit/skills/spec-kit/SKILL.md": {
+      "mode": "enforce"
+    },
+    "plugins/powershell/skills/powershell-safe-invocation/SKILL.md": {
+      "$comment": "PowerShell: native-command invocation, quoting and Start-Process examples (parsed only; they would start processes).",
+      "mode": "report"
+    },
+    "plugins/dotnet/skills/setup-local-sdk/SKILL.md": {
+      "$comment": "Complete bash and PowerShell install scripts plus global.json.",
+      "mode": "report"
+    },
+    "plugins/csharp-patterns/skills/dotnet-project-structure/SKILL.md": {
+      "$comment": "GitHub Actions YAML, PowerShell build helpers, JSON config, bash.",
+      "mode": "report"
+    },
+    "plugins/dotnet-advanced/skills/nuget-trusted-publishing/SKILL.md": {
+      "$comment": "GitHub Actions YAML (OIDC publishing workflow).",
+      "mode": "report"
+    },
+    "plugins/csharp-patterns/skills/testcontainers-integration-tests/SKILL.md": {
+      "$comment": "GitHub Actions YAML for integration tests with containers.",
+      "mode": "report"
+    },
+    "plugins/anthropic-skills/skills/webapp-testing/SKILL.md": {
+      "$comment": "Python (Playwright) and bash; compiled, not run (needs a browser and a web server).",
+      "mode": "report"
+    },
+    "plugins/anthropic-skills/skills/skill-creator/SKILL.md": {
+      "$comment": "JSON formats (evals, grading, benchmark) and bash commands for writing skills.",
+      "mode": "report"
+    }
+  }
+}

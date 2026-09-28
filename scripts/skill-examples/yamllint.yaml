@@ -1,0 +1,26 @@
+# yamllint rules for the yaml blocks of SKILL.md files (scripts/test-skill-examples.sh). Every finding fails the
+# block, whatever its level. The rules catch what a reader would copy into a real file (syntax, duplicate keys,
+# inconsistent indentation, yes/no booleans, spacing inside brackets and around colons and commas); layout rules
+# that a snippet legitimately breaks are off.
+extends: default
+
+rules:
+  document-start: disable              # snippets rarely start with ---
+  line-length: disable                 # long commands and URLs are fine in examples
+  empty-lines: disable
+  trailing-spaces: disable
+  comments-indentation: disable
+  comments:
+    min-spaces-from-content: 1
+  colons:
+    max-spaces-after: -1               # aligned values
+  braces:
+    max-spaces-inside: 1               # both {a: 1} and { a: 1 }
+  brackets:
+    max-spaces-inside: 1
+  indentation:
+    spaces: consistent
+    indent-sequences: whatever
+  truthy:
+    allowed-values: ['true', 'false', 'on', 'off']
+    check-keys: false                  # GitHub Actions `on:`
