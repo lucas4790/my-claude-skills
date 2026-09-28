@@ -1,0 +1,16 @@
+{
+  "extraKnownMarketplaces": {
+    "my-claude-skills": {
+      "source": {
+        "source": "github",
+        "repo": "lucas4790/my-claude-skills"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "terraform@my-claude-skills": true,
+    "azure-agent-skills@my-claude-skills": true,
+    "component-documentation@my-claude-skills": true,
+    "pyright-lsp@my-claude-skills": true
+  }
+}

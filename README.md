@@ -42,6 +42,59 @@ claude plugin install <plugin>@my-claude-skills
 
 The script also registers a `SessionStart` hook (`~/.claude/settings.json`, or `%LOCALAPPDATA%` on Windows) that runs `scripts/update-plugins.sh` / `.ps1` in the background: refreshes the marketplace, installs plugins added to it since last time, and updates installed ones. Throttled to once per 6 h (`MY_CLAUDE_SKILLS_INTERVAL` seconds to change); log in `~/.cache/my-claude-skills/update.log`. Changes apply to the next session. Run it by hand with `--force`.
 
+### VS Code + GitHub Copilot
+
+The same marketplace works in GitHub Copilot without conversion: Copilot CLI and VS Code (1.110+) read
+`.claude-plugin/marketplace.json` and each plugin's `.claude-plugin/plugin.json`. Copilot CLI is the install
+engine, and VS Code discovers every plugin Copilot CLI installs (`~/.copilot/installed-plugins`).
+
+```bash
+# Linux / macOS / WSL
+curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/install-copilot.sh | bash
+bash install-copilot.sh --profile cloud,dotnet      # from a clone: pick profiles
+```
+
+```powershell
+# Windows
+irm https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/install-copilot.ps1 | iex
+$env:MY_CLAUDE_SKILLS_PROFILE = 'cloud,dotnet'; irm https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/install-copilot.ps1 | iex
+```
+
+The script installs Copilot CLI if missing (winget / `npm i -g @github/copilot`; needs ≥ 1.0.70 for the
+sha-pinned caveman), adds the marketplace, installs the chosen profiles and sets
+`extraKnownMarketplaces.my-claude-skills.autoUpdate` in `~/.copilot/settings.json`. The Claude Code
+SessionStart updater also updates (never adds) the Copilot copies when `copilot` is on PATH.
+
+Then, once in VS Code: turn on `chat.plugins.enabled`, add `lucas4790/my-claude-skills` to
+`chat.plugins.marketplaces` via the Settings UI (**Add Item**, so the defaults stay), reload the window and
+check **Extensions → `@agentPlugins`**. [`settings/vscode-settings.jsonc`](settings/vscode-settings.jsonc)
+lists the other useful settings. With VS Code on Windows and Remote-WSL, run the `.ps1` on the Windows side too.
+
+**Profiles** ([`profiles.json`](profiles.json), every plugin in exactly one):
+
+| Profile | Plugins | Copilot default |
+|---|---|---|
+| `cloud` | terraform, azure-agent-skills, pyright-lsp, component-documentation, codebase-onboarding, mattpocock-skills, powershell, feature-dev, spec-kit | yes |
+| `dotnet` | dotnet, dotnet-aspnetcore, dotnet-test, dotnet-data, dotnet-nuget, dotnet-advanced, csharp-patterns | no |
+| `extras` | anthropic-skills, agent-browser, caveman (skipped on native Windows: POSIX-only hooks) | no |
+| `claude-only` | claude-security, commit-commands, code-modernization, pr-review-toolkit | never (name them explicitly to force) |
+
+`claude-only` plugins depend on Claude Code features (Workflow engine, `` !`cmd` `` injection, `$ARGUMENTS`,
+Claude-only hook events). Use them from Claude Code, or from VS Code's **Claude** session target, which reads
+the `~/.claude` plugins that `install.sh` installed.
+
+**Per project**: copy [`settings/project-plugins.json`](settings/project-plugins.json) to a work repo as
+`.github/copilot/settings.json` and/or `.claude/settings.json` (keep them identical) and trim `enabledPlugins`;
+Claude Code, Copilot CLI, the Copilot coding agent and VS Code then recommend the same plugins there.
+
+**Personal instructions**: append [`settings/user-instructions.md`](settings/user-instructions.md) to
+`~/.copilot/copilot-instructions.md` and `~/.claude/CLAUDE.md`.
+
+**Troubleshooting**: plugins or hooks missing on a work machine usually means an org policy
+(`ChatPluginsEnabled`, `ChatStrictMarketplaces`, `ChatHooks`, `ChatMCP`, or GitHub's *Editor preview features* /
+*MCP servers in Copilot*); run **Developer: Policy Diagnostics**. In Copilot CLI check `copilot plugin list`,
+`copilot skill list`, `copilot mcp list`, `copilot lsp list`.
+
 ### Permissions baseline (opt-in, manual)
 
 [`settings/permissions.json`](settings/permissions.json) is a curated `permissions.allow` list of **read-only** inspection commands — `git status`/`diff`/`log`, `gh pr view`, `az … show`/`list`, `kubectl get`/`describe`/`logs`, `helm list`/`status`, `terraform plan`/`validate`/`show`, `jq` — so Claude Code stops asking for those. Nothing that mutates state or runs code from the checked-out repository is in it, and there are no broad wildcards (`az *`, `kubectl *`, `git *`). Two edge cases are in on purpose: `git fetch` talks to the network (it writes only `.git/`), and `terraform plan` runs provider and data-source code against the configured backend (it does not apply). Shell redirection is a residual risk of every rule in the list, not just `jq *`: Claude Code matches the command prefix, so `jq . a > b` or `git log > file` can still write a file; `jq *` stays because `az … | jq` pipes need every segment allowed.
@@ -88,7 +141,7 @@ See [SKILLS.md](SKILLS.md) for the full catalog of every skill, command and agen
 | `component-documentation` | repo-owned | writes complete operational documentation for one infrastructure component (ingress, telemetry, alerting, security tooling, cluster services, Terraform) — purpose, architecture, deployment order, config per environment, monitoring, backup/recovery, runbooks, risks, ownership |
 | `codebase-onboarding` | [eabait/codebase-onboarding-skill](https://github.com/eabait/codebase-onboarding-skill) | generates a DeepWiki-style, source-linked wiki with diagrams to learn how a repo works; `pip install -r scripts/requirements.txt` optional for deeper analysis. Upstream repo LICENSE is MIT while the SKILL.md frontmatter says Apache-2.0; both permissive |
 | `terraform` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) (HashiCorp) | Terraform MCP server in docker: registry, provider and module docs lookup |
-| `pyright-lsp` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | Python language server; `install.sh` installs `pyright` |
+| `pyright-lsp` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | Python language server; `install.sh` installs `pyright`. The repo-owned root `plugin.json` is the Copilot CLI manifest (Copilot needs `fileExtensions`) |
 | `caveman` | [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) | terse "caveman mode" that cuts ~65% of output tokens; `/caveman` commands + skills |
 
 `caveman` is referenced directly from upstream (not vendored) because it is a full plugin with runtime hooks and a split MIT/BSL license. It is pinned to an exact commit `sha`; `scripts/bump-pinned.sh` proposes updates via PR.
@@ -107,7 +160,8 @@ See [SECURITY.md](SECURITY.md) for the trust model. Run locally with `scripts/sy
 1. Add an entry to `sources.json` with the repo, ref, `trust` (`high` only for vendors you would run code from unreviewed), and `copy` mappings into `plugins/<name>/...` (a copy entry may list `exclude` paths, relative to `from`).
 2. If it is a bare skills folder (not a full plugin), add `plugins/<name>/.claude-plugin/plugin.json`.
 3. Add a plugin entry to `.claude-plugin/marketplace.json` pointing at `./plugins/<name>`.
-4. Run `scripts/sync.sh --only <name>` and `python3 scripts/validate.py`, then commit.
+4. Add the plugin to exactly one profile in `profiles.json` (the validator enforces this).
+5. Run `scripts/sync.sh --only <name>` and `python3 scripts/validate.py`, then commit.
 
 ## Licensing
 

@@ -1,0 +1,39 @@
+// VS Code user settings for using this marketplace with GitHub Copilot Chat (VS Code 1.110+).
+// Merge by hand into your user settings.json (Ctrl+Shift+P -> "Preferences: Open User Settings (JSON)").
+// Plugins themselves are installed by install-copilot.sh / install-copilot.ps1 (Copilot CLI);
+// VS Code discovers those automatically. Setting names follow
+// https://code.visualstudio.com/docs/agent-customization/agent-plugins and are still marked
+// Experimental/Preview there, so check them against your VS Code version.
+{
+  // Agent plugins (skills, agents, hooks, MCP from plugins). May be locked by an org policy
+  // (ChatPluginsEnabled); "Developer: Policy Diagnostics" shows which policies apply.
+  "chat.plugins.enabled": true,
+
+  // Lets you browse/install from this marketplace in the Extensions view (@agentPlugins).
+  // Do NOT copy this array verbatim: its default differs between VS Code versions. Use the
+  // Settings UI -> "chat.plugins.marketplaces" -> Add Item -> lucas4790/my-claude-skills,
+  // which keeps the defaults. Plugins installed through Copilot CLI show up even without it.
+  // "chat.plugins.marketplaces": ["<keep the defaults>", "lucas4790/my-claude-skills"],
+
+  // Plugin updates are checked every 24 h only when extension auto-update is on.
+  "extensions.autoUpdate": true,
+
+  // Skills (on by default since 1.109) and the instruction files the repos use.
+  "chat.useAgentSkills": true,
+  "chat.useAgentsMdFile": true,
+  "chat.useClaudeMdFile": true,
+
+  // Keep Claude Code user hooks (the SessionStart plugin updater registered by install.sh)
+  // out of VS Code's own agent; they still run in Claude Code and in VS Code's Claude session target.
+  "chat.useClaudeHooks": false
+
+  // Optional: auto-approve the same read-only commands as settings/permissions.json.
+  // VS Code's default deny rules stay active; do not set chat.tools.terminal.ignoreDefaultAutoApproveRules.
+  // , "chat.tools.terminal.autoApprove": {
+  //     "/^git (status|diff|log|show|branch)\\b/": true,
+  //     "/^kubectl (get|describe|logs|top|explain|version)\\b/": true,
+  //     "/^helm (list|status|history|lint|version)\\b/": true,
+  //     "/^terraform (validate|version|fmt -check)\\b/": true,
+  //     "/^az [a-z -]+ (show|list)\\b/": true
+  //   }
+}

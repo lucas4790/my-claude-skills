@@ -248,7 +248,7 @@
       "copy": [
         {
           "from": "skills/csharp-coding-standards",
-          "to": "plugins/csharp-patterns/skills/csharp-coding-standards"
+          "to": "plugins/csharp-patterns/skills/modern-csharp-coding-standards"
         },
         {
           "from": "skills/csharp-concurrency-patterns",
@@ -260,11 +260,11 @@
         },
         {
           "from": "skills/csharp-api-design",
-          "to": "plugins/csharp-patterns/skills/csharp-api-design"
+          "to": "plugins/csharp-patterns/skills/api-design"
         },
         {
           "from": "skills/csharp-type-design-performance",
-          "to": "plugins/csharp-patterns/skills/csharp-type-design-performance"
+          "to": "plugins/csharp-patterns/skills/type-design-performance"
         },
         {
           "from": "skills/microsoft-extensions-configuration",
@@ -272,7 +272,7 @@
         },
         {
           "from": "skills/microsoft-extensions-dependency-injection",
-          "to": "plugins/csharp-patterns/skills/microsoft-extensions-dependency-injection"
+          "to": "plugins/csharp-patterns/skills/dependency-injection-patterns"
         },
         {
           "from": "skills/serialization",
@@ -280,11 +280,11 @@
         },
         {
           "from": "skills/testcontainers",
-          "to": "plugins/csharp-patterns/skills/testcontainers"
+          "to": "plugins/csharp-patterns/skills/testcontainers-integration-tests"
         },
         {
           "from": "skills/project-structure",
-          "to": "plugins/csharp-patterns/skills/project-structure"
+          "to": "plugins/csharp-patterns/skills/dotnet-project-structure"
         },
         {
           "from": "skills/package-management",
