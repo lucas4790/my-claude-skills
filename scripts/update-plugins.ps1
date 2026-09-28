@@ -27,6 +27,17 @@ if (-not (Get-Command claude -ErrorAction SilentlyContinue)) { exit 0 }
 Start-Transcript -Path $log -Append | Out-Null
 Write-Host "=== $((Get-Date).ToUniversalTime().ToString('s'))Z"
 
+# Copilot CLI copies (install-copilot.ps1; VS Code reads the same ones): update only what is
+# installed there. New plugins are never added, so a Copilot profile stays a profile.
+if (Get-Command copilot -ErrorAction SilentlyContinue) {
+    & copilot plugin marketplace update $name
+    $copilotPlugins = (& copilot plugin list --json 2>$null | ConvertFrom-Json) | Where-Object { $_.marketplace -eq $name }
+    foreach ($cp in $copilotPlugins) {
+        & copilot plugin update "$($cp.name)@$name"
+        if ($LASTEXITCODE -ne 0) { Write-Host "copilot update failed: $($cp.name)" }
+    }
+}
+
 & claude plugin marketplace update $name
 if ($LASTEXITCODE -ne 0) { Write-Host 'marketplace update failed'; Stop-Transcript | Out-Null; exit 1 }
 
