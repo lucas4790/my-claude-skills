@@ -119,6 +119,26 @@ jq --slurpfile p /tmp/perms.json '(.permissions.allow // []) as $a
 
 Changes to either list are part of reviewing this repo: a PR that adds a rule here is a PR that changes what runs unprompted on every machine that merged it.
 
+### Guardrails (opt-in, manual, recommended)
+
+[`settings/claude-guardrails.json`](settings/claude-guardrails.json) adds `permissions.ask` rules for git commands
+that change history, config or remotes (`git push`, `reset`, `clean`, `config`, `git -c …`, `remote add`/`set-url`,
+also in their `git -C <dir> …` form) plus two `env` pins. Ask rules win over allow rules **and over a skill's
+`allowed-tools`**, and match past a leading `VAR=value`, so Claude still asks before these even inside a skill that
+pre-approves `Bash(git *)`, as `claude-security` does. Since 0.12.0 Claude may start that skill on its own. The
+`env` pins keep `code-modernization`'s function-hook module off (`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=0`, even if
+Anthropic's rollout flag enables it) and turn off its usage counts (`CODE_MODERNIZATION_TELEMETRY=0`). Side
+effect: `/commit-push-pr` now asks before pushing. Merge (union for `ask`, existing `env` values win):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/settings/claude-guardrails.json -o /tmp/guard.json
+jq --slurpfile g /tmp/guard.json '(.permissions.ask // []) as $a
+  | .permissions.ask = $a + ($g[0].permissions.ask | map(select(. as $x | $a | index($x) | not)))
+  | .env = ($g[0].env + (.env // {}))' ~/.claude/settings.json > /tmp/settings.json && mv /tmp/settings.json ~/.claude/settings.json
+```
+
+On Windows the file is `%USERPROFILE%\.claude\settings.json`; run the same `jq` from Git Bash or WSL against it.
+
 ## Plugins
 
 See [SKILLS.md](SKILLS.md) for the full catalog of every skill, command and agent (regenerated on each sync).
