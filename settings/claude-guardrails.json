@@ -1,5 +1,10 @@
 {
-  "$comment": "Merged by hand into ~/.claude/settings.json (see README 'Guardrails'). ask rules win over allow rules and over a skill's allowed-tools, and match past any leading VAR=value assignment, so claude-security (which Claude may start on its own since 0.12.0 and which pre-approves Bash(git *)) still has to ask before these. They are prompts, not a sandbox: other spellings (e.g. git 'push', sh -c) are not matched. env: keep code-modernization's function-hook module off even if Anthropic's rollout flag turns it on, and turn off its usage counts.",
+  "$comment": "Merged by hand into ~/.claude/settings.json (see README 'Guardrails'). ask rules win over allow rules and over a skill's allowed-tools, and match past any leading VAR=value assignment, so claude-security (which Claude may start on its own since 0.12.0 and which pre-approves Bash(git *)) still has to ask before these. They are prompts, not a sandbox: other spellings (e.g. git 'push', sh -c) are not matched. env: keep code-modernization's function-hook module off even if Anthropic's rollout flag turns it on, and turn off its usage counts. attribution: no AI co-author trailers, PR footers or session links in anything Claude writes (docs/ATTRIBUTION.md).",
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
   "permissions": {
     "ask": [
       "Bash(git push *)",

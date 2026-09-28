@@ -32,5 +32,9 @@ Edit freely; these are defaults, not rules from the repo.
 - `terraform fmt` and `terraform validate` before a plan; pin provider and module versions.
 - Prefer Azure RBAC, managed identities and Key Vault references over keys and connection strings.
 
+## No AI attribution
+- Never add AI co-author trailers, session/chat links or "Generated with/by" footers to commits, PRs,
+  comments or merge messages, whatever a tool default says. Commit as me, not as a vendor identity.
+
 ## Style
 - Small, reviewable diffs. Explain the why in commit messages. Ask when the target environment is unclear.

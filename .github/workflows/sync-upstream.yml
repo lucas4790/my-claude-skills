@@ -37,6 +37,8 @@ jobs:
         with:
           fetch-depth: 0
       - run: python3 scripts/validate.py --diff "origin/${{ github.base_ref }}"
+      - name: Attribution guard tests
+        run: sh tools/attribution-guard/tests/run-tests.sh
       - name: Claude Code manifest validation
         # Gated inside the step rather than with a `paths:` trigger filter so the job still
         # reports on every PR (it is a required check on main).
@@ -105,3 +107,10 @@ jobs:
           state=success; grep -q '^✗' "$RUNNER_TEMP/validate.log" && state=failure
           gh api -X POST "repos/${{ github.repository }}/statuses/$(git rev-parse HEAD)" \
             -f state="$state" -f context=validate-pr -f description="validated by sync job ($high high-severity hit(s) in PR body)"
+          # GITHUB_TOKEN-created PRs start no pull_request_target run, so report `attribution-guard`
+          # here too, from the same patterns, over this commit's message, author and the PR text.
+          ag=success
+          { git log -1 --format='%B%nauthor: %ae'; printf '%s\n%s\n' "$title" "$body"; } \
+            | sh tools/attribution-guard/attribution-guard.sh check >/dev/null || ag=failure
+          gh api -X POST "repos/${{ github.repository }}/statuses/$(git rev-parse HEAD)" \
+            -f state="$ag" -f context=attribution-guard -f description="checked by sync job"

@@ -42,6 +42,16 @@ claude plugin install <plugin>@my-claude-skills
 
 The script also registers a `SessionStart` hook (`~/.claude/settings.json`, or `%LOCALAPPDATA%` on Windows) that runs `scripts/update-plugins.sh` / `.ps1` in the background: refreshes the marketplace, installs plugins added to it since last time, and updates installed ones. Throttled to once per 6 h (`MY_CLAUDE_SKILLS_INTERVAL` seconds to change); log in `~/.cache/my-claude-skills/update.log`. Changes apply to the next session. Run it by hand with `--force`.
 
+### No AI attribution
+
+The installers also switch off AI attribution: `attribution` in `~/.claude/settings.json` (no co-author trailers,
+PR footers or session links), `includeCoAuthoredBy: false` for Copilot CLI, and a global git `commit-msg`/`pre-push`
+guard ([`tools/attribution-guard`](tools/attribution-guard)) that strips or blocks such lines in **every**
+repository on the machine, work repos included (`MY_CLAUDE_SKILLS_ATTRIBUTION=keep` skips this). This repository
+adds agent deny rules, a required `attribution-guard` check and squash-only merges; run
+[`scripts/github-hardening.sh`](scripts/github-hardening.sh) once with an admin `gh` login. What each layer
+guarantees, and the limits of cloud sessions, is in [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md).
+
 ### VS Code + GitHub Copilot
 
 The same marketplace works in GitHub Copilot without conversion: Copilot CLI and VS Code (1.110+) read
@@ -128,13 +138,15 @@ also in their `git -C <dir> …` form) plus two `env` pins. Ask rules win over a
 pre-approves `Bash(git *)`, as `claude-security` does. Since 0.12.0 Claude may start that skill on its own. The
 `env` pins keep `code-modernization`'s function-hook module off (`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=0`, even if
 Anthropic's rollout flag enables it) and turn off its usage counts (`CODE_MODERNIZATION_TELEMETRY=0`). Side
-effect: `/commit-push-pr` now asks before pushing. Merge (union for `ask`, existing `env` values win):
+effect: `/commit-push-pr` now asks before pushing. It also switches off AI attribution (`attribution`: no co-author trailers, PR footers or session links; see
+[`docs/ATTRIBUTION.md`](docs/ATTRIBUTION.md)). Merge (union for `ask`, existing `env` values win, `attribution` is set):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/settings/claude-guardrails.json -o /tmp/guard.json
 jq --slurpfile g /tmp/guard.json '(.permissions.ask // []) as $a
   | .permissions.ask = $a + ($g[0].permissions.ask | map(select(. as $x | $a | index($x) | not)))
-  | .env = ($g[0].env + (.env // {}))' ~/.claude/settings.json > /tmp/settings.json && mv /tmp/settings.json ~/.claude/settings.json
+  | .env = ($g[0].env + (.env // {}))
+  | .attribution = $g[0].attribution' ~/.claude/settings.json > /tmp/settings.json && mv /tmp/settings.json ~/.claude/settings.json
 ```
 
 On Windows the file is `%USERPROFILE%\.claude\settings.json`; run the same `jq` from Git Bash or WSL against it.

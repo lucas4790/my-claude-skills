@@ -207,6 +207,30 @@ else
   tmp=$(mktemp) && jq --argjson h "$hook" '.hooks.SessionStart = ((.hooks.SessionStart // []) + [$h])' "$SETTINGS" > "$tmp" && mv "$tmp" "$SETTINGS"
 fi
 
+# --- no AI attribution -------------------------------------------------------------
+# Claude Code: no co-author trailers, PR footers or session links; git: a global commit-msg/pre-push
+# guard for every repository. See docs/ATTRIBUTION.md. MY_CLAUDE_SKILLS_ATTRIBUTION=keep skips this.
+if [ "${MY_CLAUDE_SKILLS_ATTRIBUTION:-}" != keep ]; then
+  if jq -e . "$SETTINGS" >/dev/null 2>&1; then
+    tmp=$(mktemp) && jq '.attribution = {commit: "", pr: "", sessionUrl: false}' "$SETTINGS" > "$tmp" \
+      && cat "$tmp" > "$SETTINGS" && rm -f "$tmp"
+    echo "==> AI attribution off in $SETTINGS"
+  else
+    warn "$SETTINGS is not plain JSON; add \"attribution\": {\"commit\": \"\", \"pr\": \"\", \"sessionUrl\": false} by hand"
+  fi
+  guard_dir="$(dirname "${BASH_SOURCE[0]:-/nonexistent}")/tools/attribution-guard"
+  if [ ! -f "$guard_dir/install.sh" ]; then
+    guard_dir=$(mktemp -d)
+    for f in attribution-guard.sh patterns.ere claude-pretooluse.sh dispatch install.sh; do
+      curl -fsSL "https://raw.githubusercontent.com/$REPO/main/tools/attribution-guard/$f" -o "$guard_dir/$f" \
+        || { warn "could not fetch tools/attribution-guard/$f; git attribution guard not installed"; guard_dir=""; break; }
+    done
+  fi
+  if [ -n "$guard_dir" ]; then
+    sh "$guard_dir/install.sh" || warn "git attribution guard not installed; run: sh tools/attribution-guard/install.sh"
+  fi
+fi
+
 echo
 echo "Done. Restart Claude Code to load the plugins."
 [ "${#failed[@]}" -eq 0 ]

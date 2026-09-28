@@ -25,7 +25,10 @@
 
   // Keep Claude Code user hooks (the SessionStart plugin updater registered by install.sh)
   // out of VS Code's own agent; they still run in Claude Code and in VS Code's Claude session target.
-  "chat.useClaudeHooks": false
+  "chat.useClaudeHooks": false,
+
+  // Never add an AI co-author trailer to commits made from VS Code (docs/ATTRIBUTION.md).
+  "git.addAICoAuthor": "off"
 
   // Optional: auto-approve the same read-only commands as settings/permissions.json.
   // VS Code's default deny rules stay active; do not set chat.tools.terminal.ignoreDefaultAutoApproveRules.

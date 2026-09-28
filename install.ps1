@@ -149,6 +149,51 @@ if ($raw -match [regex]::Escape("$name\update-plugins.ps1")) {
     $settings | ConvertTo-Json -Depth 20 | Set-Content $settingsPath -Encoding utf8
 }
 
+# --- no AI attribution -----------------------------------------------------------------
+# Claude Code: no co-author trailers, PR footers or session links; git: a global commit-msg/pre-push
+# guard for every repository, run by Git for Windows' sh.exe. See docs/ATTRIBUTION.md.
+# $env:MY_CLAUDE_SKILLS_ATTRIBUTION = 'keep' skips this.
+if ($env:MY_CLAUDE_SKILLS_ATTRIBUTION -ne 'keep') {
+    try {
+        $settings = Get-Content $settingsPath -Raw | ConvertFrom-Json
+        $settings | Add-Member -NotePropertyName attribution -NotePropertyValue ([pscustomobject]@{ commit = ''; pr = ''; sessionUrl = $false }) -Force
+        [IO.File]::WriteAllText($settingsPath, ($settings | ConvertTo-Json -Depth 20), (New-Object Text.UTF8Encoding $false))
+        Write-Host "==> AI attribution off in $settingsPath"
+    } catch {
+        Write-Warning "could not update $settingsPath; add `"attribution`": {`"commit`": `"`", `"pr`": `"`", `"sessionUrl`": false} by hand"
+    }
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    $sh = if ($git) { Join-Path (Split-Path (Split-Path $git.Source)) 'bin\sh.exe' } else { $null }
+    if ($sh -and (Test-Path $sh)) {
+        $guardDir = Join-Path ([IO.Path]::GetTempPath()) "attribution-guard-$PID"
+        New-Item -ItemType Directory -Path $guardDir -Force | Out-Null
+        try {
+            foreach ($f in 'attribution-guard.sh', 'patterns.ere', 'claude-pretooluse.sh', 'dispatch', 'install.sh') {
+                Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/$repo/main/tools/attribution-guard/$f" -OutFile (Join-Path $guardDir $f)
+            }
+            $env:ATTRIBUTION_GUARD_SKIP_CLAUDE = '1'
+            & $sh (Join-Path $guardDir 'install.sh')
+            if ($LASTEXITCODE -ne 0) { Write-Warning 'git attribution guard not installed; run: sh tools/attribution-guard/install.sh from Git Bash' }
+            # Claude Code PreToolUse hook for every repository (hooks run in Git Bash on Windows).
+            $settings = Get-Content $settingsPath -Raw | ConvertFrom-Json
+            if ((Get-Content $settingsPath -Raw) -notmatch 'attribution-guard/claude-pretooluse\.sh') {
+                if (-not $settings.PSObject.Properties['hooks']) { $settings | Add-Member -NotePropertyName hooks -NotePropertyValue ([pscustomobject]@{}) }
+                $pre = @()
+                if ($settings.hooks.PSObject.Properties['PreToolUse']) { $pre = @($settings.hooks.PreToolUse) }
+                $cmd = 'f="$HOME/.config/git/attribution-guard/claude-pretooluse.sh"; [ ! -f "$f" ] || sh "$f"'
+                $pre += [pscustomobject]@{ matcher = 'Bash|PowerShell|mcp__.*(github|ado|azure|devops).*'; hooks = @([pscustomobject]@{ type = 'command'; command = $cmd }) }
+                $settings.hooks | Add-Member -NotePropertyName PreToolUse -NotePropertyValue $pre -Force
+                [IO.File]::WriteAllText($settingsPath, ($settings | ConvertTo-Json -Depth 20), (New-Object Text.UTF8Encoding $false))
+                Write-Host "==> Claude Code attribution hook registered in $settingsPath"
+            }
+        } catch {
+            Write-Warning "could not install the git attribution guard ($($_.Exception.Message)); run: sh tools/attribution-guard/install.sh from Git Bash"
+        }
+    } else {
+        Write-Warning 'Git for Windows sh.exe not found; install the git attribution guard from Git Bash: sh tools/attribution-guard/install.sh'
+    }
+}
+
 Write-Host ""
 Write-Host "Done. Restart Claude Code to load the plugins."
 if ($failed) { exit 1 }

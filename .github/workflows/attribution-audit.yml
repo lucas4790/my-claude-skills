@@ -1,0 +1,191 @@
+name: Attribution audit
+
+# What the required `attribution-guard` check cannot see or prevent:
+#  - main-audit: the final squash/merge message is composed at merge time. This job fails loudly
+#    (red X on main plus a failure e-mail) when attribution lands on main. Detection only.
+#  - comment-sanitize: strips attribution lines from PR/issue comments and review bodies.
+#  - cleanup (manual, Actions > Attribution audit > Run workflow): strips attribution from the
+#    title/body of every PR and from every comment, edited as github-actions[bot]; optionally
+#    deletes workflow runs whose head commit message carries attribution. GitHub keeps edit
+#    history; see docs/ATTRIBUTION.md for removing old revisions by hand.
+# Separate file from attribution-guard.yml so no skipped job named `attribution-guard` exists.
+on:
+  push:
+    branches: [main]
+  issue_comment:
+    types: [created, edited]
+  pull_request_review_comment:
+    types: [created, edited]
+  pull_request_review:
+    types: [submitted, edited]
+  workflow_dispatch:
+    inputs:
+      delete_runs:
+        description: Also delete workflow runs whose head commit message carries attribution
+        type: boolean
+        default: false
+
+permissions: {}
+
+env:
+  ATTRIB_AWK: |
+    BEGIN { re = tolower(ENVIRON["ATTRIB_RE"]) }
+    { sub(/\r$/, "") }
+    md && /^[[:space:]]*(```|~~~)/ { fence = !fence; out[++n] = $0; next }
+    {
+      s = $0
+      if (md) gsub(/`[^`]*`/, "", s)
+      hit = !(md && fence) && tolower(s) ~ re
+      if (mode == "report") { if (hit) printf "%d: %s\n", NR, substr($0, 1, 200); next }
+      if (!hit) out[++n] = $0
+    }
+    END {
+      if (mode != "strip") exit
+      while (n > 0 && (out[n] ~ /^[[:space:]]*$/ || out[n] ~ /^[[:space:]]*---+[[:space:]]*$/)) n--
+      for (i = 1; i <= n; i++) print out[i]
+    }
+  IDENT_RE: 'noreply@anthropic\.com'
+
+jobs:
+  main-audit:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          sparse-checkout: tools/attribution-guard
+      - name: Check the commits that just landed on main
+        run: |
+          set -euo pipefail
+          ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
+          t=$RUNNER_TEMP
+          fail=0
+          jq -r '.commits[] | @base64' "$GITHUB_EVENT_PATH" > "$t/commits.b64"
+          while IFS= read -r c; do
+            printf '%s' "$c" | base64 -d > "$t/c.json"
+            sha=$(jq -r '.id[0:7]' "$t/c.json")
+            jq -r '.message' "$t/c.json" > "$t/msg.txt"
+            jq -r '"author: \(.author.email)"' "$t/c.json" | grep -E -i -e "$IDENT_RE" >> "$t/msg.txt" || true
+            hits=$(awk -v mode=report -v md=0 "$ATTRIB_AWK" "$t/msg.txt")
+            if [ -n "$hits" ]; then
+              while IFS= read -r h; do printf '::error title=AI attribution landed on main in %s::%s\n' "$sha" "${h//::/: :}"; done <<< "$hits"
+              fail=1
+            fi
+          done < "$t/commits.b64"
+          if [ "$fail" -ne 0 ]; then
+            echo "Revert or rewrite the commit; see docs/ATTRIBUTION.md."
+            exit 1
+          fi
+          echo "No AI attribution in the pushed commits."
+
+  comment-sanitize:
+    if: github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment' || github.event_name == 'pull_request_review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          sparse-checkout: tools/attribution-guard
+      - name: Strip attribution lines from the comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
+          t=$RUNNER_TEMP
+          case $EVENT in
+            issue_comment)
+              id=$(jq -r '.comment.id' "$GITHUB_EVENT_PATH"); api="repos/$REPO/issues/comments/$id"; method=PATCH
+              jq -r '.comment.body // ""' "$GITHUB_EVENT_PATH" > "$t/body.md" ;;
+            pull_request_review_comment)
+              id=$(jq -r '.comment.id' "$GITHUB_EVENT_PATH"); api="repos/$REPO/pulls/comments/$id"; method=PATCH
+              jq -r '.comment.body // ""' "$GITHUB_EVENT_PATH" > "$t/body.md" ;;
+            pull_request_review)
+              pr=$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH"); id=$(jq -r '.review.id' "$GITHUB_EVENT_PATH")
+              api="repos/$REPO/pulls/$pr/reviews/$id"; method=PUT
+              jq -r '.review.body // ""' "$GITHUB_EVENT_PATH" > "$t/body.md" ;;
+          esac
+          hits=$(awk -v mode=report -v md=1 "$ATTRIB_AWK" "$t/body.md")
+          if [ -z "$hits" ]; then echo "Clean."; exit 0; fi
+          awk -v mode=strip -v md=1 "$ATTRIB_AWK" "$t/body.md" > "$t/clean.md"
+          jq -n --rawfile body "$t/clean.md" '{body: $body}' | gh api -X "$method" "$api" --input - --silent
+          echo "Removed $(printf '%s\n' "$hits" | wc -l) attribution line(s)."
+
+  cleanup:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          sparse-checkout: tools/attribution-guard
+      - name: Strip attribution from all PR titles, descriptions and comments
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
+          t=$RUNNER_TEMP
+          fix() { # $1 = api path, $2 = method, $3 = field, body in $t/in.md
+            hits=$(awk -v mode=report -v md=1 "$ATTRIB_AWK" "$t/in.md")
+            [ -n "$hits" ] || return 0
+            awk -v mode=strip -v md=1 "$ATTRIB_AWK" "$t/in.md" > "$t/out.md"
+            jq -n --rawfile v "$t/out.md" --arg f "$3" '{($f): $v}' | gh api -X "$2" "$1" --input - --silent
+            echo "cleaned $1 ($3): $(printf '%s\n' "$hits" | wc -l) line(s)"
+          }
+          gh api --paginate "repos/$REPO/pulls?state=all&per_page=100" --jq '.[] | .number' > "$t/prs"
+          while IFS= read -r n; do
+            gh api "repos/$REPO/pulls/$n" --jq '.body // ""' > "$t/in.md"; fix "repos/$REPO/pulls/$n" PATCH body
+            gh api "repos/$REPO/pulls/$n" --jq '.title' > "$t/title.txt"
+            if [ -n "$(awk -v mode=report -v md=0 "$ATTRIB_AWK" "$t/title.txt")" ]; then
+              echo "::warning::PR #$n title carries attribution; edit it by hand."
+            fi
+            gh api --paginate "repos/$REPO/pulls/$n/reviews" --jq '.[] | select(.body != "") | @base64' > "$t/reviews" || true
+            while IFS= read -r r; do
+              id=$(printf '%s' "$r" | base64 -d | jq -r '.id'); printf '%s' "$r" | base64 -d | jq -r '.body' > "$t/in.md"
+              fix "repos/$REPO/pulls/$n/reviews/$id" PUT body || echo "::warning::could not edit review $id on #$n"
+            done < "$t/reviews"
+          done < "$t/prs"
+          for kind in issues/comments pulls/comments; do
+            gh api --paginate "repos/$REPO/$kind?per_page=100" --jq '.[] | @base64' > "$t/comments"
+            while IFS= read -r c; do
+              id=$(printf '%s' "$c" | base64 -d | jq -r '.id'); printf '%s' "$c" | base64 -d | jq -r '.body // ""' > "$t/in.md"
+              fix "repos/$REPO/$kind/$id" PATCH body || echo "::warning::could not edit $kind/$id"
+            done < "$t/comments"
+          done
+      - name: Delete workflow runs whose head commit message carries attribution
+        if: inputs.delete_runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SELF: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
+          t=$RUNNER_TEMP
+          gh api --paginate "repos/$REPO/actions/runs?per_page=100" --jq '.workflow_runs[] | select(.status == "completed") | @base64' > "$t/runs"
+          while IFS= read -r r; do
+            id=$(printf '%s' "$r" | base64 -d | jq -r '.id'); [ "$id" != "$SELF" ] || continue
+            printf '%s' "$r" | base64 -d | jq -r '.head_commit.message // ""' > "$t/in.md"
+            if [ -n "$(awk -v mode=report -v md=0 "$ATTRIB_AWK" "$t/in.md")" ]; then
+              gh api -X DELETE "repos/$REPO/actions/runs/$id" --silent && echo "deleted run $id"
+            fi
+          done < "$t/runs"
