@@ -24,6 +24,15 @@ command -v jq >/dev/null || exit 0
 exec >>"$LOG" 2>&1
 echo "=== $(date -u +%FT%TZ)"
 
+# Copilot CLI copies (install-copilot.sh; VS Code reads the same ones): update only what is
+# installed there. New plugins are never added, so a Copilot profile stays a profile.
+if command -v copilot >/dev/null; then
+  copilot plugin marketplace update "$NAME" || echo "copilot marketplace update failed"
+  while IFS= read -r p; do
+    [ -n "$p" ] && { copilot plugin update "$p@$NAME" || echo "copilot update failed: $p"; }
+  done < <(copilot plugin list --json 2>/dev/null | jq -r --arg m "$NAME" '.[] | select(.marketplace == $m) | .name')
+fi
+
 claude plugin marketplace update "$NAME" || { echo "marketplace update failed"; exit 1; }
 
 mp="$HOME/.claude/plugins/marketplaces/$NAME/.claude-plugin/marketplace.json"

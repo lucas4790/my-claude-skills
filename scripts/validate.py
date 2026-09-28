@@ -186,6 +186,20 @@ for p in mp["plugins"]:
             for s in mj["skills"]:
                 if not (pdir / s / "SKILL.md").exists() and not s.rstrip("/").endswith("skills"):
                     problems.append(f"{name}: plugin.json skill path {s} has no SKILL.md")
+    # Copilot CLI reads a root plugin.json before .claude-plugin/plugin.json (Claude Code ignores it)
+    root_manifest = pdir / "plugin.json"
+    if root_manifest.exists():
+        rj = check_json(root_manifest)
+        if rj and rj.get("name") != name:
+            problems.append(f"{name}: root plugin.json name {rj.get('name')!r} != marketplace name")
+        if rj and "agent-plugins.org" in str(rj.get("$schema", "")):
+            warnings.append(f"{name}: root plugin.json declares Agent Plugins 1.0; VS Code will ignore .claude-plugin/ layout")
+        lsp = (rj or {}).get("lspServers")
+        for srv, cfg in (lsp.items() if isinstance(lsp, dict) else []):
+            if isinstance(cfg, dict) and "fileExtensions" not in cfg:
+                warnings.append(f"{name}: root plugin.json LSP {srv!r} has no fileExtensions (Copilot rejects it)")
+    elif mj and isinstance(mj.get("lspServers"), dict):
+        warnings.append(f"{name}: LSP only in .claude-plugin/plugin.json; add a root plugin.json with fileExtensions for Copilot")
     skill_files = list(pdir.rglob("SKILL.md"))
     has_content = skill_files or any((pdir / d).is_dir() for d in ("commands", "agents", "hooks")) \
         or (pdir / ".mcp.json").exists() or "lspServers" in p or (mj and "lspServers" in mj)
@@ -203,8 +217,34 @@ for f in ROOT.glob("plugins/**/SKILL.md"):
         problems.append(f"{rel}: frontmatter missing name")
     if "description" not in fm:
         problems.append(f"{rel}: frontmatter missing description")
+    # Agent Skills spec (VS Code, Copilot): name must equal the folder and be lowercase-hyphen, <= 64 chars.
+    # VS Code silently skips a skill that breaks this, so warn (vendored content is fixed upstream).
+    sname = fm.get("name", "").strip().strip("'\"")
+    if sname and (sname != f.parent.name or not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", sname) or len(sname) > 64):
+        warnings.append(f"{rel}: name {sname!r} breaks the Agent Skills rule (must equal folder {f.parent.name!r}, [a-z0-9-], <= 64)")
     if len(text) > 200_000:
         problems.append(f"{rel}: over 200 KB")
+
+# profiles.json: every marketplace plugin in exactly one profile, and nothing else
+prof = check_json(ROOT / "profiles.json") if (ROOT / "profiles.json").exists() else None
+if prof is None:
+    problems.append("profiles.json missing or invalid")
+else:
+    seen: dict[str, str] = {}
+    for pname, members in (prof.get("profiles") or {}).items():
+        for m in members:
+            if m in seen:
+                problems.append(f"profiles.json: {m!r} is in both {seen[m]!r} and {pname!r}")
+            seen[m] = pname
+    for n in names:
+        if n not in seen:
+            problems.append(f"profiles.json: marketplace plugin {n!r} is in no profile")
+    for m in seen:
+        if m not in names:
+            problems.append(f"profiles.json: {m!r} is not a marketplace plugin")
+    for d in prof.get("copilotDefault", []):
+        if d not in (prof.get("profiles") or {}):
+            problems.append(f"profiles.json: copilotDefault names unknown profile {d!r}")
 
 for f in ROOT.glob("plugins/**/*"):
     if f.is_file() and f.stat().st_size > 5_000_000:

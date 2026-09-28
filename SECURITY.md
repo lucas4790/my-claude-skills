@@ -65,6 +65,11 @@ Regexes catch the obvious, not the paraphrased: the PR body tells you *where* to
 | `agent-browser` | Chrome via `agent-browser` CLI |
 | `codebase-onboarding` | `scripts/analyze.py` (python) |
 
+GitHub Copilot differs in two ways: VS Code starts a plugin's MCP servers without a trust prompt once the
+plugin is installed, and Copilot CLI keeps a skill's `allowed-tools` approvals for the rest of the session
+(`/reset-allowed-tools` clears them). `install-copilot.*` therefore skips the `claude-only` profile and keeps
+`codebase-onboarding` (which pre-approves `python3`, `pip`, `git`) out of the default.
+
 ## Reporting
 
 Open an issue on this repo for anything suspicious in vendored content; report upstream too.
