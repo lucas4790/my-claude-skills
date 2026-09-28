@@ -42,15 +42,22 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - run: python3 scripts/validate.py --diff "origin/${{ github.base_ref }}"
-      - name: Script tests (bats + pytest)
-        # bats 1.10 and pytest 7.4 from Ubuntu; shellcheck, pwsh, git, rsync and jq are preinstalled.
+      - name: Install test tools
+        # bats 1.10, pytest 7.4 and yamllint from Ubuntu; shellcheck, pwsh, git, rsync and jq are
+        # preinstalled. The skill-example tests never install Pester themselves, so it comes first.
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends bats python3-pytest
-          scripts/run-tests.sh
-      - name: Skill examples (Pester)
-        # Runs every ```powershell example of the skill as a Pester test (pwsh is preinstalled).
-        run: scripts/test-skill-examples.sh plugins/powershell/skills/pester/SKILL.md
+          sudo apt-get install -y -qq --no-install-recommends bats python3-pytest yamllint
+          pwsh -NoProfile -Command 'Install-Module Pester -MinimumVersion 6.0.0 -Scope CurrentUser -Force -SkipPublisherCheck'
+      - name: Script tests (bats + pytest)
+        env:
+          SKILL_EXAMPLES_REQUIRE_TOOLS: "1"  # a missing pwsh, Pester, shellcheck or yamllint fails, never skips
+        run: scripts/run-tests.sh
+      - name: Skill examples
+        # The code blocks of every skill in tests/skill-examples.json, per fence language.
+        env:
+          SKILL_EXAMPLES_REQUIRE_TOOLS: "1"
+        run: scripts/test-skill-examples.sh
       - name: Attribution guard tests
         run: |
           sh tools/attribution-guard/tests/run-tests.sh
@@ -97,7 +104,7 @@ jobs:
       - name: Install test tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends bats python3-pytest
+          sudo apt-get install -y -qq --no-install-recommends bats python3-pytest yamllint
       # The same tests as validate-pr, on the synced tree. That tree is upstream content nobody has
       # reviewed yet, which the tests read and the skill examples partly run, so they run as a
       # throwaway user with an empty environment on a copy of the tree: they cannot read the runner
@@ -109,8 +116,13 @@ jobs:
           sudo useradd --create-home --shell /bin/bash sandbox
           work=$(sudo -u sandbox mktemp -d)
           tar --exclude=.git -cf - . | sudo -u sandbox tar -xf - -C "$work"
-          sandboxed() { sudo -u sandbox env -i HOME=/home/sandbox PATH=/usr/local/bin:/usr/bin:/bin "$@"; }
-          sandboxed bash "$work/scripts/run-tests.sh" 2>&1 | tee "$RUNNER_TEMP/tests.log" \
+          sandboxed() {
+            sudo -u sandbox env -i HOME=/home/sandbox PATH=/usr/local/bin:/usr/bin:/bin SKILL_EXAMPLES_REQUIRE_TOOLS=1 "$@"
+          }
+          # Pester 6 for the sandbox user (the pytest suites never install it themselves)
+          sandboxed pwsh -NoProfile -Command 'Install-Module Pester -MinimumVersion 6.0.0 -Scope CurrentUser -Force -SkipPublisherCheck' \
+            2>&1 | tee "$RUNNER_TEMP/tests.log" || echo "TESTS_FAILED=1" >> "$GITHUB_ENV"
+          sandboxed bash "$work/scripts/run-tests.sh" 2>&1 | tee -a "$RUNNER_TEMP/tests.log" \
             || echo "TESTS_FAILED=1" >> "$GITHUB_ENV"
           sandboxed bash "$work/scripts/test-skill-examples.sh" 2>&1 | tee "$RUNNER_TEMP/examples.log" \
             || echo "EXAMPLES_FAILED=1" >> "$GITHUB_ENV"

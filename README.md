@@ -189,7 +189,7 @@ See [SKILLS.md](SKILLS.md) for the full catalog of every skill, command and agen
 - `sources.json` lists each upstream repo, the ref to track, a `trust` tier, and which paths to copy where.
 - `scripts/sync.sh` sparse-clones each source, copies the paths in (deleting anything upstream removed), applies the source's patches (below), records the synced commit in `UPSTREAM.lock.json`, then regenerates `SKILLS.md`. A source that fails (a patch that no longer applies, a path upstream removed) is put back to the last commit and keeps its old lock entry; the other sources still sync and the script exits 1. Flags: `--trust high|low`, `--only NAME`, `--locked` (rebuild from lockfile SHAs; patches apply there too).
 - `scripts/validate.py` checks manifests, skill frontmatter, file sizes, sha pins and catalog freshness, and scans every text file under `plugins/` for prompt-injection, exfiltration, credential-access and remote-execution patterns (`--diff REF` limits the scan to lines added since `REF`; see [SECURITY.md](SECURITY.md)).
-- `.github/workflows/sync-upstream.yml` runs daily at 06:00 UTC (and on dispatch) and opens one PR per tier (`sync/high-trust`, `sync/low-trust`, the latter also carrying pinned-sha bumps) with the validator's hits for the added lines in the body; automation never pushes to `main`. Before that it runs the repo tests (`scripts/run-tests.sh`, see [Tests](#tests)) and `scripts/test-skill-examples.sh` (every `powershell` example of the pester skill as a Pester 6 test) on the synced tree, as a throwaway user without the workflow token, since that tree is unreviewed upstream code; a failure goes on top of the PR (see below). Pull requests touching plugins run the validator plus `claude plugin validate`, and a high-severity hit in the added lines fails the check; every pull request also runs the repo tests and the skill examples.
+- `.github/workflows/sync-upstream.yml` runs daily at 06:00 UTC (and on dispatch) and opens one PR per tier (`sync/high-trust`, `sync/low-trust`, the latter also carrying pinned-sha bumps) with the validator's hits for the added lines in the body; automation never pushes to `main`. Before that it runs the repo tests (`scripts/run-tests.sh`, see [Tests](#tests)) and `scripts/test-skill-examples.sh` (the code blocks of the skills in `tests/skill-examples.json`, see [Skill example tests](#skill-example-tests)) on the synced tree, as a throwaway user without the workflow token, since that tree is unreviewed upstream code; a failure goes on top of the PR (see below). Pull requests touching plugins run the validator plus `claude plugin validate`, and a high-severity hit in the added lines fails the check; every pull request also runs the repo tests and the skill examples.
 
 See [SECURITY.md](SECURITY.md) for the trust model. Run locally with `scripts/sync.sh` (needs `git`, `rsync`, `jq`, `python3`).
 
@@ -213,7 +213,7 @@ Vendored files are never edited by hand (the next sync overwrites them). A copy 
 
 1. Remove the `"patch"` key from the copy entry and run `scripts/sync.sh --only <source>`: `<to>` is now pure upstream. Stage it with `git add <to>`.
 2. Edit `<to>` into the version you want, e.g. start from `git show HEAD:<to>` (the last patched version) and take over what upstream changed. Then `git diff -- <to> > patches/<name>.patch` and `git reset -q -- <to>`.
-3. Restore the `"patch"` key and run `scripts/sync.sh --only <source>` twice: both times `<to>` must come out byte-identical to your version (`cmp`). Check that the patch holds only your changes, run `scripts/test-skill-examples.sh` for a skill with examples, and commit the patch with `<to>`, `sources.json`, `UPSTREAM.lock.json` and `SKILLS.md`.
+3. Restore the `"patch"` key and run `scripts/sync.sh --only <source>` twice: both times `<to>` must come out byte-identical to your version (`cmp`). Check that the patch holds only your changes, run `scripts/test-skill-examples.sh <to>` (a patched SKILL.md with code blocks belongs in `tests/skill-examples.json` with `"mode": "enforce"`), and commit the patch with `<to>`, `sources.json`, `UPSTREAM.lock.json` and `SKILLS.md`.
 
 ## Adding a source
 
@@ -228,6 +228,78 @@ Vendored files are never edited by hand (the next sync overwrites them). A copy 
 `scripts/run-tests.sh` runs the repo's own tests and prints a summary per suite: the bats suites in `tests/bats/` (`sync.sh` copying, `--only`/`--trust`/`--locked`, failing sources and patches; `update-plugins.sh`; `bump-pinned.sh`; `bash -n`, shellcheck and a PowerShell parse check of the installers and scripts) and `python3 -m pytest tests/` (`validate.py`, `gen-catalog.py` and the other pytest suites under `tests/`). Every test works in a temp dir against local fake upstreams and fake `claude`/`copilot` binaries: no network, and neither the checkout nor `~/.claude` is touched.
 
 Prerequisites: bats-core ≥ 1.4 and pytest (`sudo apt install bats python3-pytest`; macOS: `brew install bats-core` and `python3 -m pip install pytest`), plus git, rsync, jq and python3. shellcheck and pwsh are optional; their checks are skipped without them (`PWSH=/path/to/pwsh` for a pwsh outside PATH). `scripts/run-tests.sh bats` or `scripts/run-tests.sh pytest` runs one kind; `RUN_KNOWN_BUGS=1` also runs tests that document an open bug (marked with `known_bug`; they fail until it is fixed, then the marker goes).
+
+### Skill example tests
+
+`scripts/test-skill-examples.sh` checks the fenced code blocks of the skills listed in
+[`tests/skill-examples.json`](tests/skill-examples.json), per fence language:
+
+| Fence | Check |
+|---|---|
+| `powershell`, `pwsh`, `ps1` | PowerShell parser (nothing runs); for a skill with `"runner": "pester"`, every block runs as a Pester 6 test |
+| `bash`, `shell` / `sh` | `bash -n` / `sh -n`, then `shellcheck` (dialect from the fence or a `#!` line) |
+| `python`, `py` | compiled; run only when listed in `python.runnable` |
+| `yaml`, `yml` | parsed with PyYAML (every document), then `yamllint` with [`scripts/skill-examples/yamllint.yaml`](scripts/skill-examples/yamllint.yaml) |
+| `json` | parsed |
+| anything else | not tested (counted in the summary) |
+
+`<name>` placeholders (`kubectl -n <namespace> get pods`) become a plain word before the shell and PowerShell checks
+(`"placeholders": false` turns that off for a skill).
+
+Each skill has a **mode**. `enforce`: a failing block fails the run. `report`: failures print as warnings and never
+change the exit status. Repo-controlled skills (repo-owned, or vendored with a patch in `patches/`, like `pester`) are
+`enforce`; vendored skills without a patch are `report`, because their fixes go through a patch, never an edit.
+`tests/skill_examples` checks this rule, and that every repo-controlled skill with code blocks is listed.
+
+```json
+{
+  "defaults": {
+    "shellcheck": { "exclude": ["SC1091", "SC2034", "SC2154"], "reason": "snippets are fragments" },
+    "placeholders": true
+  },
+  "skills": {
+    "plugins/example/skills/demo/SKILL.md": {
+      "mode": "enforce",
+      "skip": [
+        { "block": 4, "reason": "shows an error message, not a command" },
+        { "heading": "Anti-patterns", "reason": "wrong on purpose" }
+      ],
+      "shellcheck": { "exclude": ["SC2010"], "reason": "fixed names only" },
+      "python": { "runnable": [7] },
+      "powershell": {
+        "runner": "pester",
+        "stubs": "scripts/skill-examples/support/demo/stubs.ps1",
+        "fixtures": "scripts/skill-examples/support/demo/fixtures",
+        "allowed_skips": [{ "test": "Should work on Windows", "when": "not-windows", "reason": "Windows-only" }],
+        "required_passing": ["handles a"]
+      }
+    }
+  }
+}
+```
+
+- `block` counts every fenced block of the file from 1, whatever its language (the output prints it:
+  `block 4 (bash, line 88, under "Install")`). `heading` matches the heading a block sits under or any enclosing one,
+  so a `##` skip covers its `###` subsections. Skips and shellcheck exclusions need a `reason`; a skip that matches no
+  block fails the skill. Paths are relative to the repository root; unknown keys are an error.
+- `powershell.runner` is `parse` (default) or `pester`. Stubs define the commands the examples call or mock as
+  `function global:Name`; fixture files are copied next to the generated tests; `allowed_skips[].when` is `always`,
+  `windows`, `not-windows`, `linux`, `not-linux`, `macos` or `not-macos`.
+
+```bash
+scripts/test-skill-examples.sh                                            # every skill in the config
+scripts/test-skill-examples.sh plugins/powershell/skills/pester/SKILL.md  # only this file
+python3 -m pytest tests/skill_examples                                    # tests of the checker itself
+```
+
+A file that is not in the config is tested in enforce mode with the defaults (static checks only). Exit status:
+0 passed, 1 an enforce-mode example failed, 2 usage, configuration or environment error. Needs python3 (3.10+) and,
+for the blocks present, pwsh with Pester 6 (installed for the current user when missing unless
+`SKILL_EXAMPLES_NO_INSTALL=1`), shellcheck, yamllint and PyYAML. A missing tool that an enforce-mode skill needs is
+exit 2; `SKILL_EXAMPLES_ALLOW_MISSING_TOOLS=1` makes it a warning for local runs, and `SKILL_EXAMPLES_REQUIRE_TOOLS=1`
+(CI) makes any missing tool exit 2, report mode included. `TEST_SKILL_EXAMPLES_KEEP=1` keeps the generated files.
+The Pester runner and runnable python blocks execute the examples: only run this on SKILL.md files you trust (the sync
+job runs it as a throwaway user on a copy of the tree).
 
 ## Licensing
 
