@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Validates marketplace.json, every plugin manifest and SKILL.md, that SKILLS.md is current,
-and scans vendored content for prompt-injection / exfiltration patterns.
+scans vendored content for prompt-injection / exfiltration patterns, and warns about skill
+descriptions that route badly (scripts/skill_descriptions.py: too short/long, no "Use when ..."
+phrase, two skills that share most of their distinctive words). Description warnings never change
+the exit code; with --diff they cover only SKILL.md files changed since REF.
 
   validate.py               structural checks + full injection scan (warnings only)
   validate.py --diff REF    structural checks + injection scan of lines ADDED since REF
@@ -17,6 +20,11 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+
+# No scripts/__pycache__: the sync job runs this script and then `git add -A`.
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from skill_descriptions import routing_warnings  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # Windows consoles default to cp1252
@@ -288,6 +296,11 @@ else:
         if f.is_file() and f.suffix in TEXT_EXT and f.stat().st_size <= 5_000_000:
             scan(f.relative_to(ROOT).as_posix(), f.read_text(encoding="utf-8", errors="replace"), None, fail_high=False)
 
+# --- skill description routing (warnings only) ---------------------------------------------------
+# In --diff mode only SKILL.md files changed since REF (and overlap pairs involving one), because the
+# sync job copies these lines into the PR body.
+desc_warnings = routing_warnings(ROOT, args.diff)
+
 before = (ROOT / "SKILLS.md").read_text(encoding="utf-8") if (ROOT / "SKILLS.md").exists() else ""
 gen = subprocess.run([sys.executable, str(ROOT / "scripts/gen-catalog.py")], capture_output=True, text=True)
 if gen.returncode != 0:  # e.g. an invalid manifest (reported above): report it, do not crash before the ✗ lines
@@ -297,6 +310,8 @@ elif (ROOT / "SKILLS.md").read_text(encoding="utf-8") != before:
 
 if warnings:
     print("\n".join(f"⚠ {w}" for w in warnings))
+if desc_warnings:
+    print("\n".join(f"⚠ {w}" for w in desc_warnings))
 if injections:
     print("\n".join(f"‼ {i}" for i in injections))
 if problems:
@@ -306,4 +321,6 @@ if injections:
     print(f"‼ {len(injections)} high-severity hit(s) in lines added since {args.diff} — review before merging")
     sys.exit(2)
 scope = f"lines added since {args.diff}" if args.diff else "full scan"
-print(f"✓ {len(mp['plugins'])} plugins, {len(list(ROOT.glob('plugins/**/SKILL.md')))} skills valid; injection scan ({scope}): {len(warnings)} warning(s)")
+desc_scope = f"changed since {args.diff}" if args.diff else "all skills"
+print(f"✓ {len(mp['plugins'])} plugins, {len(list(ROOT.glob('plugins/**/SKILL.md')))} skills valid; injection scan ({scope}): "
+      f"{len(warnings)} warning(s); skill descriptions ({desc_scope}): {len(desc_warnings)} warning(s)")

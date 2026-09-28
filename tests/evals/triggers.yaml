@@ -1,0 +1,451 @@
+# Skill trigger evals: realistic prompts from daily cloud-engineering work, and which of this repo's
+# skills should (and should not) load for each. Run with scripts/eval-triggers.py (calls the model;
+# on demand or weekly, never per PR). tests/evals/test_triggers_yaml.py checks this file offline.
+#
+# Per case:
+#   id       lowercase-hyphen, unique
+#   prompt   what the owner would actually type
+#   expect   skills that must load (all of them); "a|b" = either one is enough.
+#            [] = negative control: no repo skill may load, except those under `accept`.
+#   accept   skills that may load without counting against the case (plausible extras)
+#   forbid   look-alike skills that must not load
+#   strict   true = any other repo skill loading also fails the case (implied for expect: [])
+#   tags     free-form, for --filter
+#   note     why the case exists
+# Skill names are bare (pester) or plugin-qualified (powershell:pester), as in SKILLS.md.
+# Only skills without disable-model-invocation can be expected; the terraform plugin has no skill
+# (it is an MCP server), so Terraform questions are negative controls for the ARM/Bicep skill.
+
+cases:
+  # --- Kubernetes: generic vs AKS -------------------------------------------------------------
+  - id: k8s-crashloop-generic
+    prompt: >-
+      my pod keeps going into CrashLoopBackOff since I bumped the image tag, kubectl logs --previous
+      only shows "exec format error". what's going on and how do I fix it?
+    expect: []
+    accept: [diagnosing-bugs]
+    forbid: [azure-kubernetes-service, azure-container-registry]
+    tags: [kubernetes, negative]
+    note: plain Kubernetes (arm64 vs amd64 image); nothing AKS-specific
+
+  - id: helm-upgrade-stuck
+    prompt: >-
+      helm upgrade of our ingress-nginx release fails with "UPGRADE FAILED: another operation
+      (install/upgrade/rollback) is in progress". How do I get the release out of pending-upgrade
+      without uninstalling it?
+    expect: []
+    forbid: [azure-kubernetes-service, azure-application-gateway]
+    tags: [kubernetes, helm, negative]
+
+  - id: kubectl-not-running-pods
+    prompt: >-
+      kubectl one-liner (jsonpath or custom-columns) to list every pod in all namespaces that is not
+      Running or Succeeded, with node name and restart count, sorted by restarts
+    expect: []
+    forbid: [azure-kubernetes-service]
+    tags: [kubernetes, negative]
+
+  - id: aks-upgrade-nodepools
+    prompt: >-
+      We're on AKS 1.29 and have to get to 1.31. One system pool and two user pools with PDBs on
+      the ingress and api deployments. What's the safest order for control plane and node pool
+      upgrades with az aks, and what max-surge should I set?
+    expect: [azure-kubernetes-service]
+    forbid: [azure-container-registry, azure-resource-manager]
+    tags: [kubernetes, aks]
+
+  - id: aks-workload-identity-kv
+    prompt: >-
+      Set up workload identity on our AKS cluster so the payments pod can read secrets from Key Vault
+      through the Secrets Store CSI driver. Federated credential, service account annotation, the lot.
+    expect: [azure-kubernetes-service|azure-key-vault]
+    accept: [azure-rbac]
+    forbid: [azure-pipelines, azure-container-registry]
+    tags: [kubernetes, aks, keyvault]
+
+  - id: aks-acr-imagepull-401
+    prompt: >-
+      AKS pods get ImagePullBackOff with "401 Unauthorized" pulling from myregistry.azurecr.io.
+      We did az aks update --attach-acr months ago and nothing changed on our side. How do I check
+      whether the kubelet identity still has AcrPull?
+    expect: [azure-container-registry|azure-kubernetes-service]
+    accept: [azure-rbac]
+    forbid: [azure-pipelines, azure-key-vault]
+    tags: [kubernetes, aks, acr]
+
+  - id: aks-autoscaler-nl
+    prompt: >-
+      Onze AKS user node pool zit al een uur op 100% CPU en de cluster autoscaler schaalt niet op,
+      er staan pods op Pending. Waar moet ik kijken?
+    expect: [azure-kubernetes-service]
+    accept: [azure-monitor]
+    forbid: [azure-container-registry, azure-load-balancer]
+    tags: [kubernetes, aks, dutch]
+
+  # --- Azure DevOps family: pipelines vs devops vs repos vs boards vs artifacts ----------------
+  - id: ado-pipeline-deploy-template
+    prompt: >-
+      In azure-pipelines.yml I want a multi-stage pipeline: build the Docker image, push it to ACR,
+      then deploy to AKS with an approval on the prod environment. How do I template the deploy
+      stage so dev, test and prod reuse it?
+    expect: [azure-pipelines]
+    accept: [azure-kubernetes-service, azure-container-registry]
+    forbid: [azure-devops, azure-repos, azure-boards, azure-artifacts]
+    tags: [ado, pipelines]
+
+  - id: ado-variable-group-keyvault
+    prompt: >-
+      Our Azure DevOps pipeline uses a variable group linked to Key Vault and since yesterday the job
+      fails with "The user or group does not have secrets get permission". The service connection
+      uses workload identity federation. What changed and how do I fix it?
+    expect: [azure-pipelines|azure-key-vault]
+    accept: [azure-rbac, azure-devops]
+    forbid: [azure-repos, azure-boards]
+    tags: [ado, pipelines, keyvault]
+    note: a Key Vault permission error surfaced by a pipeline; either skill helps
+
+  - id: ado-pipeline-resource-trigger-nl
+    prompt: >-
+      Hoe laat ik in Azure DevOps een pipeline automatisch starten als een andere pipeline klaar is
+      (pipeline resource trigger), maar alleen voor builds van de main branch?
+    expect: [azure-pipelines]
+    forbid: [azure-repos, azure-boards, azure-devops]
+    tags: [ado, pipelines, dutch]
+
+  - id: ado-terraform-plan-approval
+    prompt: >-
+      Our Azure DevOps pipeline runs terraform plan and terraform apply in one job. I want to publish
+      the plan file as a pipeline artifact and require a manual approval before apply runs.
+    expect: [azure-pipelines]
+    forbid: [azure-artifacts, azure-resource-manager, azure-repos]
+    tags: [ado, pipelines, terraform]
+    note: '"artifact" here is a pipeline artifact, not an Azure Artifacts feed'
+
+  - id: ado-branch-policy
+    prompt: >-
+      How do I set a branch policy on main in Azure Repos that requires a green build validation and
+      two reviewers, while our release service account can still push version bumps directly?
+    expect: [azure-repos]
+    accept: [azure-pipelines]
+    forbid: [azure-boards, azure-devops, azure-artifacts]
+    tags: [ado, repos]
+
+  - id: ado-license-cleanup
+    prompt: >-
+      We pay for too many Basic licenses in Azure DevOps. How do I find users who haven't logged in
+      for 90 days and bulk-change them to Stakeholder across the organization?
+    expect: [azure-devops]
+    forbid: [azure-repos, azure-pipelines, azure-artifacts, azure-cost-management]
+    tags: [ado, devops]
+
+  - id: ado-boards-wiql
+    prompt: >-
+      Write a WIQL query that returns all open Bugs under area path Platform\AKS that changed in the
+      last 14 days, for a query tile on our team dashboard.
+    expect: [azure-boards]
+    accept: [azure-devops]
+    forbid: [azure-pipelines, azure-repos, azure-kubernetes-service]
+    tags: [ado, boards]
+
+  - id: ado-artifacts-feed-restore
+    prompt: >-
+      dotnet restore in our pipeline gets 401 from our Azure Artifacts feed (it has nuget.org as an
+      upstream source). Locally it works with the credential provider. What's the right
+      NuGetAuthenticate setup?
+    expect: [azure-artifacts]
+    accept: [azure-pipelines, package-management]
+    forbid: [nuget-trusted-publishing, convert-to-cpm, azure-repos]
+    tags: [ado, artifacts, dotnet]
+    note: nuget-trusted-publishing explicitly excludes Azure Artifacts
+
+  - id: gha-azure-oidc
+    prompt: >-
+      My GitHub Actions workflow should log in to Azure with OIDC (azure/login) instead of a client
+      secret. What federated credential subject do I need for pushes to main and for pull requests?
+    expect: []
+    accept: [azure-rbac, azure-resource-manager]
+    forbid: [azure-pipelines, azure-devops, nuget-trusted-publishing]
+    tags: [github-actions, negative]
+    note: GitHub Actions, not Azure Pipelines
+
+  # --- Terraform vs ARM/Bicep ---------------------------------------------------------------------
+  - id: tf-state-lock
+    prompt: >-
+      terraform plan hangs on "Acquiring state lock" with our azurerm backend in a storage account.
+      The pipeline that held it was cancelled. How do I safely break the blob lease?
+    expect: []
+    forbid: [azure-resource-manager, azure-pipelines]
+    tags: [terraform, negative]
+
+  - id: tf-for-each-map
+    prompt: >-
+      In Terraform, how do I turn a list of objects into a map for for_each without a "duplicate
+      object key" error when two items have the same name?
+    expect: []
+    forbid: [azure-resource-manager]
+    tags: [terraform, negative]
+
+  - id: tf-aks-module
+    prompt: >-
+      Write a Terraform module for an AKS cluster: azurerm_kubernetes_cluster with Azure CNI overlay,
+      a system pool and an autoscaling user pool, and outputs for the kubelet identity.
+    expect: []
+    accept: [azure-kubernetes-service, azure-virtual-network, azure-networking]
+    forbid: [azure-resource-manager]
+    tags: [terraform, aks]
+    note: loading the AKS skill is fine; the ARM/Bicep skill is not
+
+  - id: bicep-deployment-stack
+    prompt: >-
+      Convert our ARM parameter file to a .bicepparam and deploy it as a deployment stack at
+      subscription scope, so resources removed from the template are deleted too.
+    expect: [azure-resource-manager]
+    forbid: [azure-policy, azure-pipelines]
+    tags: [bicep]
+
+  # --- Networking ---------------------------------------------------------------------------------
+  - id: private-endpoint-dns
+    prompt: >-
+      Pods in AKS resolve mykv.vault.azure.net to the public IP instead of the private endpoint. We
+      run hub-spoke with custom DNS servers in the hub. What's missing in the private DNS setup?
+    expect: [azure-private-link|azure-dns]
+    accept: [azure-key-vault, azure-kubernetes-service, azure-virtual-network, azure-networking]
+    forbid: [azure-front-door, azure-application-gateway]
+    tags: [networking]
+
+  - id: spoke-to-spoke-routing
+    prompt: >-
+      Both spoke VNets are peered to the hub and the peerings say Connected, but VMs in spoke A can't
+      reach spoke B. Do I need gateway transit or a UDR through the Azure Firewall in the hub?
+    expect: [azure-virtual-network|azure-networking|azure-firewall]
+    accept: [azure-network-watcher, azure-vpn-gateway]
+    forbid: [azure-front-door, azure-application-gateway, azure-load-balancer]
+    tags: [networking]
+
+  - id: linux-port-listening
+    prompt: >-
+      On an Ubuntu VM, how do I see which process is listening on port 8443 and whether iptables or
+      nftables is dropping the inbound traffic?
+    expect: []
+    forbid: [azure-virtual-network, azure-network-watcher, azure-firewall, azure-networking]
+    tags: [linux, negative]
+
+  - id: aks-snat-exhaustion
+    prompt: >-
+      Egress from AKS to a partner API runs into SNAT port exhaustion under load. Should we move from
+      load balancer outbound rules to a NAT Gateway, and how many public IPs would we need?
+    expect: [azure-nat-gateway]
+    accept: [azure-kubernetes-service, azure-load-balancer, azure-networking]
+    forbid: [azure-front-door, azure-application-gateway]
+    tags: [networking, aks]
+
+  - id: agic-backend-pool
+    prompt: >-
+      AGIC stopped updating the Application Gateway backend pool after I changed the ingress in AKS;
+      the ingress-appgw pod logs a 403 on the gateway resource.
+    expect: [azure-application-gateway]
+    accept: [azure-kubernetes-service, azure-rbac]
+    forbid: [azure-front-door, azure-web-application-firewall, azure-load-balancer]
+    tags: [networking, aks]
+
+  # --- Key Vault, RBAC, Policy, Monitor, Cost -----------------------------------------------------
+  - id: kv-access-policy-to-rbac
+    prompt: >-
+      We're switching our key vaults from access policies to the Azure RBAC permission model. Which
+      built-in roles replace "get, list" on secrets, and will running apps break during the switch?
+    expect: [azure-key-vault]
+    accept: [azure-rbac]
+    forbid: [azure-policy, azure-pipelines]
+    tags: [keyvault]
+
+  - id: rbac-custom-role
+    prompt: >-
+      Create a custom Azure role that lets our ops team restart VMs and read NSG flow logs but not
+      delete anything, assignable at two resource groups only.
+    expect: [azure-rbac]
+    accept: [azure-network-watcher]
+    forbid: [azure-policy, azure-key-vault]
+    tags: [rbac]
+
+  - id: policy-deny-public-ip
+    prompt: >-
+      Write an Azure Policy that denies public IPs on NICs except in rg-bastion, assign it at the
+      management group, and add an exemption for our legacy subscription.
+    expect: [azure-policy]
+    accept: [azure-resource-manager]
+    forbid: [azure-rbac, azure-bastion]
+    tags: [policy]
+
+  - id: container-insights-oomkilled
+    prompt: >-
+      KQL for Container Insights: top 10 pods by OOMKilled count over the last 24h in our AKS Log
+      Analytics workspace, plus an alert rule when a pod gets OOMKilled more than 5 times.
+    expect: [azure-monitor]
+    accept: [azure-kubernetes-service]
+    forbid: [azure-network-watcher, azure-managed-grafana]
+    tags: [monitor, aks]
+
+  - id: subscription-budget
+    prompt: >-
+      Set up a monthly budget on the subscription that mails the team at 80% and 100%, and export
+      daily cost data to a storage account for Power BI.
+    expect: [azure-cost-management]
+    forbid: [azure-monitor]
+    tags: [cost]
+
+  # --- PowerShell: Pester vs safe invocation ------------------------------------------------------
+  - id: pester-mock-inmodulescope
+    prompt: >-
+      My Pester 5 tests for a PowerShell module fail with CommandNotFoundException when mocking
+      Get-AzKeyVaultSecret inside InModuleScope. How should I structure Mock and BeforeAll?
+    expect: [pester]
+    forbid: [powershell-safe-invocation]
+    tags: [powershell, pester]
+
+  - id: pester-ci-results
+    prompt: >-
+      Configure Invoke-Pester in our Azure DevOps pipeline to write NUnitXml test results and JaCoCo
+      code coverage, publish both, and fail the build on any failed test.
+    expect: [pester]
+    accept: [azure-pipelines]
+    forbid: [powershell-safe-invocation, run-tests, coverage-analysis]
+    tags: [powershell, pester, ado]
+
+  - id: pester-write-test-nl
+    prompt: >-
+      Kun je een Pester test schrijven voor mijn functie Get-StaleResourceGroup? Die roept
+      Get-AzResourceGroup aan, dus die moet gemockt worden, en ik wil ook testen dat hij niets
+      teruggeeft als alle groepen een owner tag hebben.
+    expect: [pester]
+    forbid: [powershell-safe-invocation, code-testing-agent]
+    tags: [powershell, pester, dutch]
+
+  - id: ps-native-arg-quoting
+    prompt: >-
+      On Windows, calling az.cmd from PowerShell 7 with a --query argument containing brackets and
+      double quotes gets mangled. How do I pass it safely? Start-Process, --%, or something else?
+    expect: [powershell-safe-invocation]
+    forbid: [pester]
+    tags: [powershell]
+
+  - id: ps-untagged-resource-groups
+    prompt: >-
+      Write a PowerShell script that loops over all my subscriptions and exports resource groups
+      without an "owner" tag to a CSV.
+    expect: []
+    accept: [powershell-safe-invocation]
+    forbid: [pester, azure-policy]
+    tags: [powershell, negative]
+
+  # --- .NET tests: run-tests vs writing tests vs Testcontainers vs coverage -----------------------
+  - id: dotnet-test-filter-command
+    prompt: >-
+      What's the exact dotnet test command to run only the OrderServiceTests class and skip anything
+      with trait Category=Integration? The project is xUnit v3 on Microsoft.Testing.Platform.
+    expect: [run-tests]
+    accept: [platform-detection]
+    forbid: [testcontainers-integration-tests, writing-mstest-tests, pester]
+    tags: [dotnet, tests]
+
+  - id: dotnet-testcontainers-sqlserver
+    prompt: >-
+      I want integration tests for our repository layer against a real SQL Server in Docker instead
+      of the EF Core InMemory provider. xUnit, one container per test class. How do I set that up?
+    expect: [testcontainers-integration-tests]
+    accept: [code-testing-agent, tdd]
+    forbid: [run-tests, writing-mstest-tests, optimizing-ef-core-queries]
+    tags: [dotnet, tests]
+
+  - id: mstest-assert-message
+    prompt: >-
+      This MSTest assertion gives a useless failure message: Assert.IsTrue(result.Items.Count == 3);
+      Rewrite it properly and tell me which MSTEST analyzer would flag it.
+    expect: [writing-mstest-tests]
+    accept: [assertion-quality]
+    forbid: [testcontainers-integration-tests, run-tests, code-testing-agent]
+    tags: [dotnet, tests]
+
+  - id: xunit-write-unit-tests
+    prompt: >-
+      Write xUnit unit tests for PriceCalculator.ApplyDiscount, covering negative amounts and a
+      discount above 100%.
+    expect: [code-testing-agent]
+    accept: [tdd]
+    forbid: [writing-mstest-tests, testcontainers-integration-tests, pester, run-tests]
+    tags: [dotnet, tests]
+
+  - id: cobertura-branch-coverage
+    prompt: >-
+      Our Cobertura summary for Billing.Core says line 78%, branch 51%. Which classes should we
+      tackle first to raise branch coverage, and is 80% line coverage a realistic gate?
+    expect: [coverage-analysis]
+    accept: [crap-score]
+    forbid: [run-tests, pester, test-tagging]
+    tags: [dotnet, tests, coverage]
+
+  - id: pytest-fixture-hang
+    prompt: >-
+      A session-scoped pytest fixture starts Postgres with docker compose; tests pass locally but
+      hang in CI at teardown. How do I debug the fixture?
+    expect: []
+    accept: [diagnosing-bugs]
+    forbid: [testcontainers-integration-tests, run-tests, code-testing-agent, writing-mstest-tests]
+    tags: [python, tests, negative]
+
+  - id: nuget-central-versions
+    prompt: >-
+      We have 40 csproj files with drifting Azure.Identity and Newtonsoft.Json versions. Centralize
+      the versions for the whole repo.
+    expect: [convert-to-cpm|package-management]
+    accept: [dotnet-project-structure]
+    forbid: [nuget-trusted-publishing, azure-artifacts]
+    tags: [dotnet, nuget]
+
+  # --- Generic scripting and docs: negative controls and non-Azure skills -------------------------
+  - id: bash-kube-contexts
+    prompt: >-
+      bash script that loops over all contexts in my kubeconfig and prints the server version for
+      each, skipping a context when it doesn't answer within 5 seconds
+    expect: []
+    forbid: [azure-kubernetes-service, powershell-safe-invocation, wizard]
+    tags: [bash, kubernetes, negative]
+
+  - id: yaml-anchors-compose
+    prompt: >-
+      In a docker-compose.yml, can I use YAML anchors and merge keys to share the same environment
+      block between three services?
+    expect: []
+    forbid: [azure-pipelines]
+    tags: [yaml, negative]
+
+  - id: python-retry-429
+    prompt: >-
+      python: retry requests.get with exponential backoff on 429 and 503 and respect the Retry-After
+      header. No extra dependencies if possible.
+    expect: []
+    forbid: [azure-functions]
+    tags: [python, negative]
+
+  - id: document-ingress-component
+    prompt: >-
+      Document the ingress-nginx component of our platform repo: purpose, deployment order, config per
+      environment, alerts and a runbook for certificate expiry.
+    expect: [component-documentation]
+    forbid: [codebase-onboarding]
+    tags: [docs]
+
+  - id: onboard-monorepo
+    prompt: >-
+      I just joined the team. Help me understand how this monorepo is put together and write an
+      onboarding guide for the next new hire.
+    expect: [codebase-onboarding]
+    forbid: [component-documentation]
+    tags: [docs]
+
+  - id: rebase-conflicts-pipeline-yaml
+    prompt: >-
+      I'm in the middle of a rebase onto main with conflicts in azure-pipelines.yml and
+      values-prod.yaml. Help me resolve them.
+    expect: [resolving-merge-conflicts]
+    forbid: [azure-pipelines, azure-repos]
+    tags: [git]

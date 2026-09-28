@@ -33,6 +33,10 @@ VS Code. Most of `plugins/` is **vendored** from upstream repos listed in `sourc
 - `tests/skill-examples.json` lists which skills' code blocks are tested. Repo-owned or patched skills are `enforce`;
   vendored skills without a patch are `report`. Fix a failing vendored example with a patch, not an edit. Every skip
   or shellcheck exclusion needs a `reason`. Never mark SKILL.md blocks with HTML comments (validate.py flags them).
+- `scripts/eval-triggers.py` calls the model and costs tokens: run it only with `--dry-run` unless the owner asks (the
+  weekly `skill-evals` workflow runs it). Renaming or removing a skill: update `tests/evals/triggers.yaml` (its offline
+  tests fail on unknown skill names). New or edited repo-owned skill descriptions start with a when-to-use phrase
+  ("Use when ...") and name look-alike skills they are not for; validate.py warns otherwise.
 - Changes to `settings/permissions*.json` widen what agents may run unprompted on every machine that merged
   them; keep them read-only and explain each rule in the PR.
 - Never push to `main`; push a branch and give the owner the compare link (the owner opens and merges the PR).
@@ -56,6 +60,7 @@ python3 scripts/validate.py          # manifests, skills, profiles, injection sc
 scripts/run-tests.sh                 # bats + pytest suites of the scripts, bash -n, shellcheck, pwsh parse (needs bats, pytest)
 scripts/test-skill-examples.sh       # code blocks of the skills in tests/skill-examples.json (pwsh + Pester 6, shellcheck, yamllint)
 sh plugins/yaml-hooks/tests/test-hook.sh   # yamllint hook (also run by run-tests.sh); lint cases skip without yamllint
+python3 scripts/eval-triggers.py --dry-run # triggers.yaml valid, commands print; no model calls
 sh tools/attribution-guard/tests/run-tests.sh
 python3 tools/attribution-guard/azure-devops/gen.py --check   # regenerate with gen.py after editing ado-pr-guard.sh
 bash tools/attribution-guard/azure-devops/tests/run-tests.sh && bash tools/attribution-guard/azure-devops/tests/run-dispatch-tests.sh
