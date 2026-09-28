@@ -2,8 +2,13 @@ name: Attribution guard
 
 # Status check `attribution-guard`: fails when the PR title, the PR description or any commit in
 # the PR carries AI attribution or a chat/session link (patterns in
-# tools/attribution-guard/patterns.ere), or a commit is AUTHORED by the vendor identity (GitHub
-# credits every commit author as co-author of a squash merge). The word "claude" alone passes.
+# tools/attribution-guard/patterns.ere), or a commit is authored or committed by the vendor
+# identity (an @anthropic.com address). The word "claude" alone passes. Strict: Markdown code
+# blocks and `inline code` are checked too, because a link in backticks is still a link.
+# Logs name the place and line number only, never the matched text: Actions logs are public.
+#
+# Repository variable ATTRIBUTION_ALLOW_CLOUD_COMMITTER=true turns a vendor COMMITTER into a
+# warning (cloud sessions force it; a squash merge keeps it off main). The author is always an error.
 #
 # pull_request_target: the workflow and the patterns always come from the base branch, so a PR
 # cannot edit them to pass itself. Safe because nothing from the PR is checked out or executed:
@@ -21,17 +26,17 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # mode=report prints "line: text" per hit; mode=strip prints the text without hit lines.
-  # md=1 (Markdown): fenced code blocks and `inline code` are quotes, not attribution; skip them.
+  # mode=report prints the number of each line with a hit; mode=strip prints the text without them.
+  # Zero-width characters are removed before matching.
+  ATTRIB_ZW: "​|‌|‍|⁠|﻿"
   ATTRIB_AWK: |
-    BEGIN { re = tolower(ENVIRON["ATTRIB_RE"]) }
-    { sub(/\r$/, "") }
-    md && /^[[:space:]]*(```|~~~)/ { fence = !fence; out[++n] = $0; next }
+    BEGIN { re = tolower(ENVIRON["ATTRIB_RE"]); zw = ENVIRON["ATTRIB_ZW"] }
     {
+      sub(/\r$/, "")
       s = $0
-      if (md) gsub(/`[^`]*`/, "", s)
-      hit = !(md && fence) && tolower(s) ~ re
-      if (mode == "report") { if (hit) printf "%d: %s\n", NR, substr($0, 1, 200); next }
+      if (zw != "") gsub(zw, "", s)
+      hit = tolower(s) ~ re
+      if (mode == "report") { if (hit) print NR; next }
       if (!hit) out[++n] = $0
     }
     END {
@@ -64,12 +69,12 @@ jobs:
           set -euo pipefail
           ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
           gh api "repos/$REPO/pulls/$PR" --jq '.body // ""' > "$RUNNER_TEMP/body.md"
-          hits=$(awk -v mode=report -v md=1 "$ATTRIB_AWK" "$RUNNER_TEMP/body.md")
+          hits=$(awk -v mode=report "$ATTRIB_AWK" "$RUNNER_TEMP/body.md")
           if [ -z "$hits" ]; then echo "Description is clean."; exit 0; fi
-          awk -v mode=strip -v md=1 "$ATTRIB_AWK" "$RUNNER_TEMP/body.md" > "$RUNNER_TEMP/clean.md"
+          awk -v mode=strip "$ATTRIB_AWK" "$RUNNER_TEMP/body.md" > "$RUNNER_TEMP/clean.md"
           jq -n --rawfile body "$RUNNER_TEMP/clean.md" '{body: $body}' \
             | gh api -X PATCH "repos/$REPO/pulls/$PR" --input - --silent
-          echo "Removed $(printf '%s\n' "$hits" | wc -l) attribution line(s) from the description."
+          echo "Removed $(printf '%s\n' "$hits" | wc -l) attribution line(s) from the description (lines $(printf '%s' "$hits" | tr '\n' ' '))."
 
   attribution-guard:
     needs: sanitize
@@ -85,21 +90,22 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: tools/attribution-guard
-      - name: Check title, description, commit messages and commit authors
+      - name: Check title, description, commit messages, authors and committers
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
-          IDENT_RE: 'noreply@anthropic\.com'
+          IDENT_RE: '@anthropic\.com$'
+          ALLOW_CLOUD_COMMITTER: ${{ vars.ATTRIBUTION_ALLOW_CLOUD_COMMITTER }}
         run: |
           set -euo pipefail
           ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
           t=$RUNNER_TEMP
           fail=0
-          flag() { # $1 = where; stdin = "line: text" hits
+          flag() { # $1 = where; stdin = line numbers with a hit
             while IFS= read -r h; do
               [ -n "$h" ] || continue
-              printf '::error title=AI attribution in %s::%s\n' "$1" "${h//::/: :}"
+              printf '::error title=AI attribution::%s, line %s\n' "$1" "$h"
               fail=1
             done
           }
@@ -108,8 +114,8 @@ jobs:
           gh api "repos/$REPO/pulls/$PR" > "$t/pr.json"
           jq -r '.title' "$t/pr.json" > "$t/title.txt"
           jq -r '.body // ""' "$t/pr.json" > "$t/body.md"
-          flag "PR title" < <(awk -v mode=report -v md=0 "$ATTRIB_AWK" "$t/title.txt")
-          flag "PR description" < <(awk -v mode=report -v md=1 "$ATTRIB_AWK" "$t/body.md")
+          flag "PR title" < <(awk -v mode=report "$ATTRIB_AWK" "$t/title.txt")
+          flag "PR description" < <(awk -v mode=report "$ATTRIB_AWK" "$t/body.md")
 
           # The commits endpoint returns at most 250 commits; fail closed beyond that.
           total=$(jq -r '.commits' "$t/pr.json")
@@ -122,22 +128,31 @@ jobs:
             printf '%s' "$c" | base64 -d > "$t/c.json"
             sha=$(jq -r '.sha[0:7]' "$t/c.json")
             jq -r '.commit.message' "$t/c.json" > "$t/msg.txt"
-            flag "commit $sha" < <(awk -v mode=report -v md=0 "$ATTRIB_AWK" "$t/msg.txt")
-            flag "commit $sha" < <(jq -r '"author: \(.commit.author.name) <\(.commit.author.email)>"' "$t/c.json" \
-              | grep -E -i -e "$IDENT_RE" | sed 's/^/identity: /' || true)
+            flag "commit $sha message" < <(awk -v mode=report "$ATTRIB_AWK" "$t/msg.txt")
+            if jq -r '.commit.author.email' "$t/c.json" | grep -Eiq -e "$IDENT_RE"; then
+              echo "::error title=AI attribution::commit $sha is authored by the vendor identity"
+              fail=1
+            fi
             if jq -r '.commit.committer.email' "$t/c.json" | grep -Eiq -e "$IDENT_RE"; then
-              echo "::warning::commit $sha is committed by the cloud identity (cloud sessions force it; a squash merge keeps it off main)."
+              if [ "$ALLOW_CLOUD_COMMITTER" = true ]; then
+                echo "::warning::commit $sha is committed by the vendor identity (allowed by ATTRIBUTION_ALLOW_CLOUD_COMMITTER)."
+              else
+                echo "::error title=AI attribution::commit $sha is committed by the vendor identity; re-commit it as yourself (scripts/adopt-branch.sh)"
+                fail=1
+              fi
             fi
           done < "$t/commits.b64"
 
           head_ref=$(jq -r '.head.ref' "$t/pr.json")
           case $head_ref in claude/*)
-            echo "::warning::Head branch '$head_ref' carries the vendor prefix. Rename the branch before opening the PR to keep it off the PR page; squash merges keep it out of main's history." ;;
+            echo "::warning::The head branch carries the vendor prefix; scripts/adopt-branch.sh moves the work to a branch of your own." ;;
           esac
 
           if [ "$fail" -ne 0 ]; then
             cat <<'EOF'
-          Fix: edit the PR title/description, and rewrite the listed commits, e.g.
+          Fix: edit the PR title/description, and rewrite the listed commits as yourself:
+            sh scripts/adopt-branch.sh <branch>        (new branch name, clean messages, you as author and committer)
+          or, on the same branch:
             git rebase -r --exec 'git commit --amend --no-edit --reset-author' origin/main
           with the attribution-guard commit-msg hook installed (strip mode), then force-push the branch.
           EOF

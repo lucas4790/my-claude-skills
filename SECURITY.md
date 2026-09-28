@@ -73,9 +73,10 @@ plugin is installed, and Copilot CLI keeps a skill's `allowed-tools` approvals f
 
 ## No AI attribution
 
-`.claude/settings.json` denies agents the GitHub tools and `gh` commands that publish PR/issue text, comments,
-merges or API commits, and denies ways around git hooks; a PreToolUse hook blocks tool calls whose text carries
-attribution. See [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md). A PR that loosens these rules changes what agents may
+`.claude/settings.json` denies agents (Bash and PowerShell alike) the usual GitHub tools and `gh` commands that
+publish PR/issue text, comments, merges or API commits, and the usual spellings of git hook bypasses. A PreToolUse
+hook blocks other spellings, GitHub API writes and any tool call whose text carries attribution. None of this is
+airtight against a determined agent; the git hooks, the required check and the main audit stand behind it. See [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md). A PR that loosens these rules changes what agents may
 publish under the owner's name.
 
 ## Reporting

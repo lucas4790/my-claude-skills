@@ -162,30 +162,43 @@ if ($env:MY_CLAUDE_SKILLS_ATTRIBUTION -ne 'keep') {
     } catch {
         Write-Warning "could not update $settingsPath; add `"attribution`": {`"commit`": `"`", `"pr`": `"`", `"sessionUrl`": false} by hand"
     }
-    $git = Get-Command git -ErrorAction SilentlyContinue
-    $sh = if ($git) { Join-Path (Split-Path (Split-Path $git.Source)) 'bin\sh.exe' } else { $null }
+    # Git for Windows' sh.exe: <root>\bin\sh.exe, with <root> three levels above `git --exec-path`
+    # (<root>\mingw64\libexec\git-core; also for Scoop), else whatever sh.exe is on PATH.
+    $sh = $null
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        $execPath = & git --exec-path 2>$null
+        if ($execPath) {
+            $candidate = Join-Path (Split-Path (Split-Path (Split-Path ($execPath -replace '/', '\')))) 'bin\sh.exe'
+            if (Test-Path $candidate) { $sh = $candidate }
+        }
+    }
+    if (-not $sh) { $sh = (Get-Command sh.exe -ErrorAction SilentlyContinue).Source }
     if ($sh -and (Test-Path $sh)) {
-        $guardDir = Join-Path ([IO.Path]::GetTempPath()) "attribution-guard-$PID"
-        New-Item -ItemType Directory -Path $guardDir -Force | Out-Null
         try {
-            foreach ($f in 'attribution-guard.sh', 'patterns.ere', 'claude-pretooluse.sh', 'dispatch', 'install.sh') {
-                Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/$repo/main/tools/attribution-guard/$f" -OutFile (Join-Path $guardDir $f)
+            $guardDir = if ($PSScriptRoot) { Join-Path $PSScriptRoot 'tools\attribution-guard' } else { $null }
+            if (-not ($guardDir -and (Test-Path (Join-Path $guardDir 'install.sh')))) {
+                $guardDir = Join-Path ([IO.Path]::GetTempPath()) "attribution-guard-$PID"
+                New-Item -ItemType Directory -Path $guardDir -Force | Out-Null
+                foreach ($f in 'attribution-guard.sh', 'patterns.ere', 'claude-pretooluse.sh', 'dispatch', 'install.sh') {
+                    Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/$repo/main/tools/attribution-guard/$f" -OutFile (Join-Path $guardDir $f)
+                }
             }
             $env:ATTRIBUTION_GUARD_SKIP_CLAUDE = '1'
             & $sh (Join-Path $guardDir 'install.sh')
             if ($LASTEXITCODE -ne 0) { Write-Warning 'git attribution guard not installed; run: sh tools/attribution-guard/install.sh from Git Bash' }
             # Claude Code PreToolUse hook for every repository (hooks run in Git Bash on Windows).
+            # Replace an earlier registration so matcher and command stay current.
             $settings = Get-Content $settingsPath -Raw | ConvertFrom-Json
-            if ((Get-Content $settingsPath -Raw) -notmatch 'attribution-guard/claude-pretooluse\.sh') {
-                if (-not $settings.PSObject.Properties['hooks']) { $settings | Add-Member -NotePropertyName hooks -NotePropertyValue ([pscustomobject]@{}) }
-                $pre = @()
-                if ($settings.hooks.PSObject.Properties['PreToolUse']) { $pre = @($settings.hooks.PreToolUse) }
-                $cmd = 'f="$HOME/.config/git/attribution-guard/claude-pretooluse.sh"; [ ! -f "$f" ] || sh "$f"'
-                $pre += [pscustomobject]@{ matcher = 'Bash|PowerShell|mcp__.*(github|ado|azure|devops).*'; hooks = @([pscustomobject]@{ type = 'command'; command = $cmd }) }
-                $settings.hooks | Add-Member -NotePropertyName PreToolUse -NotePropertyValue $pre -Force
-                [IO.File]::WriteAllText($settingsPath, ($settings | ConvertTo-Json -Depth 20), (New-Object Text.UTF8Encoding $false))
-                Write-Host "==> Claude Code attribution hook registered in $settingsPath"
+            if (-not $settings.PSObject.Properties['hooks']) { $settings | Add-Member -NotePropertyName hooks -NotePropertyValue ([pscustomobject]@{}) }
+            $pre = @()
+            if ($settings.hooks.PSObject.Properties['PreToolUse']) {
+                $pre = @($settings.hooks.PreToolUse | Where-Object { -not (@($_.hooks | ForEach-Object { $_.command }) -match 'attribution-guard/claude-pretooluse\.sh') })
             }
+            $cmd = 'f="$HOME/.config/git/attribution-guard/claude-pretooluse.sh"; [ ! -f "$f" ] || sh "$f"'
+            $pre += [pscustomobject]@{ matcher = 'Bash|PowerShell|Monitor|mcp__.*([Gg]it[Hh]ub|[Aa]do|[Aa]zure|[Dd]ev[Oo]ps).*'; hooks = @([pscustomobject]@{ type = 'command'; shell = 'bash'; command = $cmd }) }
+            $settings.hooks | Add-Member -NotePropertyName PreToolUse -NotePropertyValue $pre -Force
+            [IO.File]::WriteAllText($settingsPath, ($settings | ConvertTo-Json -Depth 20), (New-Object Text.UTF8Encoding $false))
+            Write-Host "==> Claude Code attribution hook registered in $settingsPath"
         } catch {
             Write-Warning "could not install the git attribution guard ($($_.Exception.Message)); run: sh tools/attribution-guard/install.sh from Git Bash"
         }
