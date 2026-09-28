@@ -29,7 +29,7 @@ cp "$here/tools/attribution-guard/attribution-guard.sh" "$here/tools/attribution
 git fetch origin "$src" "$base"
 git switch -c "$new" "origin/$src"
 # Each commit: strip attribution lines from its message, then re-commit it as you (author and committer).
-clean="m=\$(mktemp) && git log -1 --format=%B >\"\$m\" && ATTRIBUTION_GUARD_MODE=strip sh '$tmp/attribution-guard.sh' commit-msg \"\$m\" && git commit -q --amend --reset-author --cleanup=strip -F \"\$m\"; rc=\$?; rm -f \"\$m\"; exit \$rc"
+clean="m=\$(mktemp) && git log -1 --format=%B >\"\$m\" && ATTRIBUTION_GUARD_MODE=strip sh '$tmp/attribution-guard.sh' commit-msg \"\$m\" && git commit -q --amend --reset-author --cleanup=whitespace -F \"\$m\"; rc=\$?; rm -f \"\$m\"; exit \$rc"
 GIT_COMMITTER_NAME=$me_name GIT_COMMITTER_EMAIL=$me_mail git rebase -r --exec "$clean" "origin/$base"
 
 echo "==> checking the result"

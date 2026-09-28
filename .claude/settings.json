@@ -80,12 +80,12 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|PowerShell|Monitor|mcp__.*([Gg]it[Hh]ub|[Aa]do|[Aa]zure|[Dd]ev[Oo]ps).*",
+        "matcher": "Bash|PowerShell|Monitor|Write|Edit|MultiEdit|NotebookEdit|mcp__.*([Gg]it[Hh]ub|[Aa]do|[Aa]zure|[Dd]ev[Oo]ps).*",
         "hooks": [
           {
             "type": "command",
             "shell": "bash",
-            "command": "f=\"$CLAUDE_PROJECT_DIR/tools/attribution-guard/claude-pretooluse.sh\"; [ ! -f \"$f\" ] || sh \"$f\" --strict"
+            "command": "d=$(git -C \"$CLAUDE_PROJECT_DIR\" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/attribution-guard; f=\"$d/claude-pretooluse.sh\"; [ -f \"$f\" ] || f=\"$CLAUDE_PROJECT_DIR/tools/attribution-guard/claude-pretooluse.sh\"; [ ! -f \"$f\" ] || sh \"$f\" --strict"
           }
         ]
       }

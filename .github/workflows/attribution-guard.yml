@@ -68,6 +68,8 @@ jobs:
         run: |
           set -euo pipefail
           ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
+          # A pattern that does not compile would pass everything: fail the job instead.
+          printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" >/dev/null
           gh api "repos/$REPO/pulls/$PR" --jq '.body // ""' > "$RUNNER_TEMP/body.md"
           hits=$(awk -v mode=report "$ATTRIB_AWK" "$RUNNER_TEMP/body.md")
           if [ -z "$hits" ]; then echo "Description is clean."; exit 0; fi
@@ -100,6 +102,8 @@ jobs:
         run: |
           set -euo pipefail
           ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
+          # A pattern that does not compile would pass everything: fail the job instead.
+          printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" >/dev/null
           t=$RUNNER_TEMP
           fail=0
           flag() { # $1 = where; stdin = line numbers with a hit

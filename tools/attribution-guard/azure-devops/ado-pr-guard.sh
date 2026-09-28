@@ -75,14 +75,18 @@ END {
   for (i = 1; i <= n; i++) print out[i]
 }'
 
+# A pattern that does not compile would make every check pass: refuse instead (fail closed).
+printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" >/dev/null 2>&1 || die "the attribution pattern does not compile."
+
 fail=0
 scan() { # $1 = where, $2 = file
   local ln
+  awk -v mode=report "$ATTRIB_AWK" "$2" > "$T/hits" 2>/dev/null || die "could not scan the $1."
   while IFS= read -r ln; do
     [[ -n $ln ]] || continue
     printf '##vso[task.logissue type=error]AI attribution in %s, line %s\n' "$1" "$ln"
     fail=1
-  done < <(awk -v mode=report "$ATTRIB_AWK" "$2")
+  done < "$T/hits"
 }
 
 # --- PR status (optional) -----------------------------------------------------------------------

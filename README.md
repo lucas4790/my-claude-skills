@@ -49,7 +49,8 @@ The installers also switch off AI attribution naming Claude or Anthropic: `attri
 `commit-msg`/`pre-push` guard ([`tools/attribution-guard`](tools/attribution-guard)) that strips or blocks such
 lines, and a Claude Code PreToolUse hook that blocks tool calls publishing them (git, gh, az, GitHub and Azure DevOps
 MCP tools and REST calls) in every repository, work repos included (`MY_CLAUDE_SKILLS_ATTRIBUTION=keep` skips this;
-the session-start updater keeps it current). With Git 2.54+ the git guard covers every repository; older Git covers
+the session-start updater keeps the git guard current, and on Linux/macOS the hook registration too; on Windows
+re-run `install.ps1` after an update that changes the hook). With Git 2.54+ the git guard covers every repository; older Git covers
 new clones and repositories where you run `git init` once, not those with their own hooks. This repository adds agent
 deny rules, a required `attribution-guard` check and squash-only merges: after merging, run
 [`scripts/github-hardening.sh`](scripts/github-hardening.sh) once with an admin `gh` login. Azure DevOps work

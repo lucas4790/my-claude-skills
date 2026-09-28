@@ -54,12 +54,9 @@ if ($env:MY_CLAUDE_SKILLS_ATTRIBUTION -ne 'keep' -and (Test-Path $guard) -and (T
     }
     if (-not $sh) { $sh = (Get-Command sh.exe -ErrorAction SilentlyContinue).Source }
     if ($sh) {
-        $mode = & git config --global --get attributionguard.mode
-        $guardArgs = @($(if ($mode) { $mode } else { 'strip' }))
-        # install.sh stores an MSYS path (/c/Users/...), so compare the tail only.
-        if ("$(& git config --global --get core.hooksPath)" -like '*/git/attribution-guard/hooks') { $guardArgs += '--global-hooks-path' }
+        # install.sh keeps the mode and an opted-in global hooks path by itself.
         $env:ATTRIBUTION_GUARD_SKIP_CLAUDE = '1'
-        & $sh $guard @guardArgs
+        & $sh $guard
         if ($LASTEXITCODE -ne 0) { Write-Host 'attribution guard refresh failed' }
     }
 }

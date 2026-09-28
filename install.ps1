@@ -195,7 +195,7 @@ if ($env:MY_CLAUDE_SKILLS_ATTRIBUTION -ne 'keep') {
                 $pre = @($settings.hooks.PreToolUse | Where-Object { -not (@($_.hooks | ForEach-Object { $_.command }) -match 'attribution-guard/claude-pretooluse\.sh') })
             }
             $cmd = 'f="$HOME/.config/git/attribution-guard/claude-pretooluse.sh"; [ ! -f "$f" ] || sh "$f"'
-            $pre += [pscustomobject]@{ matcher = 'Bash|PowerShell|Monitor|mcp__.*([Gg]it[Hh]ub|[Aa]do|[Aa]zure|[Dd]ev[Oo]ps).*'; hooks = @([pscustomobject]@{ type = 'command'; shell = 'bash'; command = $cmd }) }
+            $pre += [pscustomobject]@{ matcher = 'Bash|PowerShell|Monitor|Write|Edit|MultiEdit|NotebookEdit|mcp__.*([Gg]it[Hh]ub|[Aa]do|[Aa]zure|[Dd]ev[Oo]ps).*'; hooks = @([pscustomobject]@{ type = 'command'; shell = 'bash'; command = $cmd }) }
             $settings.hooks | Add-Member -NotePropertyName PreToolUse -NotePropertyValue $pre -Force
             [IO.File]::WriteAllText($settingsPath, ($settings | ConvertTo-Json -Depth 20), (New-Object Text.UTF8Encoding $false))
             Write-Host "==> Claude Code attribution hook registered in $settingsPath"

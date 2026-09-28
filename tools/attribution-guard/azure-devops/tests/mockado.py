@@ -87,6 +87,9 @@ class H(BaseHTTPRequestHandler):
             if sub == "/threads": return self._send(200, THREADS)
             if sub == "/iterations": return self._send(200, {"value": [{"id": 1}, {"id": 2}], "count": 2})
             if sub == "/statuses" and self.command == "POST": return self._send(200, json.loads(body))
+        if p == f"/org/{PROJ}/_apis/build/builds".lower() and q.get("statusFilter") == ["completed"]:
+            prev = os.environ.get("MOCK_PREV_SHA", "")  # the commit the previous audit run checked
+            return self._send(200, {"value": [{"sourceVersion": prev}] if prev else [], "count": 1 if prev else 0})
         if p == base + "/pullrequests" and q.get("searchCriteria.status") == ["active"] and q.get("$top") == ["1000"]:
             return self._send(200, {"value": [{"pullRequestId": 7}], "count": 1})
         m = re.fullmatch(re.escape(base) + r"/commits/([0-9a-f]{40})", p)

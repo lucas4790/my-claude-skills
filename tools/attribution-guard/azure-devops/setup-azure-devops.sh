@@ -42,9 +42,12 @@ az devops configure --defaults organization="$ORG"
 PROJECT_ID=$(az devops project show --project "$WORK_PROJECT" --query id -o tsv)
 REPO_ID=$(az repos show --project "$WORK_PROJECT" --repository "$WORK_REPO" --query id -o tsv)
 az repos policy list --project "$WORK_PROJECT" --repository-id "$REPO_ID" -o json >"$tmp/policies.json"
-find_policy() { # $1 = policy type display name, $2 = extra jq condition on .settings
-  jq -r --arg n "$1" "[.[] | select(.type.displayName == \$n) | select(.settings | ${2:-true})][0].id // empty" "$tmp/policies.json"
+find_policy() { # $1 = policy type display name, $2 = extra jq condition on .settings ($b = the branch ref)
+  jq -r --arg n "$1" --arg b "refs/heads/$BRANCH" \
+    "[.[] | select(.type.displayName == \$n) | select(.settings | ${2:-true})][0].id // empty" "$tmp/policies.json"
 }
+# shellcheck disable=SC2016 # $b is a jq variable
+ON_BRANCH='any(.scope[]?; .refName == $b)'   # branch policies: only this branch's, never another branch's
 pipeline_id() { # $1 project, $2 name
   az pipelines list --project "$1" --name "$2" --query '[0].id' -o tsv 2>/dev/null || true
 }
@@ -64,7 +67,7 @@ fi
 
 # --- Layer 1 ----------------------------------------------------------------------------------------
 section "squash-only merges into $BRANCH"
-id=$(find_policy 'Require a merge strategy')
+id=$(find_policy 'Require a merge strategy' "$ON_BRANCH")
 merge_args=(--blocking true --enabled true --allow-squash true --allow-no-fast-forward false --allow-rebase false --allow-rebase-merge false)
 if [ -n "$id" ]; then
   mut az repos policy merge-strategy update --project "$WORK_PROJECT" --id "$id" "${merge_args[@]}" --query id -o tsv
@@ -85,7 +88,7 @@ section "required build validation (re-queued when $BRANCH moves)"
 # queue-on-source-update-only=false requires valid-duration 0.
 bv_args=(--blocking true --enabled true --manual-queue-only false --queue-on-source-update-only false
   --valid-duration 0 --display-name attribution-guard --build-definition-id "$BV_ID")
-id=$(find_policy 'Build' ".buildDefinitionId == ${BV_ID//[!0-9]/0}")
+id=$(find_policy 'Build' ".buildDefinitionId == ${BV_ID//[!0-9]/0} and $ON_BRANCH")
 if [ -n "$id" ]; then
   mut az repos policy build update --project "$WORK_PROJECT" --id "$id" "${bv_args[@]}" --query id -o tsv
 else
@@ -94,7 +97,7 @@ fi
 
 section "a PR that changes the guard files needs $REVIEWER"
 paths='/.azure-pipelines/attribution-guard.yml;/.azure-pipelines/attribution-audit.yml;/tools/attribution-guard/*'
-id=$(find_policy 'Required reviewers' '(.filenamePatterns // [] | index("/tools/attribution-guard/*")) != null')
+id=$(find_policy 'Required reviewers' "(.filenamePatterns // [] | index(\"/tools/attribution-guard/*\")) != null and $ON_BRANCH")
 if [ -z "$id" ]; then
   mut az repos policy required-reviewer create --project "$WORK_PROJECT" --repository-id "$REPO_ID" \
     --branch "$BRANCH" --blocking true --enabled true --path-filter "$paths" \
@@ -119,8 +122,11 @@ Manual prerequisites (portal), before this part works:
  b) In $GUARD_REPO (an import of my-claude-skills), edit tools/attribution-guard/azure-devops/pipelines/
     attribution-guard-status.yml and -sweep.yml: repository resource 'WorkProject/WorkRepo' -> '$WORK_PROJECT/$WORK_REPO'
     and GUARD_REPOS -> '$PROJECT_ID/$REPO_ID'; commit to main.
- c) $WORK_REPO > Security > '$GUARD_PROJECT Build Service ($ORG_NAME)': Read = Allow,
-    Contribute to pull requests = Allow (status posting and description sanitizing need it).
+ c) Grant '$GUARD_PROJECT Build Service ($ORG_NAME)' (the guard pipelines' project-scoped identity):
+    - $WORK_PROJECT > Project settings > Permissions: add it with "View project-level information" = Allow;
+    - $WORK_REPO > Security: Read = Allow, Contribute to pull requests = Allow
+      (reading the PR, posting the status and sanitizing the description need these).
+    Without them the required status never succeeds and every PR stays blocked.
 EOF
   for n in status sweep; do
     [ -n "$(pipeline_id "$GUARD_PROJECT" "attribution-guard-$n")" ] || mut az pipelines create --project "$GUARD_PROJECT" \
@@ -158,7 +164,7 @@ EOF
         authorId: $a, invalidateOnSourceUpdate: true, policyApplicability: null,
         defaultDisplayName: "attribution-guard (PR text)",
         scope: [{repositoryId: $r, refName: $b, matchKind: "Exact"}]}}' >"$tmp/status-policy.json"
-  id=$(find_policy 'Status' '.statusGenre == "attribution-guard"')
+  id=$(find_policy 'Status' ".statusGenre == \"attribution-guard\" and $ON_BRANCH")
   if [ -n "$id" ]; then
     mut az repos policy update --project "$WORK_PROJECT" --id "$id" --config "$tmp/status-policy.json" --query id -o tsv
   else
