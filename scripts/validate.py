@@ -100,28 +100,28 @@ def added_lines(ref: str) -> dict[str, tuple[list[int], list[str]]]:
     """{path: (line numbers, lines)} for every line added under plugins/ since REF,
     including whole untracked files (sync.sh copies new files in unstaged)."""
     out: dict[str, tuple[list[int], list[str]]] = {}
-    cur, ln = None, 0
     try:
-        diff = git("diff", ref, "-U0", "--no-color", "--", "plugins/")
+        # -z: paths verbatim; the patch headers C-quote non-ASCII names and tab-terminate names with spaces
+        changed = git("diff", "--name-only", "-z", "--no-renames", ref, "--", "plugins/").split("\0")
     except subprocess.CalledProcessError:
         print(f"✗ --diff: unknown git ref '{ref}'")
         sys.exit(1)
-    for line in diff.splitlines():
-        if line.startswith("+++ "):
-            # same file-type filter as the untracked-file loop below, so a modified .png/.csv is
-            # skipped just like a new one
-            cur = line[6:] if line.startswith("+++ b/") and Path(line[6:]).suffix in TEXT_EXT else None
-        elif line.startswith("@@"):
-            m = re.match(r"@@ -\S+ \+(\d+)", line)
-            ln = int(m.group(1)) if m else 0
-        elif cur and line.startswith("+") and not line.startswith("+++"):
-            nums, lines = out.setdefault(cur, ([], []))
-            nums.append(ln)
-            lines.append(line[1:])
-            ln += 1
-        elif cur and line.startswith("-"):
-            pass  # removed lines do not advance the new-file line counter
-    for path in git("ls-files", "--others", "--exclude-standard", "--", "plugins/").splitlines():
+    for path in changed:
+        # same file-type filter as the untracked-file loop below
+        if not path or Path(path).suffix not in TEXT_EXT:
+            continue
+        ln, in_hunk = 0, False
+        for line in git("diff", "--no-renames", "-U0", "--no-color", ref, "--", f":(literal){path}").splitlines():
+            if line.startswith("@@"):
+                m = re.match(r"@@ -\S+ \+(\d+)", line)
+                ln, in_hunk = (int(m.group(1)) if m else 0), True
+            elif in_hunk and line.startswith("+"):  # past the headers even "+++…" is an added line
+                nums, lines = out.setdefault(path, ([], []))
+                nums.append(ln)
+                lines.append(line[1:])
+                ln += 1
+            # removed lines ("-") do not advance the new-file line counter
+    for path in git("ls-files", "-z", "--others", "--exclude-standard", "--", "plugins/").split("\0"):
         if path and Path(path).suffix in TEXT_EXT:
             lines = (ROOT / path).read_text(encoding="utf-8", errors="replace").splitlines()
             out[path] = (list(range(1, len(lines) + 1)), lines)
@@ -260,8 +260,10 @@ else:
             scan(f.relative_to(ROOT).as_posix(), f.read_text(encoding="utf-8", errors="replace"), None, fail_high=False)
 
 before = (ROOT / "SKILLS.md").read_text(encoding="utf-8") if (ROOT / "SKILLS.md").exists() else ""
-subprocess.run([sys.executable, str(ROOT / "scripts/gen-catalog.py")], check=True, capture_output=True)
-if (ROOT / "SKILLS.md").read_text(encoding="utf-8") != before:
+gen = subprocess.run([sys.executable, str(ROOT / "scripts/gen-catalog.py")], capture_output=True, text=True)
+if gen.returncode != 0:  # e.g. an invalid manifest (reported above): report it, do not crash before the ✗ lines
+    problems.append(f"scripts/gen-catalog.py failed: {(gen.stderr.strip().splitlines() or ['no output'])[-1]}")
+elif (ROOT / "SKILLS.md").read_text(encoding="utf-8") != before:
     problems.append("SKILLS.md was stale (regenerated now; commit it)")
 
 if warnings:

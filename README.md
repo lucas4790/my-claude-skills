@@ -189,13 +189,13 @@ See [SKILLS.md](SKILLS.md) for the full catalog of every skill, command and agen
 - `sources.json` lists each upstream repo, the ref to track, a `trust` tier, and which paths to copy where.
 - `scripts/sync.sh` sparse-clones each source, copies the paths in (deleting anything upstream removed), applies the source's patches (below), records the synced commit in `UPSTREAM.lock.json`, then regenerates `SKILLS.md`. A source that fails (a patch that no longer applies, a path upstream removed) is put back to the last commit and keeps its old lock entry; the other sources still sync and the script exits 1. Flags: `--trust high|low`, `--only NAME`, `--locked` (rebuild from lockfile SHAs; patches apply there too).
 - `scripts/validate.py` checks manifests, skill frontmatter, file sizes, sha pins and catalog freshness, and scans every text file under `plugins/` for prompt-injection, exfiltration, credential-access and remote-execution patterns (`--diff REF` limits the scan to lines added since `REF`; see [SECURITY.md](SECURITY.md)).
-- `.github/workflows/sync-upstream.yml` runs daily at 06:00 UTC (and on dispatch) and opens one PR per tier (`sync/high-trust`, `sync/low-trust`, the latter also carrying pinned-sha bumps) with the validator's hits for the added lines in the body; automation never pushes to `main`. Before that it runs `scripts/test-skill-examples.sh` (every `powershell` example of the pester skill as a Pester 6 test) as a throwaway user without the workflow token, since that is unreviewed upstream code; a failure goes on top of the PR (see below). Pull requests touching plugins run the validator plus `claude plugin validate`, and a high-severity hit in the added lines fails the check; every pull request also runs the skill examples.
+- `.github/workflows/sync-upstream.yml` runs daily at 06:00 UTC (and on dispatch) and opens one PR per tier (`sync/high-trust`, `sync/low-trust`, the latter also carrying pinned-sha bumps) with the validator's hits for the added lines in the body; automation never pushes to `main`. Before that it runs the repo tests (`scripts/run-tests.sh`, see [Tests](#tests)) and `scripts/test-skill-examples.sh` (every `powershell` example of the pester skill as a Pester 6 test) on the synced tree, as a throwaway user without the workflow token, since that tree is unreviewed upstream code; a failure goes on top of the PR (see below). Pull requests touching plugins run the validator plus `claude plugin validate`, and a high-severity hit in the added lines fails the check; every pull request also runs the repo tests and the skill examples.
 
 See [SECURITY.md](SECURITY.md) for the trust model. Run locally with `scripts/sync.sh` (needs `git`, `rsync`, `jq`, `python3`).
 
 ### A red sync run
 
-- **PR titled "... (sync/test failure)"** with a *Sync failure* or *Skill example tests failed* section at the top and a failed `validate-pr` status: the rest of the tier synced, but the listed sources stayed at their last synced commit, or upstream now ships an example that fails. Do not merge a failing example as is: fix it with a patch (below) or drop the source.
+- **PR titled "... (sync/test failure)"** with a *Sync failure*, *Repo tests failed* or *Skill example tests failed* section at the top and a failed `validate-pr` status: the rest of the tier synced, but the listed sources stayed at their last synced commit, a test no longer passes on the synced tree (e.g. `tests/evals/triggers.yaml` names a skill upstream renamed), or upstream now ships an example that fails. Do not merge a failing example as is: fix it with a patch (below) or drop the source.
 - **Failed workflow run, no PR**: a source failed and nothing else changed. The `error:` lines of the run name the source.
 - `error: patches/<name>.patch no longer applies to <source>@<sha>; refresh it (see README)`: upstream changed the lines the patch touches. Refresh the patch as below. The CI clone is shallow, so the 3-way fallback that `sync.sh` tries after a plain `git apply` only succeeds locally, where the patch's base version is in the object store.
 
@@ -222,6 +222,12 @@ Vendored files are never edited by hand (the next sync overwrites them). A copy 
 3. Add a plugin entry to `.claude-plugin/marketplace.json` pointing at `./plugins/<name>`.
 4. Add the plugin to exactly one profile in `profiles.json` (the validator enforces this).
 5. Run `scripts/sync.sh --only <name>` and `python3 scripts/validate.py`, then commit.
+
+## Tests
+
+`scripts/run-tests.sh` runs the repo's own tests and prints a summary per suite: the bats suites in `tests/bats/` (`sync.sh` copying, `--only`/`--trust`/`--locked`, failing sources and patches; `update-plugins.sh`; `bump-pinned.sh`; `bash -n`, shellcheck and a PowerShell parse check of the installers and scripts) and `python3 -m pytest tests/` (`validate.py`, `gen-catalog.py` and the other pytest suites under `tests/`). Every test works in a temp dir against local fake upstreams and fake `claude`/`copilot` binaries: no network, and neither the checkout nor `~/.claude` is touched.
+
+Prerequisites: bats-core ≥ 1.4 and pytest (`sudo apt install bats python3-pytest`; macOS: `brew install bats-core` and `python3 -m pip install pytest`), plus git, rsync, jq and python3. shellcheck and pwsh are optional; their checks are skipped without them (`PWSH=/path/to/pwsh` for a pwsh outside PATH). `scripts/run-tests.sh bats` or `scripts/run-tests.sh pytest` runs one kind; `RUN_KNOWN_BUGS=1` also runs tests that document an open bug (marked with `known_bug`; they fail until it is fixed, then the marker goes).
 
 ## Licensing
 

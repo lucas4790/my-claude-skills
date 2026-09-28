@@ -81,6 +81,7 @@ for p in MARKETPLACE["plugins"]:
             continue
         out += [f"### {title}", "", "| Name | What it does |", "|---|---|"]
         for n, d, rel in items:
+            d = d.replace("|", "\\|")  # a bare | would end the table cell
             out.append(f"| [`{n}`]({rel}) | {d} |")
         out.append("")
 
