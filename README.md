@@ -172,7 +172,7 @@ See [SKILLS.md](SKILLS.md) for the full catalog of every skill, command and agen
 | `dotnet` | [dotnet/skills](https://github.com/dotnet/skills) (official Microsoft) | Roslyn C# language server (via `dnx`, needs .NET 10 SDK on PATH) + core .NET skills |
 | `azure-agent-skills` | [MicrosoftDocs/agent-skills](https://github.com/MicrosoftDocs/agent-skills) (official Microsoft) | 32 curated Azure skills — DevOps (Azure DevOps, Pipelines, Repos, Artifacts, Boards, ACR), platform (AKS, Key Vault, RBAC, Monitor, Managed Grafana, Policy, ARM, Cost, Logic Apps, Well-Architected, OpenTelemetry, Functions) and networking (VNet, DNS, Private Link, NAT, LB, App Gateway, WAF, Front Door, Firewall, Network Watcher, Bastion, VPN, DDoS). Structured Microsoft Learn indexes, not command recipes: they tell the model what to look up and fetch the live docs through the [Learn MCP server](https://learn.microsoft.com/training/support/mcp) |
 | `csharp-patterns` | [Aaronontheweb/dotnet-skills](https://github.com/Aaronontheweb/dotnet-skills) | 12 curated C# design skills: coding standards, concurrency, nullable, API/type design, config, DI, serialization, project structure, packages, Testcontainers, AOT |
-| `powershell` | [Misaka-Mikoto-Tech/agent-skills](https://github.com/Misaka-Mikoto-Tech/agent-skills), [github/awesome-copilot](https://github.com/github/awesome-copilot) | safe native-command invocation, quoting, escaping, encoding, `Start-Process` rules; Pester 6 testing guidelines (github/awesome-copilot) |
+| `powershell` | [Misaka-Mikoto-Tech/agent-skills](https://github.com/Misaka-Mikoto-Tech/agent-skills), [github/awesome-copilot](https://github.com/github/awesome-copilot) | safe native-command invocation, quoting, escaping, encoding, `Start-Process` rules; Pester 6 testing guidelines (github/awesome-copilot), synced from awesome-copilot with local patches (`patches/pester.patch`) |
 | `mattpocock-skills` | [mattpocock/skills](https://github.com/mattpocock/skills) | 24 engineering skills: grill-me / grill-with-docs, to-spec, to-tickets, tdd, domain-modeling, triage, implement, handoff… (`code-review` excluded in favour of `pr-review-toolkit`); run `setup-matt-pocock-skills` once per repo |
 | `agent-browser` | [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) | browser automation CLI skill (navigate, forms, screenshots, extraction, QA); `install.sh` sets up the CLI + Chrome |
 | `spec-kit` | [github/spec-kit](https://github.com/github/spec-kit) | repo-owned bootstrap skill: installs Spec Kit via `uvx`/`uv tool` and guides the `/speckit.*` workflow; the `speckit-*` skills are generated per project by the CLI |
@@ -187,15 +187,37 @@ See [SKILLS.md](SKILLS.md) for the full catalog of every skill, command and agen
 ## How syncing works
 
 - `sources.json` lists each upstream repo, the ref to track, a `trust` tier, and which paths to copy where.
-- `scripts/sync.sh` sparse-clones each source, copies the paths in (deleting anything upstream removed), records the synced commit in `UPSTREAM.lock.json`, then regenerates `SKILLS.md`. Flags: `--trust high|low`, `--only NAME`, `--locked` (rebuild from lockfile SHAs).
+- `scripts/sync.sh` sparse-clones each source, copies the paths in (deleting anything upstream removed), applies the source's patches (below), records the synced commit in `UPSTREAM.lock.json`, then regenerates `SKILLS.md`. A source that fails (a patch that no longer applies, a path upstream removed) is put back to the last commit and keeps its old lock entry; the other sources still sync and the script exits 1. Flags: `--trust high|low`, `--only NAME`, `--locked` (rebuild from lockfile SHAs; patches apply there too).
 - `scripts/validate.py` checks manifests, skill frontmatter, file sizes, sha pins and catalog freshness, and scans every text file under `plugins/` for prompt-injection, exfiltration, credential-access and remote-execution patterns (`--diff REF` limits the scan to lines added since `REF`; see [SECURITY.md](SECURITY.md)).
-- `.github/workflows/sync-upstream.yml` runs daily at 06:00 UTC (and on dispatch) and opens one PR per tier (`sync/high-trust`, `sync/low-trust`, the latter also carrying pinned-sha bumps) with the validator's hits for the added lines in the body; automation never pushes to `main`. Pull requests touching plugins run the validator plus `claude plugin validate`, and a high-severity hit in the added lines fails the check.
+- `.github/workflows/sync-upstream.yml` runs daily at 06:00 UTC (and on dispatch) and opens one PR per tier (`sync/high-trust`, `sync/low-trust`, the latter also carrying pinned-sha bumps) with the validator's hits for the added lines in the body; automation never pushes to `main`. Before that it runs `scripts/test-skill-examples.sh` (every `powershell` example of the pester skill as a Pester 6 test) as a throwaway user without the workflow token, since that is unreviewed upstream code; a failure goes on top of the PR (see below). Pull requests touching plugins run the validator plus `claude plugin validate`, and a high-severity hit in the added lines fails the check; every pull request also runs the skill examples.
 
 See [SECURITY.md](SECURITY.md) for the trust model. Run locally with `scripts/sync.sh` (needs `git`, `rsync`, `jq`, `python3`).
 
+### A red sync run
+
+- **PR titled "... (sync/test failure)"** with a *Sync failure* or *Skill example tests failed* section at the top and a failed `validate-pr` status: the rest of the tier synced, but the listed sources stayed at their last synced commit, or upstream now ships an example that fails. Do not merge a failing example as is: fix it with a patch (below) or drop the source.
+- **Failed workflow run, no PR**: a source failed and nothing else changed. The `error:` lines of the run name the source.
+- `error: patches/<name>.patch no longer applies to <source>@<sha>; refresh it (see README)`: upstream changed the lines the patch touches. Refresh the patch as below. The CI clone is shallow, so the 3-way fallback that `sync.sh` tries after a plain `git apply` only succeeds locally, where the patch's base version is in the object store.
+
+### Patching vendored files
+
+Vendored files are never edited by hand (the next sync overwrites them). A copy entry in `sources.json` can name a patch instead, a unified diff in `patches/` relative to the repo root:
+
+```json
+{ "from": "instructions/powershell-pester-6.instructions.md",
+  "to": "plugins/powershell/skills/pester/SKILL.md",
+  "patch": "patches/pester.patch" }
+```
+
+`sync.sh` checks that every patch file exists before cloning, applies a source's patches once all of its copies are written (`git apply`, falling back to a 3-way merge), and fails the source when one does not apply. Create or refresh a patch for `<to>` of source `<source>`:
+
+1. Remove the `"patch"` key from the copy entry and run `scripts/sync.sh --only <source>`: `<to>` is now pure upstream. Stage it with `git add <to>`.
+2. Edit `<to>` into the version you want, e.g. start from `git show HEAD:<to>` (the last patched version) and take over what upstream changed. Then `git diff -- <to> > patches/<name>.patch` and `git reset -q -- <to>`.
+3. Restore the `"patch"` key and run `scripts/sync.sh --only <source>` twice: both times `<to>` must come out byte-identical to your version (`cmp`). Check that the patch holds only your changes, run `scripts/test-skill-examples.sh` for a skill with examples, and commit the patch with `<to>`, `sources.json`, `UPSTREAM.lock.json` and `SKILLS.md`.
+
 ## Adding a source
 
-1. Add an entry to `sources.json` with the repo, ref, `trust` (`high` only for vendors you would run code from unreviewed), and `copy` mappings into `plugins/<name>/...` (a copy entry may list `exclude` paths, relative to `from`).
+1. Add an entry to `sources.json` with the repo, ref, `trust` (`high` only for vendors you would run code from unreviewed), and `copy` mappings into `plugins/<name>/...` (a copy entry may list `exclude` paths, relative to `from`, and a `patch` for local changes; see "Patching vendored files").
 2. If it is a bare skills folder (not a full plugin), add `plugins/<name>/.claude-plugin/plugin.json`.
 3. Add a plugin entry to `.claude-plugin/marketplace.json` pointing at `./plugins/<name>`.
 4. Add the plugin to exactly one profile in `profiles.json` (the validator enforces this).

@@ -11,9 +11,10 @@ VS Code. Most of `plugins/` is **vendored** from upstream repos listed in `sourc
 ## Rules
 - Do not edit vendored content. Change `sources.json` (repo, ref, trust, copy/exclude) and run
   `scripts/sync.sh --only <source>` instead. Which paths are vendored: every `copy[].to` in `sources.json`.
-- Repo-owned files you may edit: `plugins/component-documentation/`, `plugins/spec-kit/`,
-  `plugins/powershell/skills/pester/` and `plugins/powershell/LICENSE.awesome-copilot` (adapted from
-  github/awesome-copilot, MIT), every `plugins/*/.claude-plugin/plugin.json` that `sources.json` does not copy,
+- To change a vendored file, never edit it: edit `patches/<name>.patch` (regenerate as in README,
+  "Patching vendored files"). `sync.sh` applies it after every sync.
+- Repo-owned files you may edit: `plugins/component-documentation/`, `plugins/spec-kit/`, `patches/`,
+  every `plugins/*/.claude-plugin/plugin.json` that `sources.json` does not copy,
   `plugins/pyright-lsp/plugin.json` (Copilot manifest), `profiles.json`, `settings/`, `scripts/`, installers, docs.
 - Adding a plugin: `sources.json` entry → `plugins/<name>/.claude-plugin/plugin.json` if upstream has none →
   `.claude-plugin/marketplace.json` entry → add it to exactly one profile in `profiles.json` →
@@ -39,6 +40,7 @@ VS Code. Most of `plugins/` is **vendored** from upstream repos listed in `sourc
 ## Checks before a PR
 ```bash
 python3 scripts/validate.py          # manifests, skills, profiles, injection scan; regenerates SKILLS.md
+scripts/test-skill-examples.sh       # runs the pester skill's examples under Pester 6 (needs pwsh)
 sh tools/attribution-guard/tests/run-tests.sh
 python3 tools/attribution-guard/azure-devops/gen.py --check   # regenerate with gen.py after editing ado-pr-guard.sh
 bash tools/attribution-guard/azure-devops/tests/run-tests.sh && bash tools/attribution-guard/azure-devops/tests/run-dispatch-tests.sh

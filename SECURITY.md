@@ -9,10 +9,12 @@ Everything under `plugins/` is **third-party prompt text and code** that Claude 
 | Tier | Sources | How updates land |
 |---|---|---|
 | high | anthropics/skills, anthropics/claude-plugins-official, dotnet/skills, vercel-labs/agent-browser | Daily sync opens a **pull request** on branch `sync/high-trust`; expected to be a quick merge, but a human still looks |
-| low | community repos (Aaronontheweb, Misaka-Mikoto-Tech, mattpocock, eabait) | Daily sync opens a **pull request** on branch `sync/low-trust`; read it |
+| low | community repos (Aaronontheweb, Misaka-Mikoto-Tech, mattpocock, eabait), github/awesome-copilot | Daily sync opens a **pull request** on branch `sync/low-trust`; read it |
 | pinned external | `caveman` (runs hooks via `node` on every prompt) | Referenced by exact `sha` in `marketplace.json`; `scripts/bump-pinned.sh` proposes bumps in the low-trust PR |
 
 Nothing reaches `main` without a pull request: branch protection requires a PR and a green `validate-pr` check, for admins too, and automation never pushes to `main`. Sync PRs are created with `GITHUB_TOKEN`, which does not trigger workflows, so the sync job validates them itself and reports the `validate-pr` status (structural problems fail it; injection hits only annotate the PR). The tier only decides which PR a change lands in, so trusted vendors don't hold up review of community sources.
+
+The sync job also runs the pester skill's examples (`scripts/test-skill-examples.sh`), which is unreviewed upstream code: it runs as a throwaway user with an empty environment on a copy of the tree, and its leftover processes are killed; the workflow token is passed only to the PR step and the checkout keeps no credentials. Local changes to vendored files live in `patches/` (repo-owned, reviewed like any other change) and are re-applied on every sync.
 
 Both sync PRs regenerate `SKILLS.md` and `UPSTREAM.lock.json`, so after merging one the other may show a conflict. Don't resolve it by hand: the next run (daily, or `workflow_dispatch`) rebuilds each branch from `main` with `--force`. An open sync PR is closed automatically (branch deleted, review comments included) once upstream no longer differs from `main`.
 

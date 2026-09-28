@@ -1,0 +1,79 @@
+diff --git a/plugins/powershell/skills/pester/SKILL.md b/plugins/powershell/skills/pester/SKILL.md
+index 49839fb..c280379 100644
+--- a/plugins/powershell/skills/pester/SKILL.md
++++ b/plugins/powershell/skills/pester/SKILL.md
+@@ -1,11 +1,19 @@
+ ---
+-applyTo: '**/*.Tests.ps1'
+-description: 'PowerShell Pester testing best practices based on Pester v6 conventions'
++name: pester
++description: Use when writing, fixing, reviewing or running Pester tests for PowerShell (Pester 6, v5 syntax still accepted) - *.Tests.ps1 files, Discovery vs Run phases, Describe/Context/It blocks, Should and Should-* assertions, Mock and Should -Invoke, -ForEach/-TestCases data-driven tests, tags, skips, and Invoke-Pester / New-PesterConfiguration setup for CI (NUnitXml results, code coverage).
+ ---
+ 
+ # PowerShell Pester v6 Testing Guidelines
+ 
+-This guide provides PowerShell-specific instructions for creating automated tests with the PowerShell Pester v6 module. Pester v6 runs on Windows PowerShell 5.1 and PowerShell 7.4+. Follow the general PowerShell scripting guidance in [powershell.instructions.md](./powershell.instructions.md).
++> Adapted from [github/awesome-copilot](https://github.com/github/awesome-copilot)
++> `instructions/powershell-pester-6.instructions.md` (MIT, see the plugin's `LICENSE.awesome-copilot`).
++> Local fixes:
++> - removed the sentence linking to `./powershell.instructions.md`, which does not exist here;
++> - the `-TestCases` example uses the key `Value` instead of `Input`: `$Input` is an automatic variable, so the test failed;
++> - the `BeforeDiscovery` example uses `<_.Name>` and `$_.Name`: `ConvertFrom-Json` yields objects, not hashtables, so `$Name` was `$null` and the test passed vacuously;
++> - the structure skeleton puts each `{ # comment }` on its own line; on one line the comment hides the closing brace.
++
++This guide provides PowerShell-specific instructions for creating automated tests with the PowerShell Pester v6 module. Pester v6 runs on Windows PowerShell 5.1 and PowerShell 7.4+.
+ 
+ Pester v6 is largely compatible with v5, but it makes several previously deprecated behaviours fail fast. Keep each test file self-contained and run the suite with the same PowerShell and Pester versions used by CI.
+ 
+@@ -19,12 +27,20 @@ Pester v6 is largely compatible with v5, but it makes several previously depreca
+ ## Test Structure Hierarchy
+ 
+ ```powershell
+-BeforeAll { # Import tested functions }
++BeforeAll {
++    # Import tested functions
++}
+ Describe 'FunctionName' {
+     Context 'When condition' {
+-        BeforeAll { # Setup for context }
+-        It 'Should behavior' { # Individual test }
+-        AfterAll { # Cleanup for context }
++        BeforeAll {
++            # Setup for context
++        }
++        It 'Should behavior' {
++            # Individual test
++        }
++        AfterAll {
++            # Cleanup for context
++        }
+     }
+ }
+ ```
+@@ -45,7 +61,9 @@ BeforeAll {
+ }
+ 
+ Describe 'MyModule' {
+-    It 'handles <Name>' -ForEach $cases { Invoke-Thing $Name | Should -Be 'ok' }
++    # ConvertFrom-Json yields objects, not hashtables, so $Name is $null and the test passes vacuously;
++    # use $_ (and <_.Name> in the name) for object items.
++    It 'handles <_.Name>' -ForEach $cases { Invoke-Thing $_.Name | Should -Be 'ok' }
+ }
+ ```
+ 
+@@ -99,11 +117,11 @@ Should -Invoke Get-Service -Exactly 1 -ParameterFilter { $Name -eq 'TestService'
+ Use `-TestCases` or `-ForEach` for parameterized tests. In Pester v6, `$null` or an empty array throws instead of silently skipping; fix the data source or opt in to an empty case with `-AllowNullOrEmptyForEach` on the specific block.
+ 
+ ```powershell
+-It 'Should return <Expected> for <Input>' -TestCases @(
+-    @{ Input = 'value1'; Expected = 'result1' }
+-    @{ Input = 'value2'; Expected = 'result2' }
++It 'Should return <Expected> for <Value>' -TestCases @(
++    @{ Value = 'value1'; Expected = 'result1' }
++    @{ Value = 'value2'; Expected = 'result2' }
+ ) {
+-    Get-Function $Input | Should -Be $Expected
++    Get-Function $Value | Should -Be $Expected
+ }
+ ```
+ 
