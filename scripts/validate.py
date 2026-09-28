@@ -136,7 +136,10 @@ def added_lines(ref: str) -> dict[str, tuple[list[int], list[str]]]:
         if not path or Path(path).suffix not in TEXT_EXT:
             continue
         ln, in_hunk = 0, False
-        for line in git("diff", "--no-renames", "-U0", "--no-color", ref, "--", f":(literal){path}").splitlines():
+        # --text etc.: a NUL byte or a `-diff` .gitattributes entry must not turn the added lines into
+        # "Binary files differ" and so hide them from the scan
+        for line in git("diff", "--text", "--no-textconv", "--no-ext-diff", "--no-renames", "-U0", "--no-color",
+                        ref, "--", f":(literal){path}").splitlines():
             if line.startswith("@@"):
                 m = re.match(r"@@ -\S+ \+(\d+)", line)
                 ln, in_hunk = (int(m.group(1)) if m else 0), True
@@ -276,6 +279,15 @@ for f in ROOT.glob("plugins/**/*"):
         problems.append(f"{f.relative_to(ROOT)}: file over 5 MB")
 
 # --- injection scan -----------------------------------------------------------
+added = added_lines(args.diff) if args.diff else {}
+
+
+def changed_since_ref(rel: str) -> bool:
+    """rel differs from --diff REF in the working tree (any edit, deletions included) or is untracked."""
+    return bool(git("diff", "--name-only", "--no-renames", args.diff, "--", f":(literal){rel}").strip()
+                or git("ls-files", "--others", "--exclude-standard", "--", f":(literal){rel}").strip())
+
+
 reviewed_file = ROOT / "scripts/reviewed-hooks.json"
 if reviewed_file.exists():
     listed = (check_json(reviewed_file) or {}).get("reviewed", {})
@@ -284,12 +296,21 @@ if reviewed_file.exists():
         if not current:
             warnings.append(f"scripts/reviewed-hooks.json: {rel} does not exist; remove the entry")
         elif current != digest:
-            warnings.append(f"scripts/reviewed-hooks.json: {rel} changed since it was reviewed; after reviewing it, "
-                            f"set its hash to {current}")
+            msg = (f"scripts/reviewed-hooks.json: {rel} changed since it was reviewed; after reviewing it, "
+                   f"set its hash to {current}")
+            # any edit of a reviewed hook file in this diff fails like a new registration, not only an edit
+            # of the line holding the event name
+            if args.diff and not args.warn_only and changed_since_ref(rel):
+                injections.append(f"{rel}: [high] reviewed hook file changed; {msg}")
+            else:
+                warnings.append(msg)
         else:
             REVIEWED_HOOKS[rel] = digest
+    if args.diff and changed_since_ref("scripts/reviewed-hooks.json"):
+        warnings.append(f"scripts/reviewed-hooks.json changed since {args.diff}: each added or changed entry declares a "
+                        f"hook reviewed; check every one of them in this diff")
 if args.diff:
-    for path, (nums, lines) in added_lines(args.diff).items():
+    for path, (nums, lines) in added.items():
         scan(path, "\n".join(lines), nums, fail_high=not args.warn_only)
 else:
     for f in ROOT.glob("plugins/**/*"):

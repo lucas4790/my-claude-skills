@@ -39,7 +39,7 @@ Every text file under `plugins/` (`.md`, `.json`, `.yaml`, `.sh`, `.ps1`, `.py`,
 
 A `high` phrase that sits inside quotes (`"ignore previous instructions"`) is downgraded to `low`: that is a skill *describing* injection so it can resist it, which several vendored agents do.
 
-A hook registration in a repo-owned plugin that the owner reviewed is listed with the sha256 of its file in [`scripts/reviewed-hooks.json`](scripts/reviewed-hooks.json) and then reported as `[reviewed]`. The entry covers only the hook registration, only while the file is unchanged: any edit makes it `high` again (validate.py prints the new hash), so adding or changing an entry is part of reviewing that hook.
+A hook registration in a repo-owned plugin that the owner reviewed is listed with the sha256 of its file in [`scripts/reviewed-hooks.json`](scripts/reviewed-hooks.json) and then reported as `[reviewed]`. The entry covers only the hook registration, only while the file is unchanged: any edit of that file in a PR fails `--diff` again (validate.py prints the new hash), and a PR that changes the list gets a notice, so adding or changing an entry is part of reviewing that hook. The hash pins the registration file, not the scripts it runs: those are reviewed like any other change in the PR diff.
 
 The scan is **diff-aware**. With `--diff REF` only lines added since `REF` (plus whole new files) are scanned, so the same known text does not raise the same warning every day:
 

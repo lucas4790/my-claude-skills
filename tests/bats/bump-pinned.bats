@@ -120,3 +120,19 @@ run_bump() { PATH="$T/bin:$PATH" run bash "$R/scripts/bump-pinned.sh"; }
   assert_status 0
   assert_eq "$(pinned tagged)" "$M1" "tagged sha"
 }
+
+@test "bump-pinned: a fully qualified annotated tag ref (refs/tags/v1) pins the tagged commit" {
+  git -C "$T/up/moved" tag -a v1 -m "release v1" "$M1"
+  marketplace "$(url_plugin tagged moved "$M2" refs/tags/v1)"
+  run_bump
+  assert_status 0
+  assert_eq "$(pinned tagged)" "$M1" "tagged sha"
+}
+
+@test "bump-pinned: a branch wins over a tag of the same name" {
+  git -C "$T/up/moved" tag -a main -m "confusing tag" "$M1"
+  marketplace "$(url_plugin moved moved "$M1")"
+  run_bump
+  assert_status 0
+  assert_eq "$(pinned moved)" "$M2" "moved sha"
+}

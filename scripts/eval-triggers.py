@@ -708,7 +708,8 @@ def json_report(results: list[CaseResult], stats: dict, summary: dict) -> dict:
 def credentials(claude: str, env: dict[str, str] | None = None, runner=subprocess.run) -> tuple[bool, str]:
     env = os.environ if env is None else env
     for var in CREDENTIAL_VARS:
-        if env.get(var):
+        # CLAUDE_CODE_USE_BEDROCK=0 and friends switch a provider off, they are no credentials
+        if env.get(var, "").strip().lower() not in ("", "0", "false", "no", "off"):
             return True, var
     try:
         r = runner([claude, "auth", "status"], capture_output=True, text=True, timeout=60,
