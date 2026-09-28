@@ -48,6 +48,12 @@ printf 'x\n' | grep -E -i -e "$ATTRIB_RE" >/dev/null 2>&1
 [ $? -le 1 ] || die "the attribution pattern does not compile (grep -E)"
 printf 'x\n' | awk 'BEGIN { re = tolower(ENVIRON["ATTRIB_RE"]) } { if ($0 ~ re) n++ }' >/dev/null 2>&1 \
     || die "the attribution pattern does not compile (awk)"
+# Self-test, because some awks (busybox) treat a pattern that does not compile as one that never
+# matches: a known trailer must match and a plain word must not.
+awk_hit() { printf '%s\n' "$1" | awk 'BEGIN { re = tolower(ENVIRON["ATTRIB_RE"]) } { if (tolower($0) ~ re) h = 1 } END { exit !h }'; }
+if ! awk_hit 'Co-Authored-By: Claude <noreply@anthropic.com>' || awk_hit x; then
+    die "the attribution pattern fails its self-test (awk)"
+fi
 
 # Remove zero-width characters (U+200B-U+200D, U+2060, U+FEFF) that would split a pattern.
 norm() {

@@ -7,6 +7,7 @@
 set -euo pipefail
 R=${1:-lucas4790/my-claude-skills}
 command -v gh >/dev/null || { echo "gh (GitHub CLI) is required: https://cli.github.com" >&2; exit 1; }
+command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
 
 # The check below is only ever reported by .github/workflows/attribution-guard.yml ON THE DEFAULT
 # BRANCH (pull_request_target). Requiring it earlier leaves every open PR waiting forever.
@@ -32,17 +33,35 @@ else
 fi
 
 echo "==> ruleset 'Default' on the default branch: no deletion, no force-push, PRs squash-only"
+# Only these rules are set; every other rule, the bypass list and other branch conditions of an
+# existing 'Default' ruleset are kept.
+ours=$(jq -n --argjson extra "${extra_check:-0}" '
+  [{type: "deletion"}, {type: "non_fast_forward"},
+   {type: "pull_request", parameters: {allowed_merge_methods: ["squash"], dismiss_stale_reviews_on_push: false,
+     require_code_owner_review: false, require_last_push_approval: false, required_approving_review_count: 0,
+     required_review_thread_resolution: false}}]
+  + (if $extra == 1 then [{type: "required_status_checks", parameters: {strict_required_status_checks_policy: false,
+       required_status_checks: [{context: "attribution-guard"}, {context: "validate-pr"}]}}] else [] end)')
 rid=$(gh api "repos/$R/rulesets" --jq '.[] | select(.name == "Default") | .id' | head -n 1)
-rules='[{"type":"deletion"},{"type":"non_fast_forward"},
-  {"type":"pull_request","parameters":{"allowed_merge_methods":["squash"],"dismiss_stale_reviews_on_push":false,
-   "require_code_owner_review":false,"require_last_push_approval":false,"required_approving_review_count":0,
-   "required_review_thread_resolution":false}}'
-if [ "${extra_check:-0}" = 1 ]; then
-  rules="$rules"',{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":false,
-   "required_status_checks":[{"context":"attribution-guard"},{"context":"validate-pr"}]}}'
-fi
-body=$(printf '{"name":"Default","target":"branch","enforcement":"active","bypass_actors":[],
-  "conditions":{"ref_name":{"include":["~DEFAULT_BRANCH"],"exclude":[]}},"rules":%s]}' "$rules")
+if [ -n "$rid" ]; then existing=$(gh api "repos/$R/rulesets/$rid")
+else existing='{"name": "Default"}'; fi
+body=$(jq --argjson ours "$ours" '
+  def by_type(t): [.[] | select(.type == t)][0];
+  . as $e | ($e.rules // []) as $r
+  | ($ours | by_type("required_status_checks")) as $orsc | ($r | by_type("required_status_checks")) as $rsc
+  | {name: "Default", target: "branch", enforcement: "active", bypass_actors: ($e.bypass_actors // []),
+     conditions: {ref_name: {include: ((($e.conditions.ref_name.include // []) + ["~DEFAULT_BRANCH"]) | unique),
+                             exclude: ($e.conditions.ref_name.exclude // [])}},
+     rules: ([$r[] | select(.type as $t | ["deletion", "non_fast_forward", "pull_request", "required_status_checks"] | index($t) | not)]
+       + [{type: "deletion"}, {type: "non_fast_forward"},
+          {type: "pull_request", parameters: ((($r | by_type("pull_request")).parameters // ($ours | by_type("pull_request")).parameters)
+                                              + {allowed_merge_methods: ["squash"]})}]
+       + (if $rsc == null and $orsc == null then []
+          else [{type: "required_status_checks", parameters: (($rsc.parameters // $orsc.parameters)
+                 | .required_status_checks = (((.required_status_checks // []) + ($orsc.parameters.required_status_checks // [])) | unique_by(.context)))}]
+          end))}' <<<"$existing")
+echo "    rules before: $(jq -c '[(.rules // [])[].type]' <<<"$existing"); after: $(jq -c '[.rules[].type]' <<<"$body")"
+echo "    bypass actors kept: $(jq -c '.bypass_actors' <<<"$body")"
 if [ -n "$rid" ]; then
   gh api -X PUT "repos/$R/rulesets/$rid" --silent --input - <<<"$body"
 else

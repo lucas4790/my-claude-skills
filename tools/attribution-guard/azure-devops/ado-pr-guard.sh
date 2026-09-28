@@ -76,7 +76,11 @@ END {
 }'
 
 # A pattern that does not compile would make every check pass: refuse instead (fail closed).
-printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" >/dev/null 2>&1 || die "the attribution pattern does not compile."
+# Also a self-test, because some awks treat a pattern that does not compile as one that never matches.
+canary=${ATTRIB_CANARY:-"Co-Authored-By: Claude <noreply@anthropic.com>"}
+[[ -n $(printf '%s\n' "$canary" | awk -v mode=report "$ATTRIB_AWK" 2>/dev/null) \
+   && -z $(printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" 2>/dev/null) ]] \
+  || die "the attribution pattern does not compile or fails its self-test."
 
 fail=0
 scan() { # $1 = where, $2 = file

@@ -66,14 +66,19 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          ref: ${{ github.event.repository.default_branch }}   # patterns from main, also for a tag push
           sparse-checkout: tools/attribution-guard
       - name: Check the commits that just landed on main
         if: startsWith(github.ref, 'refs/heads/')
         run: |
           set -euo pipefail
           ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
-          # A pattern that does not compile would pass everything: fail the job instead.
+          # Self-test: a pattern that does not compile, is empty or matches everything must fail the
+          # job, never pass (or strip) everything.
           printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" >/dev/null
+          [ -n "$(printf 'Co-Authored-By: Claude <noreply@anthropic.com>\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
+            && [ -z "$(printf 'x\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
+            || { echo "::error::the attribution pattern fails its self-test"; exit 1; }
           t=$RUNNER_TEMP
           fail=0
           jq -r '.commits[] | @base64' "$GITHUB_EVENT_PATH" > "$t/commits.b64"
@@ -104,8 +109,12 @@ jobs:
         run: |
           set -euo pipefail
           ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
-          # A pattern that does not compile would pass everything: fail the job instead.
+          # Self-test: a pattern that does not compile, is empty or matches everything must fail the
+          # job, never pass (or strip) everything.
           printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" >/dev/null
+          [ -n "$(printf 'Co-Authored-By: Claude <noreply@anthropic.com>\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
+            && [ -z "$(printf 'x\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
+            || { echo "::error::the attribution pattern fails its self-test"; exit 1; }
           t=$RUNNER_TEMP
           fail=0
           obj=$(jq -r '.after' "$GITHUB_EVENT_PATH")
@@ -123,6 +132,9 @@ jobs:
             obj=$(jq -r '.object.sha' "$t/tag.json"); type=$(jq -r '.object.type' "$t/tag.json")
             depth=$((depth + 1))
           done
+          if [ "$type" = tag ]; then
+            echo "::error title=AI attribution in a tag::tags nested deeper than 10 are refused"; fail=1
+          fi
           if [ "$type" = commit ]; then
             gh api "repos/$REPO/commits/$obj" > "$t/c.json"
             jq -r '.commit.message // ""' "$t/c.json" > "$t/msg.txt"
@@ -159,15 +171,19 @@ jobs:
         run: |
           set -euo pipefail
           ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
-          # A pattern that does not compile would pass everything: fail the job instead.
+          # Self-test: a pattern that does not compile, is empty or matches everything must fail the
+          # job, never pass (or strip) everything.
           printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" >/dev/null
+          [ -n "$(printf 'Co-Authored-By: Claude <noreply@anthropic.com>\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
+            && [ -z "$(printf 'x\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
+            || { echo "::error::the attribution pattern fails its self-test"; exit 1; }
           t=$RUNNER_TEMP
           case $EVENT in
             issues)
               n=$(jq -r '.issue.number' "$GITHUB_EVENT_PATH"); api="repos/$REPO/issues/$n"; method=PATCH
               jq -r '.issue.title // ""' "$GITHUB_EVENT_PATH" > "$t/title.txt"
               if [ -n "$(awk -v mode=report "$ATTRIB_AWK" "$t/title.txt")" ]; then
-                echo "::error title=AI attribution::issue #$n title; edit it by hand"
+                echo "::error title=AI attribution::issue #$n title; edit it by hand"; title_hit=1
               fi
               jq -r '.issue.body // ""' "$GITHUB_EVENT_PATH" > "$t/body.md" ;;
             issue_comment)
@@ -182,10 +198,11 @@ jobs:
               jq -r '.review.body // ""' "$GITHUB_EVENT_PATH" > "$t/body.md" ;;
           esac
           hits=$(awk -v mode=report "$ATTRIB_AWK" "$t/body.md")
-          if [ -z "$hits" ]; then echo "Clean."; exit 0; fi
+          if [ -z "$hits" ]; then echo "Clean."; exit "${title_hit:-0}"; fi
           awk -v mode=strip "$ATTRIB_AWK" "$t/body.md" > "$t/clean.md"
           jq -n --rawfile body "$t/clean.md" '{body: $body}' | gh api -X "$method" "$api" --input - --silent
           echo "Removed $(printf '%s\n' "$hits" | wc -l) attribution line(s)."
+          exit "${title_hit:-0}"   # red run (and a failure e-mail) while the title still carries it
 
   cleanup:
     if: github.event_name == 'workflow_dispatch'
@@ -208,9 +225,14 @@ jobs:
         run: |
           set -euo pipefail
           ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
-          # A pattern that does not compile would pass everything: fail the job instead.
+          # Self-test: a pattern that does not compile, is empty or matches everything must fail the
+          # job, never pass (or strip) everything.
           printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" >/dev/null
+          [ -n "$(printf 'Co-Authored-By: Claude <noreply@anthropic.com>\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
+            && [ -z "$(printf 'x\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
+            || { echo "::error::the attribution pattern fails its self-test"; exit 1; }
           t=$RUNNER_TEMP
+          failed=0
           fix() { # $1 = api path, $2 = method, $3 = field, text in $t/in.md; returns 1 when the edit failed
             local hits
             hits=$(awk -v mode=report "$ATTRIB_AWK" "$t/in.md")
@@ -221,7 +243,7 @@ jobs:
           }
           title_check() { # $1 = label, title in $t/title.txt
             if [ -n "$(awk -v mode=report "$ATTRIB_AWK" "$t/title.txt")" ]; then
-              echo "::warning::$1 title carries attribution; edit it by hand."
+              echo "::warning::$1 title carries attribution; edit it by hand."; failed=$((failed + 1))
             fi
           }
           # The issues endpoint lists pull requests too; both have a body and a title there.
@@ -230,13 +252,14 @@ jobs:
             printf '%s' "$i" | base64 -d > "$t/i.json"
             n=$(jq -r '.number' "$t/i.json")
             jq -r '.body // ""' "$t/i.json" > "$t/in.md"
-            fix "repos/$REPO/issues/$n" PATCH body || echo "::warning::could not edit the description of #$n"
+            fix "repos/$REPO/issues/$n" PATCH body || { echo "::warning::could not edit the description of #$n"; failed=$((failed + 1)); }
             jq -r '.title' "$t/i.json" > "$t/title.txt"; title_check "#$n"
             if jq -e '.pull_request' "$t/i.json" >/dev/null; then
-              gh api --paginate "repos/$REPO/pulls/$n/reviews" --jq '.[] | select(.body != "") | @base64' > "$t/reviews" || true
+              gh api --paginate "repos/$REPO/pulls/$n/reviews" --jq '.[] | select(.body != "") | @base64' > "$t/reviews" \
+                || { echo "::warning::could not list the reviews of #$n"; failed=$((failed + 1)); : > "$t/reviews"; }
               while IFS= read -r r; do
                 id=$(printf '%s' "$r" | base64 -d | jq -r '.id'); printf '%s' "$r" | base64 -d | jq -r '.body' > "$t/in.md"
-                fix "repos/$REPO/pulls/$n/reviews/$id" PUT body || echo "::warning::could not edit review $id on #$n"
+                fix "repos/$REPO/pulls/$n/reviews/$id" PUT body || { echo "::warning::could not edit review $id on #$n"; failed=$((failed + 1)); }
               done < "$t/reviews"
             fi
           done < "$t/issues"
@@ -244,9 +267,19 @@ jobs:
             gh api --paginate "repos/$REPO/$kind?per_page=100" --jq '.[] | @base64' > "$t/comments"
             while IFS= read -r c; do
               id=$(printf '%s' "$c" | base64 -d | jq -r '.id'); printf '%s' "$c" | base64 -d | jq -r '.body // ""' > "$t/in.md"
-              fix "repos/$REPO/$kind/$id" PATCH body || echo "::warning::could not edit $kind/$id"
+              fix "repos/$REPO/$kind/$id" PATCH body || { echo "::warning::could not edit $kind/$id"; failed=$((failed + 1)); }
             done < "$t/comments"
           done
+          # Annotated tags cannot be edited: report them (delete and re-create by hand).
+          gh api --paginate "repos/$REPO/git/matching-refs/tags" --jq '.[] | select(.object.type == "tag") | "\(.ref) \(.object.sha)"' > "$t/tags" || : > "$t/tags"
+          while read -r ref sha; do
+            gh api "repos/$REPO/git/tags/$sha" > "$t/tag.json" || continue
+            jq -r '.message // ""' "$t/tag.json" > "$t/in.md"
+            if [ -n "$(awk -v mode=report "$ATTRIB_AWK" "$t/in.md")" ] || jq -r '.tagger.email // ""' "$t/tag.json" | grep -Eiq -e "$IDENT_RE"; then
+              echo "::warning::${ref#refs/tags/} carries attribution; delete and re-create the tag by hand."; failed=$((failed + 1))
+            fi
+          done < "$t/tags"
+          if [ "$failed" -gt 0 ]; then echo "::error::$failed item(s) could not be cleaned; see the warnings above."; exit 1; fi
       - name: Delete workflow runs whose head commit message carries attribution
         if: inputs.delete_runs
         env:
@@ -256,8 +289,12 @@ jobs:
         run: |
           set -euo pipefail
           ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
-          # A pattern that does not compile would pass everything: fail the job instead.
+          # Self-test: a pattern that does not compile, is empty or matches everything must fail the
+          # job, never pass (or strip) everything.
           printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" >/dev/null
+          [ -n "$(printf 'Co-Authored-By: Claude <noreply@anthropic.com>\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
+            && [ -z "$(printf 'x\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
+            || { echo "::error::the attribution pattern fails its self-test"; exit 1; }
           t=$RUNNER_TEMP
           gh api --paginate "repos/$REPO/actions/runs?per_page=100" --jq '.workflow_runs[] | select(.status == "completed") | @base64' > "$t/runs"
           while IFS= read -r r; do

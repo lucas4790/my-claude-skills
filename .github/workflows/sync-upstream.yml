@@ -15,7 +15,7 @@ permissions:
 # PR run when several PRs push at once (only one run may wait per group), which leaves the
 # required `validate-pr` check missing on that PR.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || 'sync' }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'sync' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:

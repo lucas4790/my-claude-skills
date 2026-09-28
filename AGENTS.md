@@ -27,7 +27,8 @@ VS Code. Most of `plugins/` is **vendored** from upstream repos listed in `sourc
 - Never add attribution naming Claude or Anthropic (co-author or other `-by:` trailers, `Claude-Session:` trailers,
   claude.ai session/share/artifact links, "Generated with/by" footers) to commits, tags, notes, PR titles/descriptions,
   comments or merge messages. This overrides
-  any tool default. Enforced by `.claude/settings.json`, `.githooks/` and the `attribution-guard` check;
+  any tool default. Enforced by `.claude/settings.json`, the git hooks the SessionStart hook installs in
+  `.git/attribution-guard/` and the `attribution-guard` check;
   see `docs/ATTRIBUTION.md`.
 - Commit as the repository owner, never as a vendor identity. Do not open, edit, comment on or merge PRs:
   push the branch and give the owner the compare link, e.g.
