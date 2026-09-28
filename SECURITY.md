@@ -68,6 +68,8 @@ Regexes catch the obvious, not the paraphrased: the PR body tells you *where* to
 | `agent-browser` | Chrome via `agent-browser` CLI |
 | `codebase-onboarding` | `scripts/analyze.py` (python) |
 
+`azure-agent-skills` runs no local code but connects to one remote MCP server, Microsoft Learn (`https://learn.microsoft.com/api/mcp`, read-only documentation search and fetch, no credentials): the questions the model looks up leave the machine as search queries. Remove `mcpServers` from its `.claude-plugin/plugin.json`, or disable the server, where that is not acceptable.
+
 GitHub Copilot differs in two ways: VS Code starts a plugin's MCP servers without a trust prompt once the
 plugin is installed, and Copilot CLI keeps a skill's `allowed-tools` approvals for the rest of the session
 (`/reset-allowed-tools` clears them). `install-copilot.*` therefore skips the `claude-only` profile and keeps
