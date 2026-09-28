@@ -30,6 +30,12 @@ function Install-Winget([string] $id, [string] $label) {
     Initialize-Path
 }
 function Test-DesktopClaude { [bool](Get-AppxPackage -Name '*Claude*' -ErrorAction SilentlyContinue) }
+# settings.json with comments or trailing commas (JSONC): PowerShell 7 parses it, but rewriting it with
+# ConvertTo-Json would drop the comments. Such a file is left alone, as install.sh does.
+function Test-PlainJson([string] $raw) {
+    $noStrings = [regex]::Replace($raw, '"(?:[^"\\]|\\.)*"', '""')
+    return -not ($noStrings -match '//|/\*|,\s*[}\]]')
+}
 
 # --- base dependencies ------------------------------------------------------
 if (-not (Test-Cmd git))  { Install-Winget 'Git.Git' 'Git' }
@@ -130,7 +136,8 @@ $data = Join-Path $env:LOCALAPPDATA $name
 New-Item -ItemType Directory -Path $data -Force | Out-Null
 $updater = Join-Path $data 'update-plugins.ps1'
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/$repo/main/scripts/update-plugins.ps1" -OutFile $updater
-$settingsPath = Join-Path $HOME '.claude\settings.json'
+$claudeDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME '.claude' }
+$settingsPath = Join-Path $claudeDir 'settings.json'
 if (-not (Test-Path $settingsPath)) { New-Item -ItemType Directory -Path (Split-Path $settingsPath) -Force | Out-Null; Set-Content $settingsPath '{}' }
 $raw = Get-Content $settingsPath -Raw
 if ($raw -match [regex]::Escape("$name\update-plugins.ps1")) {
@@ -155,6 +162,7 @@ if ($raw -match [regex]::Escape("$name\update-plugins.ps1")) {
 # $env:MY_CLAUDE_SKILLS_ATTRIBUTION = 'keep' skips this.
 if ($env:MY_CLAUDE_SKILLS_ATTRIBUTION -ne 'keep') {
     try {
+        if (-not (Test-PlainJson (Get-Content $settingsPath -Raw))) { throw 'not plain JSON (comments or trailing commas)' }
         $settings = Get-Content $settingsPath -Raw | ConvertFrom-Json
         $settings | Add-Member -NotePropertyName attribution -NotePropertyValue ([pscustomobject]@{ commit = ''; pr = ''; sessionUrl = $false }) -Force
         [IO.File]::WriteAllText($settingsPath, ($settings | ConvertTo-Json -Depth 20), (New-Object Text.UTF8Encoding $false))
@@ -188,13 +196,19 @@ if ($env:MY_CLAUDE_SKILLS_ATTRIBUTION -ne 'keep') {
             if ($LASTEXITCODE -ne 0) { Write-Warning 'git attribution guard not installed; run: sh tools/attribution-guard/install.sh from Git Bash' }
             # Claude Code PreToolUse hook for every repository (hooks run in Git Bash on Windows).
             # Replace an earlier registration so matcher and command stay current.
+            if (-not (Test-PlainJson (Get-Content $settingsPath -Raw))) { throw "$settingsPath is not plain JSON; add the PreToolUse hook by hand (docs/ATTRIBUTION.md)" }
             $settings = Get-Content $settingsPath -Raw | ConvertFrom-Json
             if (-not $settings.PSObject.Properties['hooks']) { $settings | Add-Member -NotePropertyName hooks -NotePropertyValue ([pscustomobject]@{}) }
             $pre = @()
             if ($settings.hooks.PSObject.Properties['PreToolUse']) {
-                $pre = @($settings.hooks.PreToolUse | Where-Object { -not (@($_.hooks | ForEach-Object { $_.command }) -match 'attribution-guard/claude-pretooluse\.sh') })
+                # Remove only our own hook entries; other hooks in the same group stay.
+                $pre = @(foreach ($g in @($settings.hooks.PreToolUse)) {
+                    $kept = @($g.hooks | Where-Object { "$($_.command)" -notmatch 'attribution-guard/claude-pretooluse\.sh' })
+                    if ($kept.Count -gt 0) { $g | Add-Member -NotePropertyName hooks -NotePropertyValue $kept -Force; $g }
+                })
             }
-            $cmd = 'f="$HOME/.config/git/attribution-guard/claude-pretooluse.sh"; [ ! -f "$f" ] || sh "$f"'
+            # bash expands XDG_CONFIG_HOME at hook time, the same way install.sh chose the directory.
+            $cmd = 'f="${XDG_CONFIG_HOME:-$HOME/.config}/git/attribution-guard/claude-pretooluse.sh"; [ ! -f "$f" ] || sh "$f"'
             $pre += [pscustomobject]@{ matcher = 'Bash|PowerShell|Monitor|Write|Edit|MultiEdit|NotebookEdit|mcp__.*([Gg]it[Hh]ub|[Aa]do|[Aa]zure|[Dd]ev[Oo]ps).*'; hooks = @([pscustomobject]@{ type = 'command'; shell = 'bash'; command = $cmd }) }
             $settings.hooks | Add-Member -NotePropertyName PreToolUse -NotePropertyValue $pre -Force
             [IO.File]::WriteAllText($settingsPath, ($settings | ConvertTo-Json -Depth 20), (New-Object Text.UTF8Encoding $false))

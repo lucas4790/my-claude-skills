@@ -37,13 +37,13 @@ claude plugin marketplace update "$NAME" || { echo "marketplace update failed"; 
 
 # Keep the attribution guard current (patterns, hooks, Claude Code PreToolUse registration) from
 # the marketplace clone, but only where it was installed and not opted out (docs/ATTRIBUTION.md).
-guard="$HOME/.claude/plugins/marketplaces/$NAME/tools/attribution-guard/install.sh"
+guard="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/marketplaces/$NAME/tools/attribution-guard/install.sh"
 guard_home="${XDG_CONFIG_HOME:-$HOME/.config}/git/attribution-guard"
 if [ "${MY_CLAUDE_SKILLS_ATTRIBUTION:-}" != keep ] && [ -f "$guard" ] && [ -d "$guard_home" ]; then
   sh "$guard" || echo "attribution guard refresh failed"   # install.sh keeps the mode and an opted-in hooks path
 fi
 
-mp="$HOME/.claude/plugins/marketplaces/$NAME/.claude-plugin/marketplace.json"
+mp="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/marketplaces/$NAME/.claude-plugin/marketplace.json"
 [ -f "$mp" ] || { echo "marketplace manifest not found at $mp"; exit 1; }
 mapfile -t available < <(jq -r '.plugins[].name' "$mp")
 mapfile -t installed < <(claude plugin list --json 2>/dev/null | jq -r --arg m "@$NAME" '.[] | select(.id | endswith($m)) | .id | sub($m; "")')

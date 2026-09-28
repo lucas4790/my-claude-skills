@@ -85,7 +85,7 @@
           {
             "type": "command",
             "shell": "bash",
-            "command": "d=$(git -C \"$CLAUDE_PROJECT_DIR\" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/attribution-guard; f=\"$d/claude-pretooluse.sh\"; [ -f \"$f\" ] || f=\"$CLAUDE_PROJECT_DIR/tools/attribution-guard/claude-pretooluse.sh\"; [ ! -f \"$f\" ] || sh \"$f\" --strict"
+            "command": "c=$(git -C \"$CLAUDE_PROJECT_DIR\" rev-parse --git-common-dir 2>/dev/null) && d=$(cd \"$CLAUDE_PROJECT_DIR\" && cd \"$c\" && pwd)/attribution-guard && [ -f \"$d/claude-pretooluse.sh\" ] && f=\"$d/claude-pretooluse.sh\" || f=\"$CLAUDE_PROJECT_DIR/tools/attribution-guard/claude-pretooluse.sh\"; [ ! -f \"$f\" ] || sh \"$f\" --strict"
           }
         ]
       }

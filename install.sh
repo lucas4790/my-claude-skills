@@ -194,7 +194,7 @@ elif ! curl -fsSL "https://raw.githubusercontent.com/$REPO/main/scripts/update-p
   DATA=""
 fi
 [ -z "$DATA" ] || chmod +x "$DATA/update-plugins.sh"
-SETTINGS="$HOME/.claude/settings.json"
+SETTINGS="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
 [ -s "$SETTINGS" ] || { mkdir -p "$HOME/.claude"; echo '{}' > "$SETTINGS"; }
 if [ -z "$DATA" ]; then
   :

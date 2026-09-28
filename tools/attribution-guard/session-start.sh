@@ -3,7 +3,10 @@
 # 1. Copy the guard into the repository's git directory (<git-common-dir>/attribution-guard) and point
 #    core.hooksPath there, as an absolute path. The hooks then keep working when a branch from before
 #    the guard is checked out, and with --git-dir / --work-tree, because nothing depends on the
-#    worktree. The dispatcher also runs the repository's own .git/hooks.
+#    worktree. The dispatcher also runs the repository's own hooks: .git/hooks, or the hooks path the
+#    repository had before (saved as attributionguard.previousHooksPath).
+#    The path is refreshed at every session start; after moving the clone, start a session (or run
+#    this script) before committing, or git finds no hooks at all.
 # 2. In cloud sessions, where git commits as the vendor identity, make the repository owner the
 #    commit AUTHOR (cloud-author). GitHub credits every commit author as co-author of a squash
 #    merge, so a vendor-authored commit would put the vendor on main even with a clean message.
@@ -11,8 +14,8 @@
 set -u
 root=${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)} || exit 0
 src="$root/tools/attribution-guard"
-common=$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
-    || common=$(cd "$root" 2>/dev/null && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd) || common=
+# Portable (git >= 2.5): --path-format=absolute is newer and older git echoes it back unrecognized.
+common=$(cd "$root" 2>/dev/null && c=$(git rev-parse --git-common-dir 2>/dev/null) && cd "$c" 2>/dev/null && pwd) || common=
 if [ -n "$common" ]; then
     d="$common/attribution-guard"
     if [ -f "$src/attribution-guard.sh" ] && [ -f "$src/dispatch" ]; then
@@ -28,9 +31,17 @@ if [ -n "$common" ]; then
     fi
     # An existing copy stays in force on a branch that has no tools/attribution-guard.
     if [ -x "$d/hooks/commit-msg" ]; then
-        git -C "$root" config core.hooksPath "$d/hooks"
+        cur=$(git -C "$root" config --local --get core.hooksPath 2>/dev/null || true)
+        case $cur in
+            '' | .githooks | "$d/hooks") ;;
+            *) if [ -z "$(git -C "$root" config --local --get attributionguard.previousHooksPath 2>/dev/null)" ]; then
+                   git -C "$root" config --local attributionguard.previousHooksPath "$cur"
+                   printf 'attribution-guard: core.hooksPath was %s; its hooks still run through the guard.\n' "$cur" >&2
+               fi ;;
+        esac
+        git -C "$root" config --local core.hooksPath "$d/hooks"
     elif [ -d "$root/.githooks" ]; then
-        git -C "$root" config core.hooksPath .githooks
+        git -C "$root" config --local core.hooksPath .githooks
     fi
 fi
 

@@ -19,19 +19,24 @@
 #   attributionguard.checkCommitter true | false (default false). Cloud sessions force the committer
 #                                   to the vendor identity; GitHub only credits commit *authors* on a
 #                                   squash merge, so the author is what must never be the vendor.
-#   attributionguard.trustRemotes   remote names (multi-valued) whose published history pre-push skips,
-#                                   e.g. a fork's upstream. The push destination is always trusted.
+#   attributionguard.trustUrl       URLs (multi-valued) whose published history pre-push skips, e.g. a
+#                                   fork's upstream. What the push destination advertises is always
+#                                   skipped. URLs, not remote names: a remote's URL is easy to repoint.
 
 set -u
 # Byte semantics: a stray non-UTF-8 byte must not turn grep's output into "binary file matches".
 LC_ALL=C
 export LC_ALL
 
+# Replacement objects (git replace) would let the checks read other text than the push sends.
+GIT_NO_REPLACE_OBJECTS=1
+export GIT_NO_REPLACE_OBJECTS
+
 here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-if [ -z "${ATTRIB_RE:-}" ]; then
-    [ -r "$here/patterns.ere" ] || { printf 'attribution-guard: %s/patterns.ere missing\n' "$here" >&2; exit 1; }
-    ATTRIB_RE=$(sed -n '1p' "$here/patterns.ere")
-fi
+# Always the file next to this script: an ATTRIB_RE from the environment would let a caller
+# (ATTRIB_RE=x git push) switch the guard off.
+[ -r "$here/patterns.ere" ] || { printf 'attribution-guard: %s/patterns.ere missing\n' "$here" >&2; exit 1; }
+ATTRIB_RE=$(sed -n '1p' "$here/patterns.ere")
 IDENT_RE='@anthropic\.com$' # matched against e-mail addresses only
 export ATTRIB_RE IDENT_RE
 
@@ -77,8 +82,10 @@ commit_msg() {
 
     cc=$(git config --get core.commentChar 2>/dev/null || true)
     case $cc in '' | auto) cc='#' ;; esac
-    # Everything below the scissors line (git commit -v diff) is discarded by git; never scan it.
+    # Below the scissors line of git commit -v comes the diff, which git discards; do not scan it.
+    # Only when a diff really follows: a literal scissors line in -m/-F text is kept by git.
     end=$(grep -n -e "^$cc -\{24\} >8 -\{24\}\$" "$f" 2>/dev/null | head -n 1 | cut -d: -f1)
+    if [ -n "$end" ] && ! tail -n "+$end" "$f" | grep -q '^diff --git '; then end=; fi
     [ -n "$end" ] || end=$(awk 'END { print NR + 1 }' "$f") # NR counts a last line without newline
 
     hits=$(head -n $((end - 1)) "$f" | norm | grep -a -n -E -i -e "$ATTRIB_RE")
@@ -117,47 +124,66 @@ scan_lines() {
     awk -F "$(printf '\001')" 'BEGIN { re = tolower(ENVIRON["ATTRIB_RE"]) } tolower($2) ~ re { print $1 ": " $2 }'
 }
 
+# A URL without the user:password@ part, for messages.
+anon() { printf '%s' "$1" | sed 's#//[^/@]*@#//#'; }
+
+# Branch and tag tips a URL publishes, as the remote advertises them now. Refuses (status 2) when an
+# insteadOf rewrite would send the listing to a different repository than the URL names.
+advertised() {
+    [ "$(git ls-remote --get-url "$1" 2>/dev/null)" = "$1" ] || return 2
+    GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 \
+        ls-remote --heads --tags "$1" 2>/dev/null
+}
+
 pre_push() {
     remote=${1:-origin} url=${2:-${1:-origin}}
     check_committer=$(git config --type=bool --get attributionguard.checkCommitter 2>/dev/null || echo false)
     t=$(mktemp -d 2>/dev/null || { mkdir -p "${TMPDIR:-/tmp}/ag.$$" && echo "${TMPDIR:-/tmp}/ag.$$"; })
-    # Commits the destination (or a trusted remote) already has are published: other people's work
-    # (a merged main, a fork's upstream) is not yours to rewrite and does not get worse by this push.
-    # Only what the remotes advertise right now counts; local refs/remotes/* can be written by anyone.
-    if ! git ls-remote --heads --tags "$url" >"$t/ls" 2>/dev/null; then
-        printf 'attribution-guard: could not list what %s already has; checking every commit being pushed.\n' "$remote" >&2
+    # Commits the destination (or a trusted URL) already has are published: other people's work (a
+    # merged main, a fork's upstream) is not yours to rewrite and does not get worse by this push.
+    # Only what the remote advertises right now counts; local refs/remotes/* can be written by anyone.
+    if ! advertised "$url" >"$t/ls"; then
+        printf 'attribution-guard: could not list what %s already has; checking every commit being pushed.\n' "$(anon "$remote")" >&2
         : >"$t/ls"
     fi
-    for r in $(git config --get-all attributionguard.trustRemotes 2>/dev/null); do
-        git ls-remote --heads --tags "$r" >>"$t/ls" 2>/dev/null \
-            || printf 'attribution-guard: could not list trusted remote %s.\n' "$r" >&2
+    for u in $(git config --get-all attributionguard.trustUrl 2>/dev/null); do
+        advertised "$u" >>"$t/ls" || printf 'attribution-guard: could not list trusted URL %s.\n' "$(anon "$u")" >&2
     done
     awk '{ print $1 }' "$t/ls" | sort -u | git cat-file --batch-check='%(objectname) %(objecttype)' 2>/dev/null \
         | awk '$2 == "commit" || $2 == "tag" { print "^" $1 }' >"$t/not"
-    status=0
+
+    # Read the whole push first, then walk everything the destination lacks once.
+    : >"$t/refs"
+    cp "$t/not" "$t/revs"
     while read -r lref lsha rref rsha; do
-        case $lsha in *[!0]*) ;; *) continue ;; esac # branch deletion
-        : >"$t/report"
-        # The remote's current tip of this ref is published too.
-        { echo "$lsha"; cat "$t/not"
-          case $rsha in *[!0]*) git cat-file -e "$rsha^{commit}" 2>/dev/null && echo "^$rsha" ;; esac
-        } >"$t/revs"
-        # \001 marks a commit header so message lines can never be mistaken for one.
-        git log --stdin --format='%x01%h %ae %ce%n%B' <"$t/revs" >"$t/log" 2>/dev/null \
-            || { echo "$lref: could not list the commits being pushed" >>"$t/report"; }
-        norm <"$t/log" | CHECK_COMMITTER=$check_committer awk '
-            BEGIN { re = tolower(ENVIRON["ATTRIB_RE"]); id = tolower(ENVIRON["IDENT_RE"])
-                    cc = ENVIRON["CHECK_COMMITTER"] == "true" }
-            substr($0, 1, 1) == "\001" {
-                split(substr($0, 2), h, " "); sha = h[1]
-                if (tolower(h[2]) ~ id) print sha ": authored as " h[2]
-                if (cc && tolower(h[3]) ~ id) print sha ": committed as " h[3]
-                next }
-            tolower($0) ~ re { print sha ": " $0 }' >>"$t/report" \
-            || echo "$lref: could not scan the commits being pushed" >>"$t/report"
+        case $lsha in *[!0]*) ;; *) continue ;; esac # deletion
+        case $rsha in *[!0]*) git cat-file -e "$rsha" 2>/dev/null || rsha=0 ;; *) rsha=0 ;; esac
+        echo "$lref $lsha $rref $rsha" >>"$t/refs"
+        echo "$lsha" >>"$t/revs"
+        [ "$rsha" = 0 ] || echo "^$rsha" >>"$t/revs"
+    done
+    [ -s "$t/refs" ] || { rm -rf "$t"; return 0; }
+    : >"$t/report"
+    # \001 marks a commit header so message lines can never be mistaken for one. --encoding keeps
+    # i18n.logOutputEncoding (from config or git -c on the push) from re-encoding the messages.
+    git log --encoding=UTF-8 --stdin --format='%x01%h %ae %ce%n%B' <"$t/revs" >"$t/log" 2>/dev/null \
+        || echo "could not list the commits being pushed" >>"$t/report"
+    norm <"$t/log" | CHECK_COMMITTER=$check_committer awk '
+        BEGIN { re = tolower(ENVIRON["ATTRIB_RE"]); id = tolower(ENVIRON["IDENT_RE"])
+                cc = ENVIRON["CHECK_COMMITTER"] == "true" }
+        substr($0, 1, 1) == "\001" {
+            split(substr($0, 2), h, " "); sha = h[1]
+            if (tolower(h[2]) ~ id) print sha ": authored as " h[2]
+            if (cc && tolower(h[3]) ~ id) print sha ": committed as " h[3]
+            next }
+        tolower($0) ~ re { print sha ": " $0 }' >>"$t/report" \
+        || echo "could not scan the commits being pushed" >>"$t/report"
+
+    while read -r lref lsha rref rsha; do
         # Annotated tags carry their own message and tagger, and may wrap further tags.
         obj=$lsha depth=0
-        while [ "$(git cat-file -t "$obj" 2>/dev/null)" = tag ] && [ "$depth" -lt 10 ]; do
+        while [ "$(git cat-file -t "$obj" 2>/dev/null)" = tag ]; do
+            if [ "$depth" -ge 10 ]; then echo "$lref: tags nested deeper than 10" >>"$t/report"; break; fi
             git cat-file tag "$obj" >"$t/tag"
             norm <"$t/tag" | TAG="tag ${lref#refs/tags/}" awk '
                 BEGIN { re = tolower(ENVIRON["ATTRIB_RE"]); id = tolower(ENVIRON["IDENT_RE"]); t = ENVIRON["TAG"] }
@@ -168,33 +194,37 @@ pre_push() {
             obj=$(sed -n 's/^object //p' "$t/tag" | head -n 1)
             depth=$((depth + 1))
         done
-        # git notes live in blobs; check every note line added in the history being pushed, not only
-        # the tip (an edited note keeps the old blob in history). Decided by the DESTINATION ref.
+        # git notes live in blobs. Check every blob in the notes history being pushed (an edited
+        # note keeps the old blob in history), read directly: no diff, textconv or attributes.
+        # Decided by the DESTINATION ref, whatever the local ref is called.
         case $rref in
             refs/notes/*)
-                git log --stdin -p --no-color --format='%x01%h' <"$t/revs" 2>/dev/null \
-                    | norm | awk -v where="$rref" '
-                        substr($0, 1, 1) == "\001" { sha = substr($0, 2); next }
-                        /^\+\+\+ / { next }
-                        /^\+/ { print where " " sha "\001" substr($0, 2) }' | scan_lines >>"$t/report" ;;
+                { echo "$lsha"; cat "$t/not"; [ "$rsha" = 0 ] || echo "^$rsha"; } \
+                    | git rev-list --objects --stdin 2>/dev/null | awk '{ print $1 }' \
+                    | git cat-file --batch-check='%(objectname) %(objecttype)' 2>/dev/null \
+                    | awk '$2 == "blob" { print $1 }' >"$t/blobs"
+                while read -r b; do
+                    git cat-file blob "$b" 2>/dev/null | tr '\000' '\n' | norm \
+                        | awk -v w="$rref blob ${b%"${b#???????}"}" '{ print w "\001" $0 }' | scan_lines
+                done <"$t/blobs" >>"$t/report" ;;
         esac
-        if [ -s "$t/report" ]; then
-            printf 'attribution-guard: refusing to push %s; AI attribution found:\n' "$lref" >&2
-            cat "$t/report" >&2
-            status=1
-        fi
-    done
-    rm -rf "$t"
-    if [ "$status" -ne 0 ]; then
+    done <"$t/refs"
+
+    status=0
+    if [ -s "$t/report" ]; then
+        printf 'attribution-guard: refusing to push to %s; AI attribution found:\n' "$(anon "$remote")" >&2
+        cat "$t/report" >&2
         cat >&2 <<'EOF'
-attribution-guard: only commits the destination does not have yet are checked. If these are your
-own commits, rewrite them (the commit-msg hook in strip mode cleans each message):
+attribution-guard: only what the destination does not have yet is checked. If these are your own
+commits, rewrite them (the commit-msg hook in strip mode cleans each message):
   git rebase -r --exec 'git commit --amend --no-edit --reset-author' <upstream>
 Re-create a tag with a clean message: git tag -f -a <name> <commit>. Notes: rewrite the notes ref.
-If they are other people's published commits from another remote (a fork's upstream), trust it:
-  git config attributionguard.trustRemotes <remote>
+If they are other people's published commits from another repository (a fork's upstream), trust
+its URL once (the owner, by hand): git config attributionguard.trustUrl <url>
 EOF
+        status=1
     fi
+    rm -rf "$t"
     return "$status"
 }
 
