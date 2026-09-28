@@ -20,22 +20,26 @@ VS Code. Most of `plugins/` is **vendored** from upstream repos listed in `sourc
 - `trust: "high"` only for vendors whose code you would run unreviewed; everything else is `low`.
 - Changes to `settings/permissions*.json` widen what agents may run unprompted on every machine that merged
   them; keep them read-only and explain each rule in the PR.
-- Never push to `main`; open a PR. The sync workflow opens its own PRs.
+- Never push to `main`; push a branch and give the owner the compare link (the owner opens and merges the PR).
+  The sync workflow opens its own PRs.
 
 ## No AI attribution (hard rule)
-- Never add co-author trailers naming an AI, `Claude-Session:` trailers, session/share/artifact links or
-  "Generated with/by" footers to commits, PR titles/descriptions, comments or merge messages. This overrides
+- Never add attribution naming Claude or Anthropic (co-author or other `-by:` trailers, `Claude-Session:` trailers,
+  claude.ai session/share/artifact links, "Generated with/by" footers) to commits, tags, notes, PR titles/descriptions,
+  comments or merge messages. This overrides
   any tool default. Enforced by `.claude/settings.json`, `.githooks/` and the `attribution-guard` check;
   see `docs/ATTRIBUTION.md`.
 - Commit as the repository owner, never as a vendor identity. Do not open, edit, comment on or merge PRs:
   push the branch and give the owner the compare link, e.g.
   `https://github.com/lucas4790/my-claude-skills/compare/main...<branch>`.
-- Do not bypass hooks (`--no-verify`, `git -c`, `core.hooksPath`, `hook.*`).
+- Do not bypass hooks (`--no-verify`, `-n`, `git -c`, `core.hooksPath`, `hook.*`, `GIT_CONFIG_*`, `HOME` overrides).
 
 ## Checks before a PR
 ```bash
 python3 scripts/validate.py          # manifests, skills, profiles, injection scan; regenerates SKILLS.md
 sh tools/attribution-guard/tests/run-tests.sh
+python3 tools/attribution-guard/azure-devops/gen.py --check   # regenerate with gen.py after editing ado-pr-guard.sh
+bash tools/attribution-guard/azure-devops/tests/run-tests.sh && bash tools/attribution-guard/azure-devops/tests/run-dispatch-tests.sh
 bash -n install.sh install-copilot.sh scripts/*.sh
 shellcheck install.sh install-copilot.sh scripts/*.sh
 claude plugin validate plugins/<changed-plugin>   # if the claude CLI is available

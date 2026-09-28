@@ -41,6 +41,29 @@ if (Get-Command copilot -ErrorAction SilentlyContinue) {
 & claude plugin marketplace update $name
 if ($LASTEXITCODE -ne 0) { Write-Host 'marketplace update failed'; Stop-Transcript | Out-Null; exit 1 }
 
+# Keep the attribution guard current (patterns and git hooks) from the marketplace clone, but only
+# where it was installed and not opted out. Re-run install.ps1 to refresh the PreToolUse registration.
+$guard = Join-Path $HOME ".claude\plugins\marketplaces\$name\tools\attribution-guard\install.sh"
+$guardHome = Join-Path $HOME '.config\git\attribution-guard'
+if ($env:MY_CLAUDE_SKILLS_ATTRIBUTION -ne 'keep' -and (Test-Path $guard) -and (Test-Path $guardHome)) {
+    $sh = $null
+    $execPath = & git --exec-path 2>$null
+    if ($execPath) {
+        $candidate = Join-Path (Split-Path (Split-Path (Split-Path ($execPath -replace '/', '\')))) 'bin\sh.exe'
+        if (Test-Path $candidate) { $sh = $candidate }
+    }
+    if (-not $sh) { $sh = (Get-Command sh.exe -ErrorAction SilentlyContinue).Source }
+    if ($sh) {
+        $mode = & git config --global --get attributionguard.mode
+        $guardArgs = @($(if ($mode) { $mode } else { 'strip' }))
+        # install.sh stores an MSYS path (/c/Users/...), so compare the tail only.
+        if ("$(& git config --global --get core.hooksPath)" -like '*/git/attribution-guard/hooks') { $guardArgs += '--global-hooks-path' }
+        $env:ATTRIBUTION_GUARD_SKIP_CLAUDE = '1'
+        & $sh $guard @guardArgs
+        if ($LASTEXITCODE -ne 0) { Write-Host 'attribution guard refresh failed' }
+    }
+}
+
 $mp = Join-Path $HOME ".claude\plugins\marketplaces\$name\.claude-plugin\marketplace.json"
 if (-not (Test-Path $mp)) { Write-Host "marketplace manifest not found at $mp"; Stop-Transcript | Out-Null; exit 1 }
 $available = (Get-Content $mp -Raw | ConvertFrom-Json).plugins.name

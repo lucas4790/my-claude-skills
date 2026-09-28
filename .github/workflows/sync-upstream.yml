@@ -32,13 +32,22 @@ jobs:
   validate-pr:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # Runs code from the PR (validate.py, the test suites): read-only token, no stored credentials,
+    # so it cannot edit the PR after the attribution check passed.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+          persist-credentials: false
       - run: python3 scripts/validate.py --diff "origin/${{ github.base_ref }}"
       - name: Attribution guard tests
-        run: sh tools/attribution-guard/tests/run-tests.sh
+        run: |
+          sh tools/attribution-guard/tests/run-tests.sh
+          python3 tools/attribution-guard/azure-devops/gen.py --check
+          bash tools/attribution-guard/azure-devops/tests/run-tests.sh
+          bash tools/attribution-guard/azure-devops/tests/run-dispatch-tests.sh
       - name: Claude Code manifest validation
         # Gated inside the step rather than with a `paths:` trigger filter so the job still
         # reports on every PR (it is a required check on main).

@@ -1,17 +1,24 @@
 name: Attribution audit
 
 # What the required `attribution-guard` check cannot see or prevent:
-#  - main-audit: the final squash/merge message is composed at merge time. This job fails loudly
-#    (red X on main plus a failure e-mail) when attribution lands on main. Detection only.
-#  - comment-sanitize: strips attribution lines from PR/issue comments and review bodies.
+#  - main-audit: the final squash/merge message is composed at merge time, and an API merge sets
+#    its own. This job fails loudly (red X on main plus a failure e-mail) when attribution or a
+#    vendor author/committer lands on main. Detection only.
+#  - comment-sanitize: strips attribution lines from PR/issue comments, review bodies and issue
+#    descriptions (issue titles are only reported). Commit comments start no workflow; cleanup
+#    covers them.
 #  - cleanup (manual, Actions > Attribution audit > Run workflow): strips attribution from the
-#    title/body of every PR and from every comment, edited as github-actions[bot]; optionally
-#    deletes workflow runs whose head commit message carries attribution. GitHub keeps edit
-#    history; see docs/ATTRIBUTION.md for removing old revisions by hand.
-# Separate file from attribution-guard.yml so no skipped job named `attribution-guard` exists.
+#    description of every PR and issue and from every comment, edited as github-actions[bot];
+#    optionally deletes workflow runs whose head commit message carries attribution. GitHub keeps
+#    edit history; see docs/ATTRIBUTION.md for removing old revisions by hand.
+# Strict like attribution-guard.yml: code blocks are checked too, and logs name places and line
+# numbers only. Separate file from attribution-guard.yml so no skipped job named
+# `attribution-guard` exists.
 on:
   push:
     branches: [main]
+  issues:
+    types: [opened, edited]
   issue_comment:
     types: [created, edited]
   pull_request_review_comment:
@@ -28,15 +35,15 @@ on:
 permissions: {}
 
 env:
+  ATTRIB_ZW: "​|‌|‍|⁠|﻿"
   ATTRIB_AWK: |
-    BEGIN { re = tolower(ENVIRON["ATTRIB_RE"]) }
-    { sub(/\r$/, "") }
-    md && /^[[:space:]]*(```|~~~)/ { fence = !fence; out[++n] = $0; next }
+    BEGIN { re = tolower(ENVIRON["ATTRIB_RE"]); zw = ENVIRON["ATTRIB_ZW"] }
     {
+      sub(/\r$/, "")
       s = $0
-      if (md) gsub(/`[^`]*`/, "", s)
-      hit = !(md && fence) && tolower(s) ~ re
-      if (mode == "report") { if (hit) printf "%d: %s\n", NR, substr($0, 1, 200); next }
+      if (zw != "") gsub(zw, "", s)
+      hit = tolower(s) ~ re
+      if (mode == "report") { if (hit) print NR; next }
       if (!hit) out[++n] = $0
     }
     END {
@@ -44,7 +51,7 @@ env:
       while (n > 0 && (out[n] ~ /^[[:space:]]*$/ || out[n] ~ /^[[:space:]]*---+[[:space:]]*$/)) n--
       for (i = 1; i <= n; i++) print out[i]
     }
-  IDENT_RE: 'noreply@anthropic\.com'
+  IDENT_RE: '@anthropic\.com$'
 
 jobs:
   main-audit:
@@ -69,12 +76,14 @@ jobs:
             printf '%s' "$c" | base64 -d > "$t/c.json"
             sha=$(jq -r '.id[0:7]' "$t/c.json")
             jq -r '.message' "$t/c.json" > "$t/msg.txt"
-            jq -r '"author: \(.author.email)"' "$t/c.json" | grep -E -i -e "$IDENT_RE" >> "$t/msg.txt" || true
-            hits=$(awk -v mode=report -v md=0 "$ATTRIB_AWK" "$t/msg.txt")
-            if [ -n "$hits" ]; then
-              while IFS= read -r h; do printf '::error title=AI attribution landed on main in %s::%s\n' "$sha" "${h//::/: :}"; done <<< "$hits"
-              fail=1
-            fi
+            while IFS= read -r n; do
+              echo "::error title=AI attribution landed on main::commit $sha message, line $n"; fail=1
+            done < <(awk -v mode=report "$ATTRIB_AWK" "$t/msg.txt")
+            for who in author committer; do
+              if jq -r ".$who.email // \"\"" "$t/c.json" | grep -Eiq -e "$IDENT_RE"; then
+                echo "::error title=AI attribution landed on main::commit $sha $who is the vendor identity"; fail=1
+              fi
+            done
           done < "$t/commits.b64"
           if [ "$fail" -ne 0 ]; then
             echo "Revert or rewrite the commit; see docs/ATTRIBUTION.md."
@@ -83,7 +92,7 @@ jobs:
           echo "No AI attribution in the pushed commits."
 
   comment-sanitize:
-    if: github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment' || github.event_name == 'pull_request_review'
+    if: contains(fromJSON('["issues","issue_comment","pull_request_review_comment","pull_request_review"]'), github.event_name)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -95,7 +104,7 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: tools/attribution-guard
-      - name: Strip attribution lines from the comment
+      - name: Strip attribution lines from the text
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -105,6 +114,13 @@ jobs:
           ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
           t=$RUNNER_TEMP
           case $EVENT in
+            issues)
+              n=$(jq -r '.issue.number' "$GITHUB_EVENT_PATH"); api="repos/$REPO/issues/$n"; method=PATCH
+              jq -r '.issue.title // ""' "$GITHUB_EVENT_PATH" > "$t/title.txt"
+              if [ -n "$(awk -v mode=report "$ATTRIB_AWK" "$t/title.txt")" ]; then
+                echo "::error title=AI attribution::issue #$n title; edit it by hand"
+              fi
+              jq -r '.issue.body // ""' "$GITHUB_EVENT_PATH" > "$t/body.md" ;;
             issue_comment)
               id=$(jq -r '.comment.id' "$GITHUB_EVENT_PATH"); api="repos/$REPO/issues/comments/$id"; method=PATCH
               jq -r '.comment.body // ""' "$GITHUB_EVENT_PATH" > "$t/body.md" ;;
@@ -116,18 +132,18 @@ jobs:
               api="repos/$REPO/pulls/$pr/reviews/$id"; method=PUT
               jq -r '.review.body // ""' "$GITHUB_EVENT_PATH" > "$t/body.md" ;;
           esac
-          hits=$(awk -v mode=report -v md=1 "$ATTRIB_AWK" "$t/body.md")
+          hits=$(awk -v mode=report "$ATTRIB_AWK" "$t/body.md")
           if [ -z "$hits" ]; then echo "Clean."; exit 0; fi
-          awk -v mode=strip -v md=1 "$ATTRIB_AWK" "$t/body.md" > "$t/clean.md"
+          awk -v mode=strip "$ATTRIB_AWK" "$t/body.md" > "$t/clean.md"
           jq -n --rawfile body "$t/clean.md" '{body: $body}' | gh api -X "$method" "$api" --input - --silent
           echo "Removed $(printf '%s\n' "$hits" | wc -l) attribution line(s)."
 
   cleanup:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
-      contents: read
+      contents: write        # commit comments
       issues: write
       pull-requests: write
       actions: write
@@ -136,7 +152,7 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: tools/attribution-guard
-      - name: Strip attribution from all PR titles, descriptions and comments
+      - name: Strip attribution from all PR and issue descriptions and all comments
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -144,27 +160,36 @@ jobs:
           set -euo pipefail
           ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
           t=$RUNNER_TEMP
-          fix() { # $1 = api path, $2 = method, $3 = field, body in $t/in.md
-            hits=$(awk -v mode=report -v md=1 "$ATTRIB_AWK" "$t/in.md")
+          fix() { # $1 = api path, $2 = method, $3 = field, text in $t/in.md; returns 1 when the edit failed
+            local hits
+            hits=$(awk -v mode=report "$ATTRIB_AWK" "$t/in.md")
             [ -n "$hits" ] || return 0
-            awk -v mode=strip -v md=1 "$ATTRIB_AWK" "$t/in.md" > "$t/out.md"
-            jq -n --rawfile v "$t/out.md" --arg f "$3" '{($f): $v}' | gh api -X "$2" "$1" --input - --silent
+            awk -v mode=strip "$ATTRIB_AWK" "$t/in.md" > "$t/out.md"
+            jq -n --rawfile v "$t/out.md" --arg f "$3" '{($f): $v}' | gh api -X "$2" "$1" --input - --silent || return 1
             echo "cleaned $1 ($3): $(printf '%s\n' "$hits" | wc -l) line(s)"
           }
-          gh api --paginate "repos/$REPO/pulls?state=all&per_page=100" --jq '.[] | .number' > "$t/prs"
-          while IFS= read -r n; do
-            gh api "repos/$REPO/pulls/$n" --jq '.body // ""' > "$t/in.md"; fix "repos/$REPO/pulls/$n" PATCH body
-            gh api "repos/$REPO/pulls/$n" --jq '.title' > "$t/title.txt"
-            if [ -n "$(awk -v mode=report -v md=0 "$ATTRIB_AWK" "$t/title.txt")" ]; then
-              echo "::warning::PR #$n title carries attribution; edit it by hand."
+          title_check() { # $1 = label, title in $t/title.txt
+            if [ -n "$(awk -v mode=report "$ATTRIB_AWK" "$t/title.txt")" ]; then
+              echo "::warning::$1 title carries attribution; edit it by hand."
             fi
-            gh api --paginate "repos/$REPO/pulls/$n/reviews" --jq '.[] | select(.body != "") | @base64' > "$t/reviews" || true
-            while IFS= read -r r; do
-              id=$(printf '%s' "$r" | base64 -d | jq -r '.id'); printf '%s' "$r" | base64 -d | jq -r '.body' > "$t/in.md"
-              fix "repos/$REPO/pulls/$n/reviews/$id" PUT body || echo "::warning::could not edit review $id on #$n"
-            done < "$t/reviews"
-          done < "$t/prs"
-          for kind in issues/comments pulls/comments; do
+          }
+          # The issues endpoint lists pull requests too; both have a body and a title there.
+          gh api --paginate "repos/$REPO/issues?state=all&per_page=100" --jq '.[] | @base64' > "$t/issues"
+          while IFS= read -r i; do
+            printf '%s' "$i" | base64 -d > "$t/i.json"
+            n=$(jq -r '.number' "$t/i.json")
+            jq -r '.body // ""' "$t/i.json" > "$t/in.md"
+            fix "repos/$REPO/issues/$n" PATCH body || echo "::warning::could not edit the description of #$n"
+            jq -r '.title' "$t/i.json" > "$t/title.txt"; title_check "#$n"
+            if jq -e '.pull_request' "$t/i.json" >/dev/null; then
+              gh api --paginate "repos/$REPO/pulls/$n/reviews" --jq '.[] | select(.body != "") | @base64' > "$t/reviews" || true
+              while IFS= read -r r; do
+                id=$(printf '%s' "$r" | base64 -d | jq -r '.id'); printf '%s' "$r" | base64 -d | jq -r '.body' > "$t/in.md"
+                fix "repos/$REPO/pulls/$n/reviews/$id" PUT body || echo "::warning::could not edit review $id on #$n"
+              done < "$t/reviews"
+            fi
+          done < "$t/issues"
+          for kind in issues/comments pulls/comments comments; do
             gh api --paginate "repos/$REPO/$kind?per_page=100" --jq '.[] | @base64' > "$t/comments"
             while IFS= read -r c; do
               id=$(printf '%s' "$c" | base64 -d | jq -r '.id'); printf '%s' "$c" | base64 -d | jq -r '.body // ""' > "$t/in.md"
@@ -185,7 +210,7 @@ jobs:
           while IFS= read -r r; do
             id=$(printf '%s' "$r" | base64 -d | jq -r '.id'); [ "$id" != "$SELF" ] || continue
             printf '%s' "$r" | base64 -d | jq -r '.head_commit.message // ""' > "$t/in.md"
-            if [ -n "$(awk -v mode=report -v md=0 "$ATTRIB_AWK" "$t/in.md")" ]; then
-              gh api -X DELETE "repos/$REPO/actions/runs/$id" --silent && echo "deleted run $id"
+            if [ -n "$(awk -v mode=report "$ATTRIB_AWK" "$t/in.md")" ]; then
+              gh api -X DELETE "repos/$REPO/actions/runs/$id" --silent && echo "deleted run $id" || echo "::warning::could not delete run $id"
             fi
           done < "$t/runs"

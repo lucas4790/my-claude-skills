@@ -44,13 +44,18 @@ The script also registers a `SessionStart` hook (`~/.claude/settings.json`, or `
 
 ### No AI attribution
 
-The installers also switch off AI attribution: `attribution` in `~/.claude/settings.json` (no co-author trailers,
-PR footers or session links), `includeCoAuthoredBy: false` for Copilot CLI, and a global git `commit-msg`/`pre-push`
-guard ([`tools/attribution-guard`](tools/attribution-guard)) that strips or blocks such lines in **every**
-repository on the machine, work repos included (`MY_CLAUDE_SKILLS_ATTRIBUTION=keep` skips this). This repository
-adds agent deny rules, a required `attribution-guard` check and squash-only merges; run
-[`scripts/github-hardening.sh`](scripts/github-hardening.sh) once with an admin `gh` login. What each layer
-guarantees, and the limits of cloud sessions, is in [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md).
+The installers also switch off AI attribution naming Claude or Anthropic: `attribution` in `~/.claude/settings.json`
+(no co-author trailers, PR footers or session links), `includeCoAuthoredBy: false` for Copilot CLI, a git
+`commit-msg`/`pre-push` guard ([`tools/attribution-guard`](tools/attribution-guard)) that strips or blocks such
+lines, and a Claude Code PreToolUse hook that blocks tool calls publishing them (git, gh, az, GitHub and Azure DevOps
+MCP tools and REST calls) in every repository, work repos included (`MY_CLAUDE_SKILLS_ATTRIBUTION=keep` skips this;
+the session-start updater keeps it current). With Git 2.54+ the git guard covers every repository; older Git covers
+new clones and repositories where you run `git init` once, not those with their own hooks. This repository adds agent
+deny rules, a required `attribution-guard` check and squash-only merges: after merging, run
+[`scripts/github-hardening.sh`](scripts/github-hardening.sh) once with an admin `gh` login. Azure DevOps work
+repositories get server-side policies and pipelines from `tools/attribution-guard/azure-devops/`. The one-time
+steps in order, what each layer guarantees, and the limits of cloud sessions are in
+[docs/ATTRIBUTION.md](docs/ATTRIBUTION.md).
 
 ### VS Code + GitHub Copilot
 
@@ -133,7 +138,7 @@ Changes to either list are part of reviewing this repo: a PR that adds a rule he
 
 [`settings/claude-guardrails.json`](settings/claude-guardrails.json) adds `permissions.ask` rules for git commands
 that change history, config or remotes (`git push`, `reset`, `clean`, `config`, `git -c …`, `remote add`/`set-url`,
-also in their `git -C <dir> …` form) plus two `env` pins. Ask rules win over allow rules **and over a skill's
+also in their `git -C <dir> …` form, and the same rules for the PowerShell tool) plus two `env` pins. Ask rules win over allow rules **and over a skill's
 `allowed-tools`**, and match past a leading `VAR=value`, so Claude still asks before these even inside a skill that
 pre-approves `Bash(git *)`, as `claude-security` does. Since 0.12.0 Claude may start that skill on its own. The
 `env` pins keep `code-modernization`'s function-hook module off (`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=0`, even if
