@@ -230,7 +230,7 @@ Advanced .NET and C# skills: file-based C# scripts, P/Invoke, vectorization, NuG
 
 ## `azure-agent-skills`
 
-32 of Microsoft's first-party Azure Agent Skills: Azure DevOps, Pipelines, Repos, Artifacts, Boards, Container Registry, AKS, Key Vault, RBAC, Monitor, Managed Grafana, Policy, Resource Manager, Cost Management, Logic Apps, Well-Architected, OpenTelemetry, Functions, and networking (VNet, DNS, Private Link, NAT, Load Balancer, App Gateway, WAF, Front Door, Firewall, Network Watcher, Bastion, VPN Gateway, DDoS). Each skill is a structured Microsoft Learn index; pair with the Learn MCP server
+32 of Microsoft's first-party Azure Agent Skills: Azure DevOps, Pipelines, Repos, Artifacts, Boards, Container Registry, AKS, Key Vault, RBAC, Monitor, Managed Grafana, Policy, Resource Manager, Cost Management, Logic Apps, Well-Architected, OpenTelemetry, Functions, and networking (VNet, DNS, Private Link, NAT, Load Balancer, App Gateway, WAF, Front Door, Firewall, Network Watcher, Bastion, VPN Gateway, DDoS). Each skill is a structured Microsoft Learn index; the plugin bundles the Microsoft Learn MCP server (read-only docs, no sign-in) the skills fetch from
 
 ### Skills
 
