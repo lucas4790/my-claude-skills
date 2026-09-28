@@ -17,7 +17,13 @@ for i in $(seq 0 $((n - 1))); do
   else
     url="https://github.com/$(jq -r ".plugins[$i].source.repo" "$MP").git"
   fi
-  new=$(git ls-remote "$url" "$ref" | awk 'NR==1{print $1}')
+  # Exact ref only (a pattern like "main" also matches refs/heads/<x>/main), a tag peeled to its
+  # commit, and an unreachable repo is a warning like an unknown ref, not the end of the run.
+  new=$(git ls-remote "$url" "$ref" "$ref^{}" | awk -v r="$ref" '
+    $2 == r || $2 == "refs/heads/" r { if (head == "") head = $1 }
+    $2 == "refs/tags/" r { tag = $1 }
+    $2 == "refs/tags/" r "^{}" { peeled = $1 }
+    END { print (head != "" ? head : (peeled != "" ? peeled : tag)) }') || new=""
   [ -n "$new" ] || { echo "warning: could not resolve $ref for $name" >&2; continue; }
   if [ "$new" != "$old" ]; then
     echo "==> $name: ${old:0:7} -> ${new:0:7}"

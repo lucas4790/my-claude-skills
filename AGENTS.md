@@ -13,13 +13,17 @@ VS Code. Most of `plugins/` is **vendored** from upstream repos listed in `sourc
   `scripts/sync.sh --only <source>` instead. Which paths are vendored: every `copy[].to` in `sources.json`.
 - To change a vendored file, never edit it: edit `patches/<name>.patch` (regenerate as in README,
   "Patching vendored files"). `sync.sh` applies it after every sync.
-- Repo-owned files you may edit: `plugins/component-documentation/`, `plugins/spec-kit/`, `patches/`,
+- Repo-owned files you may edit: `plugins/component-documentation/`, `plugins/spec-kit/`, `patches/`, `tests/`,
   every `plugins/*/.claude-plugin/plugin.json` that `sources.json` does not copy,
   `plugins/pyright-lsp/plugin.json` (Copilot manifest), `profiles.json`, `settings/`, `scripts/`, installers, docs.
 - Adding a plugin: `sources.json` entry → `plugins/<name>/.claude-plugin/plugin.json` if upstream has none →
   `.claude-plugin/marketplace.json` entry → add it to exactly one profile in `profiles.json` →
   README plugin table → `scripts/sync.sh --only <name>`.
 - `trust: "high"` only for vendors whose code you would run unreviewed; everything else is `low`.
+- A change to `scripts/sync.sh`, `update-plugins.sh`, `bump-pinned.sh`, `validate.py` or `gen-catalog.py` comes with a
+  test: bats in `tests/bats/` (helpers in `tests/bats/helpers.bash`), pytest in `tests/test_script_*.py` (fixtures in
+  `tests/conftest.py`). Tests build everything in their temp dir: never run `sync.sh` on the checkout, never use the
+  network or `~/.claude`. A test for an open bug calls `known_bug` (skipped unless `RUN_KNOWN_BUGS=1`); the fix removes it.
 - Changes to `settings/permissions*.json` widen what agents may run unprompted on every machine that merged
   them; keep them read-only and explain each rule in the PR.
 - Never push to `main`; push a branch and give the owner the compare link (the owner opens and merges the PR).
@@ -40,11 +44,12 @@ VS Code. Most of `plugins/` is **vendored** from upstream repos listed in `sourc
 ## Checks before a PR
 ```bash
 python3 scripts/validate.py          # manifests, skills, profiles, injection scan; regenerates SKILLS.md
+scripts/run-tests.sh                 # bats + pytest suites of the scripts, bash -n, shellcheck, pwsh parse (needs bats, pytest)
 scripts/test-skill-examples.sh       # runs the pester skill's examples under Pester 6 (needs pwsh)
 sh tools/attribution-guard/tests/run-tests.sh
 python3 tools/attribution-guard/azure-devops/gen.py --check   # regenerate with gen.py after editing ado-pr-guard.sh
 bash tools/attribution-guard/azure-devops/tests/run-tests.sh && bash tools/attribution-guard/azure-devops/tests/run-dispatch-tests.sh
-bash -n install.sh install-copilot.sh scripts/*.sh
+for f in install.sh install-copilot.sh scripts/*.sh; do bash -n "$f"; done   # `bash -n a b` checks only a
 shellcheck install.sh install-copilot.sh scripts/*.sh
 claude plugin validate plugins/<changed-plugin>   # if the claude CLI is available
 ```
