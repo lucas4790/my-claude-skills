@@ -1,0 +1,3 @@
+#!/bin/sh
+# Repo hook (core.hooksPath=.githooks, set by .claude/settings.json SessionStart or by hand).
+exec sh "$(git rev-parse --show-toplevel)/tools/attribution-guard/attribution-guard.sh" pre-push "$@"

@@ -71,6 +71,13 @@ plugin is installed, and Copilot CLI keeps a skill's `allowed-tools` approvals f
 (`/reset-allowed-tools` clears them). `install-copilot.*` therefore skips the `claude-only` profile and keeps
 `codebase-onboarding` (which pre-approves `python3`, `pip`, `git`) out of the default.
 
+## No AI attribution
+
+`.claude/settings.json` denies agents the GitHub tools and `gh` commands that publish PR/issue text, comments,
+merges or API commits, and denies ways around git hooks; a PreToolUse hook blocks tool calls whose text carries
+attribution. See [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md). A PR that loosens these rules changes what agents may
+publish under the owner's name.
+
 ## Reporting
 
 Open an issue on this repo for anything suspicious in vendored content; report upstream too.

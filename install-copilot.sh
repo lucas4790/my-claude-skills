@@ -103,9 +103,10 @@ main() {
   if [ -f "$cfg" ] && jq -e . "$cfg" >/dev/null 2>&1; then
     tmp=$(mktemp)
     jq --arg n "$NAME" --arg r "$REPO" \
-      '.extraKnownMarketplaces[$n] = ((.extraKnownMarketplaces[$n] // {source: {source: "github", repo: $r}}) + {autoUpdate: true})' \
+      '.extraKnownMarketplaces[$n] = ((.extraKnownMarketplaces[$n] // {source: {source: "github", repo: $r}}) + {autoUpdate: true})
+       | .includeCoAuthoredBy = false' \
       "$cfg" > "$tmp" && cat "$tmp" > "$cfg" && rm -f "$tmp"   # cat keeps a symlinked settings.json intact
-    echo "==> enabled autoUpdate for $NAME in $cfg"
+    echo "==> enabled autoUpdate for $NAME and turned off AI co-author trailers (includeCoAuthoredBy) in $cfg"
   else
     warn "$cfg missing or not plain JSON; set extraKnownMarketplaces.$NAME.autoUpdate = true by hand"
   fi

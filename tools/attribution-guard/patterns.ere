@@ -1,0 +1,1 @@
+^[[:space:]]*[[:alnum:]-]+-by:[[:space:]]*"?(claude|anthropic)([^-[:alnum:]]|$)|noreply@anthropic\.com|^[[:space:]]*claude-session:|claude\.ai/(code/)?(session|cse)_|claude\.ai/(share|chat)/|claude\.ai/(code/)?artifact/|claude\.com/claude-code|(generated|built|written|created|made|assisted|authored|produced) (with|by|using|in) \[?(claude|anthropic)( code)?([^-[:alnum:]]|$)

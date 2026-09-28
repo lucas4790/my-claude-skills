@@ -109,9 +109,11 @@ function Install-MyClaudeSkillsForCopilot([string[]] $Profiles, [string[]] $Plug
                 source = [pscustomobject]@{ source = 'github'; repo = $repo } })
         }
         $settings.extraKnownMarketplaces.$name | Add-Member -NotePropertyName autoUpdate -NotePropertyValue $true -Force
+        # No AI co-author trailers on commits made by Copilot CLI (docs/ATTRIBUTION.md).
+        $settings | Add-Member -NotePropertyName includeCoAuthoredBy -NotePropertyValue $false -Force
         # UTF-8 without BOM on both Windows PowerShell 5.1 and PowerShell 7
         [IO.File]::WriteAllText($cfg, ($settings | ConvertTo-Json -Depth 20), (New-Object Text.UTF8Encoding $false))
-        Write-Host "==> enabled autoUpdate for $name in $cfg"
+        Write-Host "==> enabled autoUpdate for $name and turned off AI co-author trailers (includeCoAuthoredBy) in $cfg"
     } catch {
         Write-Warning "could not update $cfg ($($_.Exception.Message)); set extraKnownMarketplaces.$name.autoUpdate = true by hand"
     }
