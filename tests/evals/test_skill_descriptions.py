@@ -181,6 +181,9 @@ def test_changed_skill_paths(tmp_path):
     (tmp_path / "plugins/p/skills/a/ref.md").write_text("y")
     (tmp_path / "plugins/p/skills/b").mkdir()
     (tmp_path / "plugins/p/skills/b/SKILL.md").write_text("---\nname: b\n---\n")
-    assert sd.changed_skill_paths(tmp_path, "HEAD") == {"plugins/p/skills/a/SKILL.md", "plugins/p/skills/b/SKILL.md"}
+    (tmp_path / "plugins/p/skills/ünï").mkdir()             # git C-quotes this path without -z
+    (tmp_path / "plugins/p/skills/ünï/SKILL.md").write_text("---\nname: u\n---\n")
+    assert sd.changed_skill_paths(tmp_path, "HEAD") == {"plugins/p/skills/a/SKILL.md", "plugins/p/skills/b/SKILL.md",
+                                                        "plugins/p/skills/ünï/SKILL.md"}
     with pytest.raises(subprocess.CalledProcessError):
         sd.changed_skill_paths(tmp_path, "no-such-ref")

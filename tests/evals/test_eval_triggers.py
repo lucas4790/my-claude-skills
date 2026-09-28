@@ -334,6 +334,8 @@ def test_credentials_contract():
     assert calls[-1] == ["claude", "auth", "status"]
     ok, why = et.credentials("claude", {}, runner(1))
     assert not ok and "not logged in" in why
+    for off in ("0", "false", "OFF", " "):                  # a switched-off provider is no credential
+        assert et.credentials("claude", {"CLAUDE_CODE_USE_BEDROCK": off}, runner(1))[0] is False
 
     def boom(cmd, **kw):
         raise OSError("gone")

@@ -24,8 +24,9 @@ VS Code. Most of `plugins/` is **vendored** from upstream repos listed in `sourc
 - `trust: "high"` only for vendors whose code you would run unreviewed; everything else is `low`.
 - Hooks in repo-owned plugins never block or fail: every error path exits 0 silently, and findings go to
   `hookSpecificOutput.additionalContext`. A hook that depends on Claude Code's payload or output goes in a
-  `claude-only` plugin. A new or changed hook registration under `plugins/` fails `validate.py --diff` until its
-  file is listed with its sha256 in `scripts/reviewed-hooks.json` (the reviewer checks both in the same PR).
+  `claude-only` plugin. A new hook registration under `plugins/`, or any edit of a reviewed hook file, fails
+  `validate.py --diff` until the file is listed with its new sha256 in `scripts/reviewed-hooks.json` (the owner
+  reviews both in the same PR; never add or update an entry on your own initiative).
 - A change to `scripts/sync.sh`, `update-plugins.sh`, `bump-pinned.sh`, `validate.py` or `gen-catalog.py` comes with a
   test: bats in `tests/bats/` (helpers in `tests/bats/helpers.bash`), pytest in `tests/test_script_*.py` (fixtures in
   `tests/conftest.py`). Tests build everything in their temp dir: never run `sync.sh` on the checkout, never use the

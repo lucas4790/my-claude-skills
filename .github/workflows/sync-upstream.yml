@@ -44,7 +44,7 @@ jobs:
       - run: python3 scripts/validate.py --diff "origin/${{ github.base_ref }}"
       - name: Install test tools
         # bats 1.10, pytest 7.4 and yamllint from Ubuntu; shellcheck, pwsh, git, rsync and jq are
-        # preinstalled. The skill-example tests never install Pester themselves, so it comes first.
+        # preinstalled. The pytest suite of the skill-example checker never installs Pester, so it comes first.
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends bats python3-pytest yamllint
@@ -150,7 +150,9 @@ jobs:
           fi
           shas=$(jq -r 'to_entries | map(select(.value.trust=="${{ matrix.trust }}") | "\(.key)@\(.value.sha[0:7])") | join(", ")' UPSTREAM.lock.json)
           changed=$(git status --porcelain | wc -l)
-          hits=$(grep -E '^(‼|⚠|✗)' "$RUNNER_TEMP/validate.log" || echo 'validator: no hits in added lines')
+          # validator lines quote upstream text (file names, skill names): drop backticks so it cannot close the fence
+          hits=$(grep -E '^(‼|⚠|✗)' "$RUNNER_TEMP/validate.log" | tr '\140' "'" || true)
+          [ -n "$hits" ] || hits='validator: no hits in added lines'
           # grep -c prints 0 but exits 1 on no match, which `bash -e` would treat as failure;
           # only a real grep error (exit 2) aborts the step.
           high=$(grep -c '\[high\]' "$RUNNER_TEMP/validate.log" || [ $? -eq 1 ])

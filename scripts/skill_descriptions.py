@@ -256,8 +256,9 @@ def changed_skill_paths(root: Path, ref: str) -> set[str]:
     (the same scope validate.py --diff scans). Raises subprocess.CalledProcessError on a bad ref."""
     def git(*a: str) -> str:
         return subprocess.run(["git", *a], cwd=root, capture_output=True, text=True, check=True).stdout
-    paths = set(git("diff", "--name-only", "--no-renames", ref, "--", "plugins/").splitlines())
-    paths |= set(git("ls-files", "--others", "--exclude-standard", "--", "plugins/").splitlines())
+    # -z: git C-quotes non-ASCII paths otherwise, and they would never match
+    paths = set(git("diff", "--name-only", "-z", "--no-renames", ref, "--", "plugins/").split("\0"))
+    paths |= set(git("ls-files", "-z", "--others", "--exclude-standard", "--", "plugins/").split("\0"))
     return {p for p in paths if p.endswith("/SKILL.md") or p == "SKILL.md"}
 
 

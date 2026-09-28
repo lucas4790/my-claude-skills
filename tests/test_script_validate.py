@@ -409,8 +409,67 @@ def test_diff_hook_changed_after_review_fails_and_prints_the_new_hash(repo):
     res = repo.validate("--diff", "HEAD")
     assert res.rc == 2, res
     assert f"{HOOKS}:3: [high] hook event registration" in res.hits
-    assert (f"{REVIEWED}: {HOOKS} changed since it was reviewed; after reviewing it, set its hash to {sha(changed)}"
-            in res.warnings), res
+    assert (f"{HOOKS}: [high] reviewed hook file changed; {REVIEWED}: {HOOKS} changed since it was reviewed; "
+            f"after reviewing it, set its hash to {sha(changed)}" in res.hits), res
+
+
+MULTI_LINE_HOOK = """{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          { "type": "command", "command": "sh scripts/lint.sh" }
+        ]
+      }
+    ]
+  }
+}
+"""
+
+
+@pytest.mark.parametrize("edit", [
+    lambda t: t.replace("scripts/lint.sh", "scripts/other.sh"),   # changes a line without the event name
+    lambda t: t.replace('        "matcher": "Write|Edit",\n', ""),  # deletes a line only
+])
+def test_diff_any_edit_of_a_reviewed_hook_file_fails(repo, edit):
+    repo.write(HOOKS, MULTI_LINE_HOOK)
+    repo.write_json(REVIEWED, {"reviewed": {HOOKS: sha(MULTI_LINE_HOOK)}})
+    repo.commit("reviewed hook")
+    changed = edit(MULTI_LINE_HOOK)
+    assert changed != MULTI_LINE_HOOK
+    repo.write(HOOKS, changed)
+    res = repo.validate("--diff", "HEAD")
+    assert res.rc == 2, res
+    assert any(h.startswith(f"{HOOKS}: [high] reviewed hook file changed;") for h in res.hits), res
+    # sync PRs (--warn-only) only report it
+    assert repo.validate("--diff", "HEAD", "--warn-only").rc == 0
+
+
+def test_a_changed_allowlist_is_announced(repo):
+    repo.write(HOOKS, HOOK)
+    repo.write_json(REVIEWED, {"reviewed": {HOOKS: sha(HOOK)}})
+    res = repo.validate("--diff", "HEAD")
+    assert res.rc == 0, res
+    assert any(w.startswith(f"{REVIEWED} changed since HEAD: each added or changed entry declares a hook reviewed")
+               for w in res.warnings), res
+
+
+# --- content git would call binary -----------------------------------------------------------------
+
+def test_diff_scans_added_lines_git_would_call_binary(repo):
+    repo.append(SKILL, "<!-- \x00 -->\n" + CURL_SH)            # a NUL byte makes git print "Binary files differ"
+    res = repo.validate("--diff", "HEAD")
+    assert res.rc == 2, res
+    assert any("curl | sh pipeline" in h for h in res.hits), res
+
+
+def test_diff_ignores_a_gitattributes_that_disables_diffs(repo):
+    repo.write(".gitattributes", "plugins/** -diff\n")
+    repo.append(SKILL, CURL_SH)
+    res = repo.validate("--diff", "HEAD")
+    assert res.rc == 2, res
+    assert any("curl | sh pipeline" in h for h in res.hits), res
 
 
 def test_reviewed_entry_does_not_cover_other_high_patterns(repo):
