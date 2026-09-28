@@ -11,6 +11,7 @@ and scans vendored content for prompt-injection / exfiltration patterns.
 Exit codes: 0 ok, 1 structural problem, 2 high-severity injection hit in added lines.
 """
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -69,6 +70,19 @@ SUSPICIOUS = [
 ]
 COMPILED = [(re.compile(p, re.I | re.S), label, sev) for p, label, sev in SUSPICIOUS]
 
+# Hook registrations the owner reviewed: scripts/reviewed-hooks.json maps a file under plugins/ to the sha256
+# of its content (CRLF read as LF). While a listed file is unchanged, its hook registration is reported as
+# [reviewed] instead of [high]; any edit changes the hash, so the registration fails --diff again until the
+# new content is reviewed and the hash updated in the same PR. Filled in just before the injection scan.
+REVIEWED_HOOKS: dict[str, str] = {}
+
+
+def content_sha256(rel: str) -> str:
+    try:
+        return hashlib.sha256((ROOT / rel).read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+    except OSError:
+        return ""
+
 
 def scan(rel: str, text: str, line_numbers: list[int] | None, fail_high: bool) -> None:
     """Report the first hit per pattern. line_numbers maps 0-based line index of `text`
@@ -81,6 +95,9 @@ def scan(rel: str, text: str, line_numbers: list[int] | None, fail_high: bool) -
         # injection to defend against it, not performing it.
         if sev == "high" and label.endswith("phrase") and m.start() > 0 and text[m.start() - 1] in "\"'`“‘":
             sev = "low"
+        if sev == "high" and label == "hook event registration" and rel in REVIEWED_HOOKS \
+                and REVIEWED_HOOKS[rel] == content_sha256(rel):
+            sev = "reviewed"
         idx = text.count("\n", 0, m.start())
         ln = line_numbers[idx] if line_numbers and idx < len(line_numbers) else idx + 1
         n = sum(1 for _ in rx.finditer(text))
@@ -251,6 +268,18 @@ for f in ROOT.glob("plugins/**/*"):
         problems.append(f"{f.relative_to(ROOT)}: file over 5 MB")
 
 # --- injection scan -----------------------------------------------------------
+reviewed_file = ROOT / "scripts/reviewed-hooks.json"
+if reviewed_file.exists():
+    listed = (check_json(reviewed_file) or {}).get("reviewed", {})
+    for rel, digest in (listed.items() if isinstance(listed, dict) else []):
+        current = content_sha256(rel)
+        if not current:
+            warnings.append(f"scripts/reviewed-hooks.json: {rel} does not exist; remove the entry")
+        elif current != digest:
+            warnings.append(f"scripts/reviewed-hooks.json: {rel} changed since it was reviewed; after reviewing it, "
+                            f"set its hash to {current}")
+        else:
+            REVIEWED_HOOKS[rel] = digest
 if args.diff:
     for path, (nums, lines) in added_lines(args.diff).items():
         scan(path, "\n".join(lines), nums, fail_high=not args.warn_only)

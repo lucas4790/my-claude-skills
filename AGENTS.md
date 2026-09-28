@@ -13,7 +13,8 @@ VS Code. Most of `plugins/` is **vendored** from upstream repos listed in `sourc
   `scripts/sync.sh --only <source>` instead. Which paths are vendored: every `copy[].to` in `sources.json`.
 - To change a vendored file, never edit it: edit `patches/<name>.patch` (regenerate as in README,
   "Patching vendored files"). `sync.sh` applies it after every sync.
-- Repo-owned files you may edit: `plugins/component-documentation/`, `plugins/spec-kit/`, `patches/`, `tests/`,
+- Repo-owned files you may edit: `plugins/component-documentation/`, `plugins/spec-kit/`, `plugins/yaml-lsp/`,
+  `plugins/yaml-hooks/`, `patches/`, `tests/`,
   every `plugins/*/.claude-plugin/plugin.json` that `sources.json` does not copy,
   `plugins/pyright-lsp/plugin.json` (Copilot manifest), `profiles.json`, `settings/`, `scripts/`, installers, docs.
 - Adding a plugin: `sources.json` entry → `plugins/<name>/.claude-plugin/plugin.json` if upstream has none →
@@ -21,6 +22,10 @@ VS Code. Most of `plugins/` is **vendored** from upstream repos listed in `sourc
   README plugin table → `scripts/sync.sh --only <name>` → a `report` entry in `tests/skill-examples.json` if its skills
   have bash/yaml/python/json/PowerShell examples worth checking.
 - `trust: "high"` only for vendors whose code you would run unreviewed; everything else is `low`.
+- Hooks in repo-owned plugins never block or fail: every error path exits 0 silently, and findings go to
+  `hookSpecificOutput.additionalContext`. A hook that depends on Claude Code's payload or output goes in a
+  `claude-only` plugin. A new or changed hook registration under `plugins/` fails `validate.py --diff` until its
+  file is listed with its sha256 in `scripts/reviewed-hooks.json` (the reviewer checks both in the same PR).
 - A change to `scripts/sync.sh`, `update-plugins.sh`, `bump-pinned.sh`, `validate.py` or `gen-catalog.py` comes with a
   test: bats in `tests/bats/` (helpers in `tests/bats/helpers.bash`), pytest in `tests/test_script_*.py` (fixtures in
   `tests/conftest.py`). Tests build everything in their temp dir: never run `sync.sh` on the checkout, never use the
@@ -50,11 +55,12 @@ VS Code. Most of `plugins/` is **vendored** from upstream repos listed in `sourc
 python3 scripts/validate.py          # manifests, skills, profiles, injection scan; regenerates SKILLS.md
 scripts/run-tests.sh                 # bats + pytest suites of the scripts, bash -n, shellcheck, pwsh parse (needs bats, pytest)
 scripts/test-skill-examples.sh       # code blocks of the skills in tests/skill-examples.json (pwsh + Pester 6, shellcheck, yamllint)
+sh plugins/yaml-hooks/tests/test-hook.sh   # yamllint hook (also run by run-tests.sh); lint cases skip without yamllint
 sh tools/attribution-guard/tests/run-tests.sh
 python3 tools/attribution-guard/azure-devops/gen.py --check   # regenerate with gen.py after editing ado-pr-guard.sh
 bash tools/attribution-guard/azure-devops/tests/run-tests.sh && bash tools/attribution-guard/azure-devops/tests/run-dispatch-tests.sh
 for f in install.sh install-copilot.sh scripts/*.sh; do bash -n "$f"; done   # `bash -n a b` checks only a
-shellcheck install.sh install-copilot.sh scripts/*.sh
+shellcheck install.sh install-copilot.sh scripts/*.sh plugins/yaml-hooks/scripts/*.sh plugins/yaml-hooks/tests/*.sh
 claude plugin validate plugins/<changed-plugin>   # if the claude CLI is available
 ```
 Commit a regenerated `SKILLS.md` together with the change that caused it.

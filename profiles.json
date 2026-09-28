@@ -9,7 +9,8 @@
       "mattpocock-skills",
       "powershell",
       "feature-dev",
-      "spec-kit"
+      "spec-kit",
+      "yaml-lsp"
     ],
     "dotnet": [
       "dotnet",
@@ -30,7 +31,8 @@
       "claude-security",
       "commit-commands",
       "code-modernization",
-      "pr-review-toolkit"
+      "pr-review-toolkit",
+      "yaml-hooks"
     ]
   },
   "copilotDefault": [

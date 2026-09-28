@@ -1,0 +1,44 @@
+{
+  "name": "yaml-lsp",
+  "description": "YAML language server (Red Hat yaml-language-server): syntax errors plus SchemaStore validation (GitHub Actions, Azure Pipelines, GitLab CI, docker-compose, Kustomize, Helm Chart.yaml, ...) and per-file schemas via modelines; requires `npm i -g yaml-language-server`",
+  "author": { "name": "Lucas", "url": "https://github.com/lucas4790" },
+  "homepage": "https://github.com/redhat-developer/yaml-language-server",
+  "lspServers": {
+    "yaml": {
+      "command": "yaml-language-server",
+      "args": ["--stdio"],
+      "extensionToLanguage": { ".yaml": "yaml", ".yml": "yaml" },
+      "settings": {
+        "yaml": {
+          "validate": true,
+          "keyOrdering": false,
+          "schemaStore": { "enable": true },
+          "customTags": [
+            "!reference sequence",
+            "!vault scalar",
+            "!unsafe scalar",
+            "!Ref scalar",
+            "!Condition scalar",
+            "!Sub scalar",
+            "!Sub sequence",
+            "!GetAtt scalar",
+            "!GetAtt sequence",
+            "!GetAZs scalar",
+            "!ImportValue scalar",
+            "!Base64 scalar",
+            "!Join sequence",
+            "!Select sequence",
+            "!Split sequence",
+            "!FindInMap sequence",
+            "!Cidr sequence",
+            "!If sequence",
+            "!Equals sequence",
+            "!And sequence",
+            "!Or sequence",
+            "!Not sequence"
+          ]
+        }
+      }
+    }
+  }
+}

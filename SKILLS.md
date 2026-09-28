@@ -382,6 +382,14 @@ HashiCorp Terraform MCP server (runs via docker): registry, provider and module 
 
 Python language server (Pyright) for type checking and code intelligence; requires `npm i -g pyright`
 
+## `yaml-lsp`
+
+YAML language server (Red Hat yaml-language-server): syntax errors plus SchemaStore validation (GitHub Actions, Azure Pipelines, GitLab CI, docker-compose, Kustomize, Helm Chart.yaml, ...) and per-file schemas via modelines; requires `npm i -g yaml-language-server`
+
+## `yaml-hooks`
+
+Claude Code PostToolUse hook: runs yamllint on .yaml/.yml files after Write/Edit and adds the errors to Claude's context (the project's yamllint config if present, else a relaxed default; Helm templates skipped); requires yamllint
+
 ## `caveman`
 
 Ultra-compressed communication mode: cuts ~65% of output tokens by talking like caveman while keeping technical accuracy

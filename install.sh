@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Installs Claude Code if missing, adds the my-claude-skills marketplace, installs its plugins,
-# and installs the CLI tools some plugins depend on (agent-browser, uv, pwsh, .NET SDK, pyright).
+# and installs the CLI tools some plugins depend on (agent-browser, uv, pwsh, .NET SDK, pyright,
+# yaml-language-server, yamllint).
 # Usage: install.sh [plugin ...]      (no args = every plugin in the marketplace)
 #        curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/install.sh | bash
 set -euo pipefail
@@ -170,6 +171,32 @@ if selected pyright-lsp; then
     echo "==> installing pyright"
     if [ -w "$(npm config get prefix)/lib/node_modules" ] 2>/dev/null; then npm install -g pyright
     else npm install -g --prefix "$HOME/.local" pyright; fi || warn "pyright install failed; run: npm i -g pyright"
+  fi
+fi
+
+if selected yaml-lsp; then
+  if has yaml-language-server; then
+    echo "==> yaml-language-server present"
+  else
+    echo "==> installing yaml-language-server"
+    if [ -w "$(npm config get prefix)/lib/node_modules" ] 2>/dev/null; then npm install -g yaml-language-server
+    else npm install -g --prefix "$HOME/.local" yaml-language-server; fi || warn "yaml-language-server install failed; run: npm i -g yaml-language-server"
+  fi
+fi
+
+if selected yaml-hooks; then
+  if has yamllint; then
+    echo "==> yamllint present ($(yamllint --version 2>/dev/null))"
+  elif has pipx; then
+    echo "==> installing yamllint via pipx"
+    pipx install yamllint || warn "yamllint install failed; run: pipx install yamllint"
+  elif has uv; then
+    echo "==> installing yamllint via uv tool"
+    uv tool install yamllint || warn "yamllint install failed; run: uv tool install yamllint"
+  else
+    echo "==> installing yamllint via the system package manager"
+    pkg_install yamllint || python3 -m pip install --user yamllint \
+      || warn "yamllint install failed; run: pipx install yamllint (the yaml-hooks hook does nothing without it)"
   fi
 fi
 

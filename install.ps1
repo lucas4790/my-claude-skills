@@ -2,7 +2,8 @@
 <#
 .SYNOPSIS
     Installs Claude Code if missing, adds the my-claude-skills marketplace, installs its plugins,
-    and installs the tools some plugins depend on (git, Node.js, agent-browser, uv, PowerShell 7, .NET 10 SDK).
+    and installs the tools some plugins depend on (git, Node.js, agent-browser, uv, PowerShell 7, .NET 10 SDK,
+    pyright, yaml-language-server, yamllint).
 .EXAMPLE
     .\install.ps1                      # every plugin in the marketplace
     .\install.ps1 dotnet, powershell   # only these
@@ -128,6 +129,46 @@ if ($Plugin -contains 'dotnet') {
         Write-Host "==> .NET 10 SDK present ($(& dotnet --version))"
     } else {
         Install-Winget 'Microsoft.DotNet.SDK.10' '.NET 10 SDK'
+    }
+}
+
+if ($Plugin -contains 'pyright-lsp') {
+    if (Test-Cmd pyright-langserver) {
+        Write-Host "==> pyright present"
+    } else {
+        Write-Host "==> installing pyright"
+        & npm.cmd install -g pyright   # npm.cmd, not npm.ps1: works under the Restricted execution policy
+        if ($LASTEXITCODE -ne 0) { Write-Warning "pyright install failed; run: npm i -g pyright" }
+        Initialize-Path
+    }
+}
+
+if ($Plugin -contains 'yaml-lsp') {
+    if (Test-Cmd yaml-language-server) {
+        Write-Host "==> yaml-language-server present"
+    } else {
+        Write-Host "==> installing yaml-language-server"
+        & npm.cmd install -g yaml-language-server   # npm.cmd, not npm.ps1: works under the Restricted execution policy
+        if ($LASTEXITCODE -ne 0) { Write-Warning "yaml-language-server install failed; run: npm i -g yaml-language-server" }
+        Initialize-Path
+    }
+}
+
+if ($Plugin -contains 'yaml-hooks') {
+    # winget has no yamllint package; uv installs it as a tool (and uv itself comes from winget when missing)
+    if (Test-Cmd yamllint) {
+        Write-Host "==> yamllint present ($(& yamllint --version))"
+    } else {
+        if (-not (Test-Cmd uv)) { Install-Winget 'astral-sh.uv' 'uv' }
+        if (Test-Cmd uv) {
+            Write-Host "==> installing yamllint via uv tool"
+            & uv tool install yamllint
+            if ($LASTEXITCODE -ne 0) { Write-Warning "yamllint install failed; run: uv tool install yamllint" }
+            & uv tool update-shell   # puts uv's tool directory on the user PATH (no 2>$null: with Stop, PS 5.1 would throw on its stderr)
+            Initialize-Path
+        } else {
+            Write-Warning "uv not found; install yamllint for the yaml-hooks plugin: uv tool install yamllint (or pipx install yamllint)"
+        }
     }
 }
 

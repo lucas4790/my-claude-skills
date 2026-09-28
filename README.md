@@ -26,6 +26,8 @@ The script installs Claude Code itself if missing, then the marketplace and plug
 | PowerShell 7 + PSScriptAnalyzer + Pester | `powershell` | snap / brew / dotnet tool | winget |
 | .NET 10 SDK | `dotnet` (Roslyn C# LSP) | apt / brew / dotnet-install.sh | winget |
 | pyright | `pyright-lsp` | npm | npm |
+| yaml-language-server | `yaml-lsp` | npm | npm |
+| yamllint | `yaml-hooks` | pipx / uv tool / apt / dnf / brew / pip --user | uv tool (no winget package; uv from winget if missing) |
 | docker (checked, not installed) | `terraform` MCP server | — | — |
 
 If the Claude desktop app (macOS/Windows) is also installed, the script says so and asks before
@@ -90,10 +92,10 @@ lists the other useful settings. With VS Code on Windows and Remote-WSL, run the
 
 | Profile | Plugins | Copilot default |
 |---|---|---|
-| `cloud` | terraform, azure-agent-skills, pyright-lsp, component-documentation, mattpocock-skills, powershell, feature-dev, spec-kit | yes |
+| `cloud` | terraform, azure-agent-skills, pyright-lsp, component-documentation, mattpocock-skills, powershell, feature-dev, spec-kit, yaml-lsp | yes |
 | `dotnet` | dotnet, dotnet-aspnetcore, dotnet-test, dotnet-data, dotnet-nuget, dotnet-advanced, csharp-patterns | no |
 | `extras` | anthropic-skills, codebase-onboarding, agent-browser, caveman (skipped on native Windows: POSIX-only hooks) | no |
-| `claude-only` | claude-security, commit-commands, code-modernization, pr-review-toolkit | never (name them explicitly to force) |
+| `claude-only` | claude-security, commit-commands, code-modernization, pr-review-toolkit, yaml-hooks | never (name them explicitly to force) |
 
 `claude-only` plugins depend on Claude Code features (Workflow engine, `` !`cmd` `` injection, `$ARGUMENTS`,
 Claude-only hook events). Use them from Claude Code, or from VS Code's **Claude** session target, which reads
@@ -180,7 +182,11 @@ See [SKILLS.md](SKILLS.md) for the full catalog of every skill, command and agen
 | `codebase-onboarding` | [eabait/codebase-onboarding-skill](https://github.com/eabait/codebase-onboarding-skill) | generates a DeepWiki-style, source-linked wiki with diagrams to learn how a repo works; `pip install -r scripts/requirements.txt` optional for deeper analysis. Upstream repo LICENSE is MIT while the SKILL.md frontmatter says Apache-2.0; both permissive |
 | `terraform` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) (HashiCorp) | Terraform MCP server in docker: registry, provider and module docs lookup |
 | `pyright-lsp` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | Python language server; `install.sh` installs `pyright`. The repo-owned root `plugin.json` is the Copilot CLI manifest (Copilot needs `fileExtensions`) |
+| `yaml-lsp` | repo-owned ([redhat-developer/yaml-language-server](https://github.com/redhat-developer/yaml-language-server)) | YAML language server: syntax errors, SchemaStore schemas by file name (GitHub Actions, Azure Pipelines, GitLab CI, docker-compose, Kustomize, Helm `Chart.yaml`), schemas per file via modelines, no "Unresolved tag" errors for CloudFormation, GitLab `!reference` and Ansible `!vault`; `install.sh` installs `yaml-language-server`. `.claude-plugin/plugin.json` (Claude Code, with server `settings`) and root `plugin.json` (Copilot CLI, `fileExtensions`, no settings) |
+| `yaml-hooks` | repo-owned | Claude Code `PostToolUse` hook: runs `yamllint` after every `.yaml`/`.yml` Write/Edit and adds the errors to Claude's context; the project's `.yamllint` wins over a relaxed default; Helm templates skipped; silent without `yamllint` (`install.sh` installs it) |
 | `caveman` | [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) | terse "caveman mode" that cuts ~65% of output tokens; `/caveman` commands + skills |
+
+**YAML** (`yaml-lsp`, `yaml-hooks`): the language server picks schemas from [SchemaStore](https://www.schemastore.org/) by file name and downloads the catalog and schemas on first use. Kubernetes manifests are not mapped by folder: yaml-language-server 1.24 flags every valid core `apiVersion: v1` object (ConfigMap, Service, ...) with "Matches multiple schemas when only one must validate" under a `kubernetes` mapping ([#998](https://github.com/redhat-developer/yaml-language-server/issues/998)), treats Helm `values.yaml` as a manifest, and reports "Unable to load schema" for CRDs missing from the catalog. Put a modeline on the first line of a manifest instead, e.g. `# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/v1.34.1-standalone-strict/deployment-apps-v1.json`, or for a CRD `https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/<group>/<kind>_<version>.json`. Helm templates with `{{ }}` blocks are not YAML: the language server reports syntax errors in them (it cannot skip files), the yamllint hook skips them. Claude Code starts no plugin language servers in cloud sessions; the hook runs there too. `YAML_HOOKS_WARNINGS=1` (e.g. in `settings.json` `env`) makes the hook list yamllint warnings as well as errors.
 
 `caveman` is referenced directly from upstream (not vendored) because it is a full plugin with runtime hooks and a split MIT/BSL license. It is pinned to an exact commit `sha`; `scripts/bump-pinned.sh` proposes updates via PR.
 
