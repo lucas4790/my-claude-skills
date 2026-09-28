@@ -290,12 +290,13 @@ Curated C#/.NET design skills from Aaronontheweb/dotnet-skills: coding standards
 
 ## `powershell`
 
-PowerShell skill: safe native-command invocation, quoting, escaping, encoding and Start-Process rules (Misaka-Mikoto-Tech/agent-skills)
+PowerShell skills: safe native-command invocation, quoting, escaping, encoding and Start-Process rules (Misaka-Mikoto-Tech/agent-skills); Pester 6 testing guidelines (github/awesome-copilot)
 
 ### Skills
 
 | Name | What it does |
 |---|---|
+| [`pester`](plugins/powershell/skills/pester/SKILL.md) | Use when writing, fixing, reviewing or running Pester tests for PowerShell (Pester 6, v5 syntax still accepted) - *.Tests.ps1 files, Discovery vs Run phases, Describe/Context/It blocks, Should and Should-* assertions,… |
 | [`powershell-safe-invocation`](plugins/powershell/skills/powershell-safe-invocation/SKILL.md) | Use when writing or running PowerShell on Windows, especially native programs, quoted paths, escaping, pwsh, Start-Process, file operations, or shell troubleshooting. |
 
 ## `mattpocock-skills`

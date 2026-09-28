@@ -12,8 +12,9 @@ VS Code. Most of `plugins/` is **vendored** from upstream repos listed in `sourc
 - Do not edit vendored content. Change `sources.json` (repo, ref, trust, copy/exclude) and run
   `scripts/sync.sh --only <source>` instead. Which paths are vendored: every `copy[].to` in `sources.json`.
 - Repo-owned files you may edit: `plugins/component-documentation/`, `plugins/spec-kit/`,
-  every `plugins/*/.claude-plugin/plugin.json` that `sources.json` does not copy, `plugins/pyright-lsp/plugin.json`
-  (Copilot manifest), `profiles.json`, `settings/`, `scripts/`, installers, docs.
+  `plugins/powershell/skills/pester/` and `plugins/powershell/LICENSE.awesome-copilot` (adapted from
+  github/awesome-copilot, MIT), every `plugins/*/.claude-plugin/plugin.json` that `sources.json` does not copy,
+  `plugins/pyright-lsp/plugin.json` (Copilot manifest), `profiles.json`, `settings/`, `scripts/`, installers, docs.
 - Adding a plugin: `sources.json` entry → `plugins/<name>/.claude-plugin/plugin.json` if upstream has none →
   `.claude-plugin/marketplace.json` entry → add it to exactly one profile in `profiles.json` →
   README plugin table → `scripts/sync.sh --only <name>`.
