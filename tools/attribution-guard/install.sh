@@ -1,7 +1,7 @@
 #!/bin/sh
 # Install the attribution guard for the current user's git repositories (work repos too).
 # Linux, WSL, macOS, and Git Bash on Windows (Git for Windows runs hooks with its own sh.exe).
-#   sh install.sh [strip|reject] [--global-hooks-path]
+#   sh install.sh [strip|reject] [--global-hooks-path | --no-global-hooks-path]
 #     strip (default): attribution lines are removed from commit messages; reject: the commit fails.
 # Git >= 2.54: config-based hooks (hook.<name>.command). They run in addition to .git/hooks and to a
 #   repository's own core.hooksPath (husky, lefthook, pre-commit), so every repository is covered.
@@ -15,18 +15,28 @@
 set -eu
 src=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 dst="${XDG_CONFIG_HOME:-$HOME/.config}/git/attribution-guard"
-# Re-running keeps earlier choices: the mode, and an opted-in global hooks path.
+# Re-running keeps earlier choices: the mode, and the global hooks path opt-in (stored as
+# attributionguard.globalHooksPath; an older install without it counts as opted in while its
+# dispatcher is in place; --no-global-hooks-path switches back to init.templateDir).
 mode=$(git config --global --get attributionguard.mode 2>/dev/null || true)
 [ "$mode" = reject ] || mode='strip'
-global_hooks_path=0
-[ "$(git config --global --get core.hooksPath 2>/dev/null || true)" = "$dst/hooks" ] && global_hooks_path=1
+global_hooks_path=$(git config --global --type=bool --get attributionguard.globalHooksPath 2>/dev/null || true)
+case $global_hooks_path in
+    true) global_hooks_path=1 ;;
+    false) global_hooks_path=0 ;;
+    *) global_hooks_path=0
+       [ "$(git config --global --get core.hooksPath 2>/dev/null || true)" = "$dst/hooks" ] && global_hooks_path=1 ;;
+esac
 for a in "$@"; do
     case $a in
         strip | reject) mode=$a ;;
         --global-hooks-path) global_hooks_path=1 ;;
-        *) echo "usage: sh install.sh [strip|reject] [--global-hooks-path]" >&2; exit 2 ;;
+        --no-global-hooks-path) global_hooks_path=0 ;;
+        *) echo "usage: sh install.sh [strip|reject] [--global-hooks-path | --no-global-hooks-path]" >&2; exit 2 ;;
     esac
 done
+if [ "$global_hooks_path" = 1 ]; then git config --global attributionguard.globalHooksPath true
+else git config --global attributionguard.globalHooksPath false; fi
 
 mkdir -p "$dst"
 # Strip CR so a CRLF checkout (Windows, core.autocrlf) still installs working scripts.
@@ -61,12 +71,15 @@ elif [ "$global_hooks_path" = 1 ]; then
         exit 1
     fi
     mkdir -p "$dst/hooks"
+    # Not push-to-checkout (its mere presence changes updateInstead pushes), post-index-change,
+    # reference-transaction (overhead on every ref update) or proc-receive (a two-way protocol the
+    # dispatcher cannot relay); a repository's own copies of those stop running under a global
+    # hooks path. Remove them if an earlier install created them.
+    rm -f "$dst/hooks/push-to-checkout" "$dst/hooks/post-index-change" "$dst/hooks/reference-transaction"
     for h in applypatch-msg pre-applypatch post-applypatch pre-commit pre-merge-commit prepare-commit-msg \
              commit-msg post-commit pre-rebase post-checkout post-merge pre-push post-rewrite pre-auto-gc \
-             sendemail-validate fsmonitor-watchman p4-changelist p4-prepare-changelist p4-post-changelist p4-pre-submit; do
-        # Not push-to-checkout (its mere presence changes updateInstead pushes), post-index-change
-        # or reference-transaction (overhead on every ref update); a repository's own copies of
-        # those three stop running under a global hooks path.
+             sendemail-validate fsmonitor-watchman p4-changelist p4-prepare-changelist p4-post-changelist p4-pre-submit \
+             pre-receive update post-receive post-update; do
         cp "$dst/dispatch" "$dst/hooks/$h"
         chmod +x "$dst/hooks/$h"
     done
@@ -81,6 +94,10 @@ else
         exit 1
     fi
     mkdir -p "$dst/template/hooks"
+    # init.templateDir replaces git's own template: start from it (info/exclude, description).
+    tpl="$(git --exec-path 2>/dev/null)/../../share/git-core/templates"
+    if [ -d "$tpl" ]; then cp -R "$tpl/." "$dst/template/" 2>/dev/null || true
+    else mkdir -p "$dst/template/info" && [ -f "$dst/template/info/exclude" ] || : >"$dst/template/info/exclude"; fi
     for h in commit-msg pre-push; do
         printf '#!/bin/sh\n# attribution guard (installed by my-claude-skills tools/attribution-guard/install.sh)\nexec sh "%s/attribution-guard.sh" %s "$@"\n' "$dst" "$h" >"$dst/template/hooks/$h"
         chmod +x "$dst/template/hooks/$h"
@@ -111,12 +128,14 @@ if ! jq -e . "$settings" >/dev/null 2>&1; then
     echo "attribution guard: $settings is not plain JSON; add the PreToolUse hook by hand (docs/ATTRIBUTION.md)" >&2
     exit 0
 fi
-# Replace an earlier registration so matcher and command stay current.
+# Replace an earlier registration so matcher and command stay current: remove only our own hook
+# entries (other hooks in the same group stay), drop groups left empty, then add ours.
 cmd="f=\"$dst/claude-pretooluse.sh\"; [ ! -f \"\$f\" ] || sh \"\$f\""
 tmp=$(mktemp)
 jq --arg cmd "$cmd" '
     .hooks.PreToolUse = ([(.hooks.PreToolUse // [])[]
-        | select(([.hooks[]?.command // ""] | map(test("attribution-guard/claude-pretooluse\\.sh")) | any) | not)]
+        | .hooks = [(.hooks // [])[] | select((.command // "") | test("attribution-guard/claude-pretooluse\\.sh") | not)]
+        | select(.hooks | length > 0)]
       + [{matcher: "Bash|PowerShell|Monitor|Write|Edit|MultiEdit|NotebookEdit|mcp__.*([Gg]it[Hh]ub|[Aa]do|[Aa]zure|[Dd]ev[Oo]ps).*",
           hooks: [{type: "command", shell: "bash", command: $cmd}]}])' \
     "$settings" >"$tmp" || { rm -f "$tmp"; exit 1; }

@@ -105,7 +105,7 @@ GH="${B}gh(\\.exe)?[[:space:]]+([^[:space:]]+[[:space:]]+)*"
 AZ="${B}az(\\.cmd|\\.exe)?[[:space:]]+([^[:space:]]+[[:space:]]+)*"
 GIT_WORD="${B}git(\\.exe)?([^[:alnum:]_.-]|\$)"
 GIT_WRITE="${GIT}(commit|merge|push|am|rebase|cherry-pick|revert|pull|tag|notes)([[:space:]]|\$)"
-HOOK_KEYS='hookspath|(^|[^[:alnum:]_])hook\.[^[:space:]=]+\.(command|enabled|event)|\[hook[[:space:]]|(^|[^[:alnum:]_])include\.path|includeif\.|attributionguard\.|(remove|rename)-section[[:space:]]+(hook|core|include|attributionguard)'
+HOOK_KEYS='hookspath|(^|[^[:alnum:]_])hook\.[^[:space:]=]+\.(command|enabled|event)|\[hook[[:space:]]|(^|[^[:alnum:]_])include\.path|includeif\.|attributionguard\.|(^|[^[:alnum:]_])url\.[^[:space:]]*\.(push)?insteadof|extensions\.worktreeconfig|(remove|rename)-section[[:space:]]+(hook|core|include|attributionguard|url)'
 ENV_VARS='home|xdg_config_home|userprofile|git_config[a-z0-9_]*|git_dir|git_work_tree|git_common_dir|git_exec_path|git_template_dir'
 ENV_SET="^[[:space:]]*((export|env|set)[[:space:]]+(-[^[:space:]]+[[:space:]]+)*|\\\$env:)?([a-z_][a-z0-9_]*=[^[:space:]]*[[:space:]]+)*($ENV_VARS)[[:space:]]*=|^[[:space:]]*(unset[[:space:]]+([a-z_0-9]+[[:space:]]+)*|remove-item[[:space:]]+env:|env[[:space:]]+(-[^[:space:]]+[[:space:]]+)*-u[[:space:]]*)($ENV_VARS)([[:space:]]|\$)"
 HOOK_FILES='\.githooks|\.git/hooks|git/attribution-guard'
@@ -120,7 +120,13 @@ Bash | PowerShell | Monitor)
     # Join line continuations (sh "\", PowerShell "`"); then two normalized forms: n1 drops quotes,
     # backticks and backslashes (--no-""verify, --no-ver\ify, --no-ver`ify); n2 turns backslashes
     # into slashes (C:\Program Files\Git\bin\git.exe). Segments split on command separators.
-    joined=$(printf '%s\n' "$cmd" | awk '{ line = line $0 } /[\\`]$/ { sub(/[\\`]$/, "", line); next } { print line; line = "" } END { if (line != "") print line }')
+    # Also: an empty quoted argument ("" or '') becomes EMPTY, so removing quotes cannot make
+    # 'git config key ""' look like a one-argument read; $(command -v git) and the like become git.
+    # shellcheck disable=SC2016 # sed programs, not shell
+    joined=$(printf '%s\n' "$cmd" | awk '{ line = line $0 } /[\\`]$/ { sub(/[\\`]$/, "", line); next } { print line; line = "" } END { if (line != "") print line }' \
+        | sed -E -e "s/(^|[[:space:]=])(\"\"|'')([[:space:]]|\$)/\1EMPTY\3/g" \
+              -e 's/[$][(](command[[:space:]]+-v|which|type[[:space:]]+-[pP]|get-command)[[:space:]]+(git|gh)([.]exe)?[)]/\2/g' \
+              -e 's/`(command[[:space:]]+-v|which)[[:space:]]+(git|gh)`/\2/g')
     # shellcheck disable=SC2020 # one newline per separator character
     segs=$(printf '%s\n' "$joined" | tr -d "\"'\`\\\\" | tr ';&|(){}' '\n\n\n\n\n\n\n'
            printf '%s\n' "$joined" | tr -d "\"'\`" | tr '\134' '/' | tr ';&|(){}' '\n\n\n\n\n\n\n')
@@ -129,25 +135,33 @@ Bash | PowerShell | Monitor)
     if has "$segs" "$GIT_WORD" && has "$segs" '--no-veri'; then
         block 'git --no-verify skips the attribution hooks. Commit and push without it.'
     fi
-    why=$(printf '%s\n' "$segs" | while IFS= read -r s; do
-        # -n anywhere in a short-option cluster before an option that takes the rest as its value.
-        if has_cs "$s" "${GIT}commit([[:space:]]+[^[:space:]]+)*[[:space:]]+-[^-[:space:]mFCctS]*n[^[:space:]]*([[:space:]]|\$)"; then
-            echo 'git commit -n skips the attribution hooks. Commit without it (if -n was part of the message text, rephrase).'
-        elif has "$s" "${GIT}config([[:space:]]|\$)" && has "$s" "$HOOK_KEYS" && printf '%s\n' "$s" | config_writes; then
-            echo 'changing core.hooksPath, hook.*, include.path or attributionguard.* settings would switch off the attribution hooks.'
-        elif has "$s" "$GIT_WORD" && has "$s" "(^|[[:space:]])(-c[[:space:]]*|--config-env[=[:space:]]*)[^[:space:]]*($HOOK_KEYS)"; then
-            echo 'git -c / --config-env overrides of hook settings would switch off the attribution hooks.'
-        elif has "$s" "$GIT_WRITE" && has "$s" '(^|[[:space:]])--(git-dir|work-tree)([=[:space:]]|$)'; then
-            echo 'git --git-dir / --work-tree on a git write can move the repository away from its hooks; run git from the repository instead.'
-        elif has "$s" '\.git/config' && has "$s" '>|(^|[[:space:]])(tee|sed[[:space:]].*-i|perl[[:space:]].*-i|set-content|add-content|out-file|cp|mv|rm|remove-item|copy-item|move-item)([[:space:]]|$)'; then
-            echo 'writing .git/config directly could switch off the attribution hooks.'
-        elif has "$s" "$HOOK_FILES" && { has "$s" '^[[:space:]]*(sudo[[:space:]]+)?(rm|rmdir|mv|unlink|truncate|remove-item|rename-item|move-item|clear-content|set-content|ri|del|erase)([[:space:]]|$)' \
-            || has "$s" '^[[:space:]]*(sudo[[:space:]]+)?chmod[[:space:]]+([^[:space:]]*-[rwx]*x|0*[0-7]?[0246][0246][0246])([[:space:]]|$)' \
-            || has "$s" ">[[:space:]]*[^[:space:]]*($HOOK_FILES)"; }; then
-            echo 'deleting or disabling hook files would switch off the attribution hooks.'
-        fi
-    done | head -n 1)
-    [ -z "$why" ] || block "$why"
+    # Only segments that can matter go through the per-segment checks (heredocs stay fast).
+    cand=$(printf '%s\n' "$segs" | grep -Ei -e '(^|[^[:alnum:]_-])(git|gh|az|rm|rmdir|mv|cp|ln|install|tee|dd|rsync|chmod|unlink|truncate|sed|perl|copy|ri|del|erase|remove-item|rename-item|move-item|copy-item|clear-content|set-content|add-content|out-file)([^[:alnum:]_-]|$)|>' | sort -u)
+    # Each check filters all candidate segments at once: a handful of greps however long the command.
+    pick() { # candidate segments matching $1 and, when given, $2 (case-insensitive)
+        if [ -n "${2:-}" ]; then printf '%s\n' "$cand" | grep -Ei -e "$1" | grep -Ei -e "$2"
+        else printf '%s\n' "$cand" | grep -Ei -e "$1"; fi
+    }
+    # -n anywhere in a short-option cluster before an option that takes the rest as its value.
+    if has_cs "$cand" "${GIT}commit([[:space:]]+[^[:space:]]+)*[[:space:]]+-[^-[:space:]mFCctS]*n[^[:space:]]*([[:space:]]|\$)"; then
+        block 'git commit -n skips the attribution hooks. Commit without it (if -n was part of the message text, rephrase).'
+    fi
+    if pick "${GIT}config([[:space:]]|\$)" "$HOOK_KEYS" | while IFS= read -r s; do
+            printf '%s\n' "$s" | config_writes && echo write; done | grep -q write; then
+        block 'changing core.hooksPath, hook.*, include.path, url.*.insteadOf or attributionguard.* settings would switch off the attribution hooks.'
+    fi
+    [ -z "$(pick "$GIT_WORD" "(^|[[:space:]])(-c[[:space:]]*|--config-env[=[:space:]]*)[^[:space:]]*($HOOK_KEYS)")" ] \
+        || block 'git -c / --config-env overrides of hook settings would switch off the attribution hooks.'
+    [ -z "$(pick "$GIT_WRITE" '(^|[[:space:]])--(git-dir|work-tree)([=[:space:]]|$)')" ] \
+        || block 'git --git-dir / --work-tree on a git write can move the repository away from its hooks; run git from the repository instead.'
+    [ -z "$(pick '\.git/config' '>|(^|[[:space:]])(tee|sed[[:space:]].*-i|perl[[:space:]].*-i|set-content|add-content|out-file|cp|mv|rm|remove-item|copy-item|move-item)([[:space:]]|$)')" ] \
+        || block 'writing .git/config directly could switch off the attribution hooks.'
+    if pick "$HOOK_FILES" | grep -Eiq \
+        -e '^[[:space:]]*(sudo[[:space:]]+)?(rm|rmdir|mv|cp|ln|install|tee|dd|rsync|unlink|truncate|sed|perl|copy|remove-item|rename-item|move-item|copy-item|clear-content|set-content|add-content|out-file|ri|del|erase)([[:space:]]|$)' \
+        -e '^[[:space:]]*(sudo[[:space:]]+)?chmod[[:space:]]+([^[:space:]]*-[rwx]*x|0*[0-7]?[0246][0246][0246])([[:space:]]|$)' \
+        -e ">[[:space:]]*[^[:space:]]*($HOOK_FILES)"; then
+        block 'deleting, replacing or disabling hook files would switch off the attribution hooks.'
+    fi
     if has "$segs" "$GIT_WRITE" && has "$segs" "$ENV_SET"; then
         block 'setting GIT_CONFIG_*, GIT_DIR, GIT_WORK_TREE or HOME next to a git write would skip the attribution hooks.'
     fi
@@ -185,7 +199,7 @@ Write | Edit | MultiEdit | NotebookEdit)
     path=$(printf '%s' "$input" | json_text file_path 2>/dev/null) \
         || path=$(printf '%s' "$input" | json_text notebook_path 2>/dev/null) || path=
     path=$(printf '%s\n' "$path" | tr '\134' '/')
-    if has "$path" '(^|/)\.git/(config|hooks/|attribution-guard/)|(^|/)\.gitconfig$|/\.config/git/(config$|attribution-guard/)'; then
+    if has "$path" '(^|/)\.git/(config|hooks/|attribution-guard/)|/config\.worktree$|/worktrees/[^/]+/config$|(^|/)\.gitconfig$|/\.config/git/(config$|attribution-guard/)'; then
         block "editing $path could switch off the attribution hooks; the owner changes git config and hooks by hand."
     fi
     ;;

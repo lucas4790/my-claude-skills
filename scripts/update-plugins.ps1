@@ -43,8 +43,9 @@ if ($LASTEXITCODE -ne 0) { Write-Host 'marketplace update failed'; Stop-Transcri
 
 # Keep the attribution guard current (patterns and git hooks) from the marketplace clone, but only
 # where it was installed and not opted out. Re-run install.ps1 to refresh the PreToolUse registration.
-$guard = Join-Path $HOME ".claude\plugins\marketplaces\$name\tools\attribution-guard\install.sh"
-$guardHome = Join-Path $HOME '.config\git\attribution-guard'
+$claudeDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME '.claude' }
+$guard = Join-Path $claudeDir "plugins\marketplaces\$name\tools\attribution-guard\install.sh"
+$guardHome = Join-Path $(if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $HOME '.config' }) 'git\attribution-guard'
 if ($env:MY_CLAUDE_SKILLS_ATTRIBUTION -ne 'keep' -and (Test-Path $guard) -and (Test-Path $guardHome)) {
     $sh = $null
     $execPath = & git --exec-path 2>$null
@@ -61,7 +62,7 @@ if ($env:MY_CLAUDE_SKILLS_ATTRIBUTION -ne 'keep' -and (Test-Path $guard) -and (T
     }
 }
 
-$mp = Join-Path $HOME ".claude\plugins\marketplaces\$name\.claude-plugin\marketplace.json"
+$mp = Join-Path $claudeDir "plugins\marketplaces\$name\.claude-plugin\marketplace.json"
 if (-not (Test-Path $mp)) { Write-Host "marketplace manifest not found at $mp"; Stop-Transcript | Out-Null; exit 1 }
 $available = (Get-Content $mp -Raw | ConvertFrom-Json).plugins.name
 $installed = (& claude plugin list --json 2>$null | ConvertFrom-Json) |

@@ -20,7 +20,14 @@ case $name in
     pre-push) sh "$here/attribution-guard.sh" pre-push "$@" <"$stdin_copy" || exit $? ;;
 esac
 
-repo_hook="$(git rev-parse --git-common-dir 2>/dev/null)/hooks/$name"
+# The repository's own hooks: the hooks path it had before the guard took core.hooksPath over
+# (husky, lefthook; saved by session-start.sh), else .git/hooks.
+prev=$(git config --get attributionguard.previousHooksPath 2>/dev/null || true)
+case $prev in
+    '') repo_hook="$(git rev-parse --git-common-dir 2>/dev/null)/hooks/$name" ;;
+    /* | [A-Za-z]:[/\\]*) repo_hook="$prev/$name" ;;
+    *) repo_hook="$(git rev-parse --show-toplevel 2>/dev/null)/$prev/$name" ;;
+esac
 if [ -f "$repo_hook" ] && [ -x "$repo_hook" ]; then
     if [ -n "$stdin_copy" ]; then "$repo_hook" "$@" <"$stdin_copy"; else "$repo_hook" "$@"; fi
     exit $?
