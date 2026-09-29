@@ -64,18 +64,23 @@ jobs:
           set -euo pipefail
           t=$RUNNER_TEMP
           # Patterns and matcher from main as it was BEFORE this push, never from the push being
-          # audited (it could weaken them); main after the push only when that commit has no copy
-          # (a new branch, or a commit from before the file existed). This workflow file itself
-          # still comes from the push: review changes to .github/workflows/.
+          # audited (it could weaken them); main after the push only when there is no such copy: a
+          # new branch (BEFORE is all zeros), or BEFORE exists and the file does not (it predates the
+          # file). Any other failure to read it fails this step. This workflow file itself still
+          # comes from the push: review changes to .github/workflows/.
           for f in patterns.ere match.awk; do
             cp "tools/attribution-guard/$f" "$t/$f"
             case $BEFORE in *[!0]*)
               if gh api -H 'Accept: application/vnd.github.raw+json' \
-                  "repos/$REPO/contents/tools/attribution-guard/$f?ref=$BEFORE" > "$t/$f.before" 2>/dev/null \
-                  && [ -s "$t/$f.before" ]; then
+                  "repos/$REPO/contents/tools/attribution-guard/$f?ref=$BEFORE" > "$t/$f.before" 2> "$t/gh.err"; then
+                [ -s "$t/$f.before" ] || { echo "::error::tools/attribution-guard/$f of ${BEFORE:0:7} (main before the push) is empty."; exit 1; }
                 mv "$t/$f.before" "$t/$f"
+              elif grep -q 'HTTP 404' "$t/gh.err" && gh api "repos/$REPO/commits/$BEFORE" --jq .sha > /dev/null; then
+                echo "::warning::tools/attribution-guard/$f does not exist in ${BEFORE:0:7} (main before the push); using main after the push."
               else
-                echo "::warning::tools/attribution-guard/$f of ${BEFORE:0:7} (main before the push) could not be read; using main after the push."
+                cat "$t/gh.err" >&2
+                echo "::error::tools/attribution-guard/$f of ${BEFORE:0:7} (main before the push) could not be read; not falling back to the pushed copy."
+                exit 1
               fi ;;
             esac
           done
