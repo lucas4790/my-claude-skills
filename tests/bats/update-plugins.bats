@@ -18,7 +18,7 @@ setup() {
   CACHE="$XDG_CACHE_HOME/my-claude-skills"
   STAMP="$CACHE/last-run"
   LOG="$CACHE/update.log"
-  KNOWN="$CACHE/known-plugins"
+  KNOWN="$CLAUDE_CONFIG_DIR/plugins/my-claude-skills-known-plugins"
   MP_DIR="$CLAUDE_CONFIG_DIR/plugins/marketplaces/my-claude-skills"
   export FAKE_CALLS="$T/calls.log" FAKE_STATE="$T/state"
   mkdir -p "$FAKE_STATE" "$MP_DIR/.claude-plugin"
@@ -74,11 +74,20 @@ mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"; }
 # age FILE SECONDS: sets FILE's mtime SECONDS in the past (portable, no GNU touch -d)
 age() { python3 -c 'import os, sys, time; t = time.time() - int(sys.argv[2]); os.utime(sys.argv[1], (t, t))' "$1" "$2"; }
 # snapshot NAME...: the known-plugins snapshot a previous run left behind
-snapshot() { mkdir -p "$CACHE"; printf '%s\n' "$@" > "$KNOWN"; }
+snapshot() { mkdir -p "$(dirname "$KNOWN")"; printf '%s\n' "$@" > "$KNOWN"; }
+# offers CLONE NAME...: the marketplace clone CLONE lists the plugins NAME...
+offers() {
+  local clone="$1"; shift
+  mkdir -p "$clone/.claude-plugin"
+  printf '%s\n' "$@" | jq -R '{name: .}' | jq -s '{name: "my-claude-skills", plugins: .}' > "$clone/.claude-plugin/marketplace.json"
+}
 # installed NAME...: the plugins of this marketplace that Claude Code reports as installed
 installed() { printf '%s\n' "$@" | jq -R '{id: (. + "@my-claude-skills")}' | jq -s . > "$FAKE_STATE/claude-installed.json"; }
 
 @test "update-plugins: --force refreshes the marketplace, updates installed plugins, records a first snapshot" {
+  # the shared list in the cache dir of an earlier version of this branch is not this config's snapshot
+  mkdir -p "$CACHE"
+  echo alpha > "$CACHE/known-plugins"
   run_update "$T/fake-claude-only:$T/sys" --force
   assert_status 0
   assert_eq "$output" "" "stdout/stderr (everything goes to the log)"
@@ -148,6 +157,42 @@ claude plugin update gamma@my-claude-skills" "claude calls"
   assert_status 0
   grep -qxF "claude plugin install beta@my-claude-skills" "$FAKE_CALLS"
   assert_file_content "$KNOWN" $'alpha\nbeta\ngamma\n'
+}
+
+@test "update-plugins: a plugin that leaves the marketplace and comes back is not new again" {
+  installed alpha   # a subset install
+  snapshot alpha beta gamma
+  offers "$MP_DIR" alpha gamma   # beta leaves the marketplace for a while
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  assert_file_content "$KNOWN" $'alpha\ngamma\nbeta\n'
+
+  offers "$MP_DIR" alpha beta gamma   # and comes back
+  : > "$FAKE_CALLS"
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  refute grep -q "plugin install" "$FAKE_CALLS"
+  refute grep -q "new plugin" "$LOG"
+  assert_file_content "$KNOWN" $'alpha\nbeta\ngamma\n'
+}
+
+@test "update-plugins: every Claude config dir has its own snapshot, so a plugin added later reaches each one" {
+  local cfg
+  for cfg in work personal; do
+    offers "$T/$cfg/plugins/marketplaces/my-claude-skills" alpha beta gamma
+    CLAUDE_CONFIG_DIR="$T/$cfg" run_update "$T/fake-claude-only:$T/sys" --force
+    assert_status 0
+  done
+  : > "$FAKE_CALLS"
+  for cfg in work personal; do
+    offers "$T/$cfg/plugins/marketplaces/my-claude-skills" alpha beta gamma delta
+    CLAUDE_CONFIG_DIR="$T/$cfg" run_update "$T/fake-claude-only:$T/sys" --force
+    assert_status 0
+    assert_file_content "$T/$cfg/plugins/my-claude-skills-known-plugins" $'alpha\nbeta\ngamma\ndelta\n'
+  done
+  assert_eq "$(grep -c '^claude plugin install' "$FAKE_CALLS")" 2 "installs"
+  assert_eq "$(grep -c '^claude plugin install delta@my-claude-skills$' "$FAKE_CALLS")" 2 "installs of delta"
+  assert_not_exists "$CACHE/known-plugins"
 }
 
 @test "update-plugins: a failing plugin list installs nothing, still updates, and keeps the snapshot" {
@@ -342,11 +387,27 @@ newer_in_clone() {
   cmp "$REPO_ROOT/scripts/update-plugins.sh" "$SCRIPT"
 }
 
+@test "update-plugins: piped into bash (no script file) it refreshes nothing: no file in the cwd, not the shell" {
+  newer_in_clone
+  mkdir -p "$T/cwd" "$T/shell"
+  cp "$BASH" "$T/shell/bash"
+  cd "$T/cwd"
+  # $0 is "bash" here, and the copied shell's path below: neither is the updater
+  run env PATH="$T/fake-claude-only:$T/sys" bash -s -- --force < "$SCRIPT"
+  assert_status 0
+  run env PATH="$T/fake-claude-only:$T/sys" "$T/shell/bash" -s -- --force < "$SCRIPT"
+  assert_status 0
+  assert_eq "$(grep -c '^done$' "$LOG")" 2 "finished runs"
+  assert_eq "$(ls -A "$T/cwd")" "" "files in the cwd"
+  cmp "$BASH" "$T/shell/bash"
+  refute grep -q "refresh" "$LOG"
+}
+
 @test "update-plugins.ps1: the same snapshot rules and self-refresh (pwsh, or \$PWSH)" {
   local pwsh="${PWSH:-}"
-  [ -n "$pwsh" ] || pwsh=$(command -v pwsh) || skip "pwsh not installed (set PWSH=/path/to/pwsh to run this)"
+  [ -n "$pwsh" ] || pwsh=$(command -v pwsh) || tool_missing "pwsh not installed (set PWSH=/path/to/pwsh to run this)"
   export LOCALAPPDATA="$T/local"
-  local ps1="$T/data/update-plugins.ps1" known="$T/local/my-claude-skills/known-plugins"
+  local ps1="$T/data/update-plugins.ps1" known="$KNOWN"
   mkdir -p "$T/data" "$MP_DIR/scripts"
   cp "$REPO_ROOT/scripts/update-plugins.ps1" "$ps1"
   { cat "$REPO_ROOT/scripts/update-plugins.ps1"; echo "# a newer version"; } > "$MP_DIR/scripts/update-plugins.ps1"
@@ -383,6 +444,33 @@ claude plugin update gamma@my-claude-skills" "claude calls"
   run_ps1
   assert_status 0
   refute grep -q "plugin install" "$FAKE_CALLS"
+
+  # beta leaves the marketplace and comes back: still known, so still out
+  offers "$MP_DIR" alpha gamma
+  run_ps1
+  assert_status 0
+  assert_eq "$(cat "$known")" $'alpha\ngamma\nbeta' "snapshot"
+  offers "$MP_DIR" alpha beta gamma
+  run_ps1
+  assert_status 0
+  refute grep -q "plugin install" "$FAKE_CALLS"
+
+  # another config dir keeps its own snapshot: delta, added later, reaches both
+  local other="$T/claude2"
+  offers "$other/plugins/marketplaces/my-claude-skills" alpha beta gamma
+  CLAUDE_CONFIG_DIR="$other" run_ps1
+  assert_status 0
+  assert_eq "$(cat "$other/plugins/my-claude-skills-known-plugins")" $'alpha\nbeta\ngamma' "the other config's snapshot"
+  offers "$MP_DIR" alpha beta gamma delta
+  offers "$other/plugins/marketplaces/my-claude-skills" alpha beta gamma delta
+  : > "$FAKE_CALLS"
+  run_ps1
+  assert_status 0
+  CLAUDE_CONFIG_DIR="$other" run_ps1
+  assert_status 0
+  assert_eq "$(grep '^claude plugin install' "$FAKE_CALLS")" "claude plugin install delta@my-claude-skills
+claude plugin install delta@my-claude-skills" "installs"
+  assert_not_exists "$T/local/my-claude-skills/known-plugins"
 }
 
 @test "update-plugins: runs under bash 3.2, macOS's /bin/bash (set BASH32=/path/to/bash-3.2)" {

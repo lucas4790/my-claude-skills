@@ -110,6 +110,24 @@ main() {
   echo "Installed ${#plugins[@]} plugin(s) from $NAME."
   [ "${#failed[@]}" -eq 0 ] || warn "failed plugins: ${failed[*]}"
 
+  # The updater's list of known plugins for this Claude config dir (see update-plugins.sh). A first
+  # install records every plugin in the marketplace but the failed ones: plugins left out stay out,
+  # and the next update retries a failed one. A re-run adds the plugins it installed and takes the
+  # failed ones out.
+  claude_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+  known_file="$claude_dir/plugins/$NAME-known-plugins"
+  if [ -s "$known_file" ]; then
+    known=$(cat "$known_file"; printf '%s\n' "${plugins[@]}") || known=""
+  else
+    known=$(jq -r '.plugins[].name' "$claude_dir/plugins/marketplaces/$NAME/.claude-plugin/marketplace.json" 2>/dev/null) || known=""
+  fi
+  if [ -n "$known" ] && ! { printf '%s\n' "$known" \
+    | awk -v failed=" ${failed[*]:-} " 'NF && !seen[$0]++ && !index(failed, " " $0 " ")' > "$known_file.$$" \
+    && mv -f "$known_file.$$" "$known_file"; }; then
+    rm -f "$known_file.$$"
+    warn "could not write $known_file; the updater's first run records the plugins instead"
+  fi
+
   # --- tools --------------------------------------------------------------------
   if selected agent-browser; then
     if has agent-browser; then
@@ -224,7 +242,7 @@ main() {
       fi
       yl=$(yamllint_version)
       if [ -n "$yl" ] && ! version_ge "$yl" "$YAMLLINT_MIN"; then
-        warn "yamllint $yl ($(command -v yamllint)) is older than $YAMLLINT_MIN: the yaml-hooks hook stays silent with it." \
+        warn "yamllint $yl ($(command -v yamllint)) is older than $YAMLLINT_MIN: the yaml-hooks hook does not lint with it (it only reports that it is inactive)." \
           "Install a current one first on PATH: pipx install yamllint (or uv tool install yamllint)"
       fi
     fi

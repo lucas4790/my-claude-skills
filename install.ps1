@@ -9,15 +9,15 @@
     .\install.ps1 dotnet, powershell   # only these
     irm https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/install.ps1 | iex
 #>
-[CmdletBinding()]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'Interactive installer; progress lines are for the console')]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingInvokeExpression', '', Justification = 'Official Claude Code and uv installers are distributed as irm | iex')]
-param([string[]] $Plugin)
+param()   # the parameters are the scriptblock's below: here, irm | iex would set them in the caller's session
 
 # Everything runs in its own scope and never calls `exit` under `irm | iex`, which would close the user's
-# window: the variables, functions and $ErrorActionPreference set here stay out of the caller's session.
-# Run as a file (.\install.ps1), it exits 1 when a plugin failed.
+# window: the parameters, variables, functions and $ErrorActionPreference set here stay out of the caller's
+# session. Run as a file (.\install.ps1), it exits 1 when a plugin failed.
 & {
+    [CmdletBinding()]
     param([string[]] $Plugin)
     $ErrorActionPreference = 'Stop'
     $repo = 'lucas4790/my-claude-skills'
@@ -116,6 +116,22 @@ param([string[]] $Plugin)
     Write-Host "Installed $($Plugin.Count) plugin(s) from $name."
     if ($failed) { Write-Warning "failed plugins: $($failed -join ', ')" }
 
+    # The updater's list of known plugins for this Claude config dir (see update-plugins.ps1). A first
+    # install records every plugin in the marketplace but the failed ones: plugins left out stay out,
+    # and the next update retries a failed one. A re-run adds the plugins it installed and takes the
+    # failed ones out.
+    $claudeDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME '.claude' }
+    $knownFile = Join-Path (Join-Path $claudeDir 'plugins') "$name-known-plugins"
+    $cloneManifest = Join-Path $claudeDir "plugins\marketplaces\$name\.claude-plugin\marketplace.json"
+    try {
+        $known = if (Test-Path $knownFile) { @(Get-Content $knownFile) + @($Plugin) }
+                 elseif (Test-Path $cloneManifest) { (Get-Content $cloneManifest -Raw | ConvertFrom-Json).plugins.name }
+        $known = @($known | Where-Object { $_ -and $failed -notcontains $_ } | Select-Object -Unique)
+        if ($known) { Write-Utf8 $knownFile (($known -join "`n") + "`n") }
+    } catch {
+        Write-Warning "could not write $knownFile ($($_.Exception.Message)); the updater's first run records the plugins instead"
+    }
+
     # --- tools ------------------------------------------------------------------------
     # npm.cmd and agent-browser.cmd, not their .ps1 shims: those do not run under the Restricted execution policy.
     if ($Plugin -contains 'agent-browser') {
@@ -194,7 +210,8 @@ param([string[]] $Plugin)
 
     if ($Plugin -contains 'yaml-hooks') {
         # winget has no yamllint package; uv installs or upgrades it as a tool (and uv itself comes from winget
-        # when missing). An older yamllint than $minYamllint makes the yaml-hooks hook silently do nothing.
+        # when missing). With a yamllint older than $minYamllint the yaml-hooks hook does not lint (it only
+        # reports that it is inactive).
         Invoke-ToolStep 'yamllint' {
             $version = Get-YamllintVersion
             if ($version -ge $minYamllint) { Write-Host "==> yamllint present ($version)"; return }
@@ -215,7 +232,7 @@ param([string[]] $Plugin)
             Initialize-Path
             $version = Get-YamllintVersion
             if ($version -and $version -lt $minYamllint) {
-                Write-Warning "yamllint $version ($((Get-Command yamllint).Source)) comes first on PATH and is older than $minYamllint; the yaml-hooks hook does nothing with it. Upgrade or remove it (pip install -U yamllint, pipx upgrade yamllint)"
+                Write-Warning "yamllint $version ($((Get-Command yamllint).Source)) comes first on PATH and is older than $minYamllint; the yaml-hooks hook does not lint with it (it only reports that it is inactive). Upgrade or remove it (pip install -U yamllint, pipx upgrade yamllint)"
             }
         }
     }
@@ -232,15 +249,17 @@ param([string[]] $Plugin)
         Write-Warning "could not fetch update-plugins.ps1 ($($_.Exception.Message)); startup auto-update hook not installed"
         $updater = $null
     }
-    $claudeDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME '.claude' }
     $settingsPath = Join-Path $claudeDir 'settings.json'
     New-Item -ItemType Directory -Path $claudeDir -Force | Out-Null
     # A missing, empty or blank settings.json starts as {}, as in install.sh.
     if (-not (Test-Path $settingsPath) -or -not "$(Get-Content $settingsPath -Raw -Encoding UTF8)".Trim()) { Write-Utf8 $settingsPath '{}' }
-    if ($updater) {
+    $raw = Get-Content $settingsPath -Raw -Encoding UTF8
+    if ($updater -and -not (Test-PlainJson $raw) -and $raw -match "$([regex]::Escape($name))[\\/]+update-plugins\.ps1") {
+        # comments or trailing commas, and our hook added by hand (as the warning below asks), as install.sh sees it
+        Write-Host '==> startup auto-update hook already registered'
+    } elseif ($updater) {
         $hookCmd = "powershell -NoProfile -ExecutionPolicy Bypass -File `"$updater`""
         try {
-            $raw = Get-Content $settingsPath -Raw -Encoding UTF8
             if (-not (Test-PlainJson $raw)) { throw 'not plain JSON (comments or trailing commas)' }
             $settings = $raw | ConvertFrom-Json
             if (-not $settings.PSObject.Properties['hooks']) { $settings | Add-Member -NotePropertyName hooks -NotePropertyValue ([pscustomobject]@{}) }
@@ -339,4 +358,4 @@ param([string[]] $Plugin)
         Write-Warning "failed plugins: $($failed -join ', ') (see above)"
         if ($scriptFile) { exit 1 }
     }
-} $Plugin
+} @args   # the script's arguments (.\install.ps1 a, b or -Plugin a, b); none under irm | iex

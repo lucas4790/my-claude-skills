@@ -2,8 +2,9 @@
 <#
 .SYNOPSIS
     Refreshes the my-claude-skills marketplace, updates installed plugins, and installs the ones added to
-    the marketplace since the last run (known-plugins in the cache dir holds the names it had then), so
-    plugins left out of a subset install or uninstalled stay out.
+    the marketplace since the last run, so plugins left out of a subset install or uninstalled stay out.
+    The names it has seen are in plugins\my-claude-skills-known-plugins of the Claude config dir, one list
+    per config (install.ps1 writes the first).
     Runs from a Claude Code SessionStart hook in the background; throttled to once per interval.
 .PARAMETER Force
     Ignore the throttle and run now.
@@ -16,7 +17,8 @@ $name = 'my-claude-skills'
 $cache = Join-Path $env:LOCALAPPDATA $name
 $stamp = Join-Path $cache 'last-run'
 $log = Join-Path $cache 'update.log'
-$knownFile = Join-Path $cache 'known-plugins'
+$claudeDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME '.claude' }
+$knownFile = Join-Path $claudeDir "plugins\$name-known-plugins"   # per config dir: each has its own plugins
 $interval = if ($env:MY_CLAUDE_SKILLS_INTERVAL) { [int] $env:MY_CLAUDE_SKILLS_INTERVAL } else { 21600 }
 New-Item -ItemType Directory -Path $cache -Force | Out-Null
 
@@ -43,7 +45,6 @@ if (Get-Command copilot -ErrorAction SilentlyContinue) {
 
 & claude plugin marketplace update $name
 if ($LASTEXITCODE -ne 0) { Write-Host 'marketplace update failed'; Stop-Transcript | Out-Null; exit 1 }
-$claudeDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME '.claude' }
 
 # install.ps1 copied this script once: refresh that copy from the marketplace clone so updater fixes
 # reach this machine. PowerShell has already read the whole script, so the new copy runs next time.
@@ -106,8 +107,8 @@ if ($LASTEXITCODE -eq 0 -and $json.TrimStart().StartsWith('[')) {
 }
 if (-not $listed) { Write-Host 'claude plugin list --json failed or gave no JSON list: updating only, installing no new plugins' }
 
-# New plugins are the ones in the marketplace but not in the snapshot of the last run. Without a
-# snapshot yet (first run of this version), record one and install nothing.
+# New plugins are the ones in the marketplace but not in the snapshot of the earlier runs. Without a
+# snapshot yet for this config dir (installed before install.ps1 wrote one), record one and install nothing.
 $known = @(if (Test-Path $knownFile) { Get-Content $knownFile | Where-Object { $_ } })
 if ($listed -and $known.Count -eq 0) {
     Write-Host "no plugin snapshot yet: recording the marketplace's $($available.Count) plugins, installing none"
@@ -124,8 +125,11 @@ foreach ($p in $available) {
     $record += $p
 }
 
-# Only after a pass that saw what is installed. A failed install stays out, so it is retried.
+# Only after a pass that saw what is installed. The snapshot keeps the names of earlier runs, so a
+# plugin that leaves the marketplace and comes back later is not new again. A failed install was not
+# in it and is not added, so it is retried.
 if ($listed -and $record.Count -gt 0) {
+    $record = @(@($record) + @($known) | Select-Object -Unique)
     Set-Content -Path "$knownFile.new" -Value $record
     Move-Item "$knownFile.new" $knownFile -Force
 }

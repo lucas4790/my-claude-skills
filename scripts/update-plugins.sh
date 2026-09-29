@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Refreshes the my-claude-skills marketplace, updates the installed plugins, and installs the ones
-# added to the marketplace since the last run (known-plugins in the cache dir holds the names it
-# had then), so plugins left out of a subset install or uninstalled stay out. Runs from a Claude
-# Code SessionStart hook (in the background) and throttles itself to once per interval; changes
-# apply to the next session.
+# added to the marketplace since the last run, so plugins left out of a subset install or uninstalled
+# stay out. The names it has seen are in plugins/my-claude-skills-known-plugins of the Claude config
+# dir, one list per config (install.sh writes the first). Runs from a Claude Code SessionStart hook
+# (in the background) and throttles itself to once per interval; changes apply to the next session.
 #   update-plugins.sh            throttled run (default every 6 h; MY_CLAUDE_SKILLS_INTERVAL=seconds)
 #   update-plugins.sh --force    run now
 set -uo pipefail
@@ -12,7 +12,8 @@ NAME="my-claude-skills"
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/$NAME"
 STAMP="$CACHE/last-run"
 LOG="$CACHE/update.log"
-KNOWN="$CACHE/known-plugins"
+CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+KNOWN="$CLAUDE_DIR/plugins/$NAME-known-plugins"   # per config dir: each has its own plugins
 INTERVAL="${MY_CLAUDE_SKILLS_INTERVAL:-21600}"
 mkdir -p "$CACHE"
 
@@ -37,18 +38,21 @@ if command -v copilot >/dev/null; then
 fi
 
 claude plugin marketplace update "$NAME" || { echo "marketplace update failed"; exit 1; }
-clone="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/marketplaces/$NAME"
+clone="$CLAUDE_DIR/plugins/marketplaces/$NAME"
 
 # install.sh copied this script once: refresh that copy from the marketplace clone so updater fixes
 # reach this machine. mv gives it a new inode while bash keeps reading the old one, so the new copy
-# runs next time. Not in a checkout of the repo (.claude-plugin/ next to scripts/): that would
-# overwrite its working tree.
+# runs next time. Only a file named update-plugins.sh: piped to bash (bash -s, bash -c) there is no
+# script file and $0 is the shell. Not in a checkout of the repo (.claude-plugin/ next to scripts/):
+# that would overwrite its working tree.
+self="${BASH_SOURCE[0]:-}"
 self_new="$clone/scripts/update-plugins.sh"
-if [ -f "$self_new" ] && [ ! -f "$(dirname "$0")/../.claude-plugin/marketplace.json" ] && ! cmp -s "$self_new" "$0"; then
-  if cp "$self_new" "$0.$$" && mv -f "$0.$$" "$0"; then
-    echo "refreshed $0 from the marketplace (applies next run)"
+if [ -n "$self" ] && [ "${self##*/}" = update-plugins.sh ] && [ -f "$self" ] && [ -f "$self_new" ] \
+  && [ ! -f "$(dirname "$self")/../.claude-plugin/marketplace.json" ] && ! cmp -s "$self_new" "$self"; then
+  if cp "$self_new" "$self.$$" && mv -f "$self.$$" "$self"; then
+    echo "refreshed $self from the marketplace (applies next run)"
   else
-    rm -f "$0.$$"; echo "could not refresh $0"
+    rm -f "$self.$$"; echo "could not refresh $self"
   fi
 fi
 
@@ -76,8 +80,8 @@ else
   echo "claude plugin list --json failed or gave no JSON list: updating only, installing no new plugins"
 fi
 
-# New plugins are the ones in the marketplace but not in the snapshot of the last run. Without a
-# snapshot yet (first run of this version), record one and install nothing.
+# New plugins are the ones in the marketplace but not in the snapshot of the earlier runs. Without a
+# snapshot yet for this config dir (installed before install.sh wrote one), record one and install nothing.
 if [ "$listed" = 1 ] && [ ! -s "$KNOWN" ]; then
   echo "no plugin snapshot yet: recording the marketplace's ${#available[@]} plugins, installing none"
 fi
@@ -92,8 +96,15 @@ for p in ${available[@]+"${available[@]}"}; do
   known+=("$p")
 done
 
-# Only after a pass that saw what is installed. A failed install stays out, so it is retried.
+# Only after a pass that saw what is installed. The snapshot keeps the names of earlier runs, so a
+# plugin that leaves the marketplace and comes back later is not new again. A failed install was not
+# in it and is not added, so it is retried.
 if [ "$listed" = 1 ] && [ "${#known[@]}" -gt 0 ]; then
+  if [ -s "$KNOWN" ]; then
+    while IFS= read -r p; do
+      [ -n "$p" ] && ! printf '%s\n' "${known[@]}" | grep -qxF -- "$p" && known+=("$p")
+    done < "$KNOWN"
+  fi
   printf '%s\n' "${known[@]}" > "$KNOWN.$$" && mv -f "$KNOWN.$$" "$KNOWN"
 fi
 echo "done"
