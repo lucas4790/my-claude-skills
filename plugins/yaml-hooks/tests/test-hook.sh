@@ -149,6 +149,9 @@ printf 'name: web\n' >"$w/proj/k8s/no-doc-start.yaml"
 printf 'a: 1\n  b: 2\n' >"$w/proj/ignored/bad.yaml"
 printf 'description: longer than ten characters\n' >"$w/longline.yaml"
 printf 'extends: default\nrules:\n  line-length:\n    max: 10\n' >"$tmp/user-yamllint.yaml"
+mkdir -p "$w/badconf/k8s"
+printf 'rules: [\n' >"$w/badconf/.yamllint"
+printf 'name: web\n' >"$w/badconf/k8s/x.yaml"
 
 # --- cases that need no yamllint --------------------------------------------------------------
 expect_silent "non-YAML file is ignored" Write "$w/not-yaml.json"
@@ -197,6 +200,51 @@ expect_inactive "yamllint rejects the config: inactive, with its message and the
 expect_inactive "yamllint rejects the project .yamllint: inactive, with its message and the config" \
   "no such rule: \\\"bogus\\\" (config: $w/proj/.yamllint)" "$w/proj/k8s/no-doc-start.yaml" PATH="$tmp/broken:$PATH"
 
+# fake yamllints 1.38.0: exit 1 with problems on stdout (linted), exit 1 with a traceback and nothing on stdout
+# (a config it cannot load, a file that is not UTF-8), exit 1 with no output at all, and exit 255 on a config
+# that is not YAML (PyYAML's message, each position followed by a snippet and a caret line)
+mkdir -p "$tmp/errors" "$tmp/crash" "$tmp/mute" "$tmp/unparsable"
+cat >"$tmp/errors/yamllint" <<'EOF'
+#!/bin/sh
+[ "$1" != --version ] || { echo 'yamllint 1.38.0'; exit 0; }
+for a; do :; done
+echo "$a:2:4: [error] syntax error: mapping values are not allowed here (syntax)"
+exit 1
+EOF
+cat >"$tmp/crash/yamllint" <<'EOF'
+#!/bin/sh
+[ "$1" != --version ] || { echo 'yamllint 1.38.0'; exit 0; }
+printf 'Traceback (most recent call last):\n  File "yamllint/config.py", line 41, in __init__\n' >&2
+printf '    with open(file) as f:\n         ^^^^^^^^^^\n' >&2
+printf "FileNotFoundError: [Errno 2] No such file or directory: 'nosuch'\n" >&2
+exit 1
+EOF
+cat >"$tmp/mute/yamllint" <<'EOF'
+#!/bin/sh
+[ "$1" != --version ] || { echo 'yamllint 1.38.0'; exit 0; }
+exit 1
+EOF
+cat >"$tmp/unparsable/yamllint" <<'EOF'
+#!/bin/sh
+[ "$1" != --version ] || { echo 'yamllint 1.38.0'; exit 0; }
+printf 'invalid config: while parsing a block mapping\n  in "<unicode string>", line 1, column 1:\n' >&2
+printf '    rules:\n    ^\n' >&2
+printf "expected <block end>, but found '<block mapping start>'\\n" >&2
+printf '  in "<unicode string>", line 2, column 3:\n      a: 1\n      ^\n' >&2
+exit 255
+EOF
+chmod +x "$tmp/errors/yamllint" "$tmp/crash/yamllint" "$tmp/mute/yamllint" "$tmp/unparsable/yamllint"
+expect_report "yamllint exits 1 with problems: reported, not inactive" "2:4: [error] syntax error" Write "$w/bad.yaml" \
+  PATH="$tmp/errors:$PATH"
+expect_inactive "yamllint exits 1 with a traceback and no problems: inactive, with the exception" \
+  "FileNotFoundError: [Errno 2] No such file or directory: 'nosuch' (config: plugin default (relaxed))" \
+  "$w/bad.yaml" PATH="$tmp/crash:$PATH"
+expect_inactive "yamllint exits 1 with no output: inactive, says so" \
+  "no message from yamllint (config: plugin default (relaxed))" "$w/bad.yaml" PATH="$tmp/mute:$PATH"
+expect_inactive "config that is not YAML: inactive, with the parser's messages and positions, not the carets" \
+  "invalid config: while parsing a block mapping in \\\"<unicode string>\\\", line 1, column 1: expected <block end>, but found '<block mapping start>' in \\\"<unicode string>\\\", line 2, column 3: (config: plugin default (relaxed))" \
+  "$w/bad.yaml" PATH="$tmp/unparsable:$PATH"
+
 # --- lint cases -------------------------------------------------------------------------------
 if needs_yamllint "lint cases"; then
   expect_silent "valid YAML: no output" Write "$w/valid.yaml"
@@ -216,6 +264,9 @@ if needs_yamllint "lint cases"; then
   expect_report "project .yamllint is used" "(document-start)" Write "$w/proj/k8s/no-doc-start.yaml"
   expect_report "report names the project config" "$w/proj/.yamllint" Write "$w/proj/k8s/no-doc-start.yaml"
   expect_silent "file ignored by the project config is skipped" Write "$w/proj/ignored/bad.yaml"
+  expect_inactive "project .yamllint that is not YAML: inactive, with the parser's message and position" \
+    "expected the node content, but found '<stream end>' in \\\"<unicode string>\\\", line 2, column 1: (config: $w/badconf/.yamllint)" \
+    "$w/badconf/k8s/x.yaml"
   expect_silent "a 40-character line passes the default config" Write "$w/longline.yaml"
   expect_report "YAMLLINT_CONFIG_FILE is used when the project has no config" "(line-length)" Write "$w/longline.yaml" \
     YAMLLINT_CONFIG_FILE="$tmp/user-yamllint.yaml"
