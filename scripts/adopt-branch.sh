@@ -8,6 +8,9 @@
 #   bash scripts/adopt-branch.sh claude/setup-analyse-optimalisatie-1gy14n setup-analyse main
 # Then open the PR from the new branch (compare link printed at the end). GitHub may keep the old
 # commits reachable by SHA for a while; GitHub Support can purge them.
+# When the cloud branch gets more commits later, run it again with the same arguments: it re-commits
+# only those, on top of the new branch (git config branch.<new-branch>.adoptedCommit holds the last
+# cloud commit adopted), and pushes them.
 set -euo pipefail
 src=${1:?usage: adopt-branch.sh <cloud-branch> [new-branch] [base]}
 new=${2:-${src#claude/}}
@@ -24,35 +27,71 @@ if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --
 fi
 if ! git diff --quiet || ! git diff --cached --quiet; then echo "commit or stash your changes first" >&2; exit 1; fi
 start=$(git symbolic-ref -q --short HEAD || git rev-parse HEAD)
-# A run after a stop (e.g. after 'git rebase --continue') finds $new checked out and resumes at
-# the checks.
-resume=0
+# A run that stopped after it began re-committing (a rebase conflict, a failed check or push) leaves
+# its state in $tmp: "run" (its arguments), "tip" (the cloud commit it adopts) and "undo". Only such a
+# run resumes, at the checks (e.g. after 'git rebase --continue'); a successful run removes it.
+tmp="$(cd "$(git rev-parse --git-dir)" && pwd)/adopt-branch"
+stopped=$(cat "$tmp/run" 2>/dev/null || true)
+if [ -n "$stopped" ] && [ "$stopped" != "$src $new $base" ]; then
+  echo "an earlier run (adopt-branch.sh $stopped) stopped part-way: finish it by running it again with those arguments, or undo it with the commands it printed (they end with rm -rf \"$tmp\")" >&2
+  exit 1
+fi
+adopted=$(git config "branch.$new.adoptedCommit" || true)
+resume=0 prev=
 if git show-ref --verify --quiet "refs/heads/$new"; then
-  [ "$start" = "$new" ] || {
-    echo "branch $new already exists: to finish an earlier run, switch to it and run this again; to start over, delete it" >&2
+  if [ -n "$stopped" ]; then
+    [ "$start" = "$new" ] || {
+      echo "branch $new already exists: to finish the run that stopped, switch to it and run this again" >&2
+      exit 1
+    }
+    resume=1
+  elif [ -n "$adopted" ]; then
+    prev=$(git rev-parse "refs/heads/$new")  # adopted before: only the newer cloud commits follow
+  else
+    cat >&2 <<EOF
+branch $new already exists, but no adoption into it is recorded: delete it or pick another new-branch name.
+(If it holds $src up to some commit, record that commit to adopt only the later ones:
+  git config branch.$new.adoptedCommit <sha>)
+EOF
     exit 1
-  }
-  resume=1
+  fi
+fi
+
+if [ "$resume" = 0 ]; then
+  git fetch origin "$src" "$base"
+  tip=$(git rev-parse "origin/$src")
+  if [ -n "$prev" ]; then
+    if [ "$tip" = "$adopted" ]; then
+      echo "==> $new already has every commit of origin/$src; to delete that branch: git push origin --delete $src"
+      exit 0
+    fi
+    git merge-base --is-ancestor "$adopted" "$tip" || {
+      echo "origin/$src no longer contains ${adopted:0:7}, the commit adopted into $new last (was it rewritten?): adopt it into another new-branch name" >&2
+      exit 1
+    }
+  fi
 fi
 
 # The guard from this checkout, copied into the git directory: older commits on the branch may not
 # contain it, and a rebase that stops half-way still needs it for 'git rebase --continue'.
 here=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-tmp="$(cd "$(git rev-parse --git-dir)" && pwd)/adopt-branch"
+[ "$resume" = 1 ] || rm -rf "$tmp"  # anything left here belongs to no run that can resume
 mkdir -p "$tmp"
 cp "$here/tools/attribution-guard/attribution-guard.sh" "$here/tools/attribution-guard/patterns.ere" "$tmp/"
-# The branch the first run started from, for the undo hint of every later run.
-[ "$resume" = 1 ] || printf '%s\n' "$start" >"$tmp/start"
-start=$(cat "$tmp/start" 2>/dev/null || echo "$base")
+undo=
+[ "$resume" = 0 ] || { tip=$(cat "$tmp/tip"); undo=$(cat "$tmp/undo"); }
 done_ok=0
 on_exit() {
-  if [ "$done_ok" != 1 ]; then
+  [ "$done_ok" != 1 ] || return 0
+  if [ -f "$tmp/run" ]; then
     cat >&2 <<EOF
 adopt-branch stopped. To continue: fix the problem (a stopped rebase: resolve it and run
 'git rebase --continue' until it finishes), then run this script again with the same arguments;
 it resumes at the checks while $new is checked out. To undo everything:
-  git rebase --abort 2>/dev/null; git switch $start; git branch -D $new; rm -rf "$tmp"
+  git rebase --abort 2>/dev/null; $undo; rm -rf "$tmp"
 EOF
+  else
+    rm -rf "$tmp"  # stopped before it changed anything
   fi
 }
 trap on_exit EXIT
@@ -60,12 +99,23 @@ trap on_exit EXIT
 if [ "$resume" = 1 ]; then
   echo "==> $new is checked out and no rebase is in progress: resuming at the checks"
 else
-  git fetch origin "$src" "$base"
-  git switch -c "$new" "origin/$src"
+  if [ -n "$prev" ]; then
+    echo "==> $new has origin/$src up to ${adopted:0:7}: re-committing the commits after it on top of $new"
+    undo="git switch $new; git reset --hard $prev"
+    [ "$start" = "$new" ] || undo="$undo; git switch $start"
+    onto=$prev upstream=$adopted
+  else
+    undo="git switch $start; git branch -D $new"
+    onto="origin/$base" upstream="origin/$base"
+  fi
+  git switch --no-track -C "$new" "origin/$src"
+  printf '%s\n' "$tip" >"$tmp/tip"
+  printf '%s\n' "$undo" >"$tmp/undo"
+  printf '%s\n' "$src $new $base" >"$tmp/run"
   # Each commit: strip attribution lines from its message, then re-commit it as you (author and
   # committer). --allow-empty keeps commits that were empty on purpose (e.g. to trigger CI).
   clean="m=\$(mktemp) && git log -1 --format=%B >\"\$m\" && ATTRIBUTION_GUARD_MODE=strip sh '$tmp/attribution-guard.sh' commit-msg \"\$m\" && git commit -q --amend --allow-empty --reset-author --cleanup=whitespace -F \"\$m\"; rc=\$?; rm -f \"\$m\"; exit \$rc"
-  GIT_COMMITTER_NAME=$me_name GIT_COMMITTER_EMAIL=$me_mail git rebase -r --exec "$clean" "origin/$base"
+  GIT_COMMITTER_NAME=$me_name GIT_COMMITTER_EMAIL=$me_mail git rebase -r --exec "$clean" --onto "$onto" "$upstream"
 fi
 
 echo "==> checking the result"
@@ -79,6 +129,7 @@ fi
 [ "$bad" = 0 ] || { echo "fix the listed problems on branch $new before pushing" >&2; exit 1; }
 
 git push -u origin "$new"
+git config "branch.$new.adoptedCommit" "$tip"
 done_ok=1
 rm -rf "$tmp"
 remote_url=$(git remote get-url origin)

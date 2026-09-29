@@ -197,6 +197,50 @@ fail_after() {
   assert_eq "$(lock_sha fake-b)" "$B2" "fake-b lock sha"
 }
 
+@test "sync: a file where the vendored copy has a folder (upstream turned it into a file) replaces the folder" {
+  run_sync
+  assert_status 0
+  commit_root "vendor"
+  rm -r "$T/up/up-a/skills/demo"
+  put "$T/up/up-a/skills/demo" "demo is a file now"
+  A2=$(commit_upstream up-a "A2: demo is a file")
+
+  # a failed copy there fails the source and puts the folder back
+  fail_after cp plugins/fake/skills/demo
+  PATH="$T/bin:$PATH" run_sync --only fake-a
+  assert_status 1
+  assert_line "error: fake-a: copying skills/demo to plugins/fake/skills/demo failed"
+  assert_line "==> FAILED sources: fake-a"
+  worktree_clean plugins/fake
+  assert_file_content "$R/plugins/fake/skills/demo/sub/keep.txt" "keep"
+  assert_eq "$(lock_sha fake-a)" "$A1" "fake-a lock sha after the failed copy"
+
+  run_sync --only fake-a
+  assert_status 0
+  assert_line "    skills/demo -> plugins/fake/skills/demo"
+  assert_file_content "$R/plugins/fake/skills/demo" "demo is a file now"
+  assert_eq "$(lock_sha fake-a)" "$A2" "fake-a lock sha"
+}
+
+@test "sync: a file copy removes no folder its to does not name exactly (a/, or empty: the root)" {
+  run_sync
+  assert_status 0
+  commit_root "vendor"
+  add_copy fake-a LICENSE plugins/fake/skills/
+  run_sync --only fake-a
+  assert_status 1
+  assert_line "error: fake-a: copying LICENSE to plugins/fake/skills/ failed"
+  worktree_clean plugins/fake
+  assert_exists "$R/plugins/fake/skills/demo/SKILL.md"
+
+  jq_edit "$R/sources.json" '.sources[0].copy[-1].to = ""'
+  run_sync --only fake-a
+  assert_status 1
+  assert_line "error: fake-a: copying LICENSE to  failed"
+  assert_exists "$R/scripts/sync.sh"
+  worktree_clean plugins
+}
+
 @test "sync: an rsync or cp error fails that source; what it wrote goes back to the last commit" {
   run_sync
   assert_status 0
@@ -249,17 +293,31 @@ fail_after() {
   assert_eq "$(jq -r '.["fake-a"] | keys_unsorted | join(",")' "$R/UPSTREAM.lock.json")" "ref,repo,sha,trust" "entry key order"
 }
 
-@test "sync: a run over every source drops lock entries of sources not in sources.json; --only and --trust keep them" {
-  echo '{"zz-old": {"repo": "x", "ref": "main", "sha": "0000000000000000000000000000000000000000", "trust": "low"}}' \
-    > "$R/UPSTREAM.lock.json"
+# add_stale_lock_entry: a lock entry of a source that sources.json no longer has
+add_stale_lock_entry() {
+  jq_edit "$R/UPSTREAM.lock.json" \
+    '. + {"zz-old": {repo: "x", ref: "main", sha: "0000000000000000000000000000000000000000", trust: "high"}}'
+}
+
+@test "sync: every run drops lock entries of sources not in sources.json, also with --only or --trust" {
+  echo '{}' > "$R/UPSTREAM.lock.json"
+  add_stale_lock_entry
   run_sync --only fake-a
   assert_status 0
-  refute_output_contains "dropped"
+  assert_line "==> dropped zz-old from the lockfile (not in sources.json)"
+  assert_eq "$(jq -c 'keys' "$R/UPSTREAM.lock.json")" '["fake-a"]' "lock keys after --only fake-a"
+
+  # the entry of a source the filter skips stays as it was, even when its upstream moved on
+  put "$T/up/up-a/LICENSE" "license a, version 2"
+  commit_upstream up-a A2 >/dev/null
+  add_stale_lock_entry
   run_sync --trust high
   assert_status 0
-  refute_output_contains "dropped"
-  assert_eq "$(jq -c 'keys' "$R/UPSTREAM.lock.json")" '["fake-a","fake-b","zz-old"]' "lock keys after --only and --trust"
+  assert_line "==> dropped zz-old from the lockfile (not in sources.json)"
+  assert_eq "$(jq -c 'keys' "$R/UPSTREAM.lock.json")" '["fake-a","fake-b"]' "lock keys after --trust high"
+  assert_eq "$(lock_sha fake-a)" "$A1" "fake-a lock sha after --trust high"
 
+  add_stale_lock_entry
   run_sync
   assert_status 0
   assert_line "==> dropped zz-old from the lockfile (not in sources.json)"
@@ -314,14 +372,23 @@ fail_after() {
   assert_not_exists "$R/plugins/other"
 }
 
-@test "sync: --only or --trust without a value exits 2" {
+@test "sync: --only or --trust without a value, or with an empty one, exits 2" {
   run_sync --only
   assert_status 2
   assert_line "error: --only needs a value"
   run_sync --locked --trust
   assert_status 2
   assert_line "error: --trust needs a value"
+  # an empty value (e.g. an unset variable in quotes) would be no filter at all: every source synced
+  run_sync --only ""
+  assert_status 2
+  assert_line "error: --only needs a value"
+  run_sync --trust "" --only fake-a
+  assert_status 2
+  assert_line "error: --trust needs a value"
+  refute_output_contains "==>"
   assert_not_exists "$R/UPSTREAM.lock.json"
+  assert_not_exists "$R/plugins/fake"
 }
 
 @test "sync: exits 1 naming a required tool that is missing (rsync)" {
