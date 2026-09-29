@@ -53,11 +53,6 @@
     "sha": "711abaf61e1b8d770d355e05b75e9641afa7b25e",
     "trust": "low"
   },
-  "powershell-agent-skills": {
-    "ref": "master",
-    "repo": "https://github.com/ajinkyajacob/powershell-agent-skills.git",
-    "sha": "29d04de205778f62a69c83861794695e1129c623"
-  },
   "stannard-dotnet-skills": {
     "ref": "master",
     "repo": "https://github.com/Aaronontheweb/dotnet-skills.git",

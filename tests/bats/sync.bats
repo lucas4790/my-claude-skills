@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 # shellcheck disable=SC2016  # literal backticks in expected SKILLS.md rows
-# scripts/sync.sh without patches: copying, filters, --locked, failures, the lockfile and SKILLS.md.
+# scripts/sync.sh without patches: copying, filters, --locked, failures, option errors, the lockfile
+# and SKILLS.md.
 # Runs the real script in a throwaway copy of the repo layout against file:// upstreams.
 
 setup() {
@@ -164,6 +165,62 @@ setup() {
   assert_line "==> wrote SKILLS.md (2 plugins)"
 }
 
+# fail_after TOOL TEXT: $T/bin/TOOL runs the real TOOL, then exits 23 when its arguments contain TEXT
+# (a copy that was partly written and then failed)
+fail_after() {
+  mkdir -p "$T/bin"
+  printf '#!/bin/sh\n"%s" "$@" || exit\ncase "$*" in *%s*) echo "%s: simulated error" >&2; exit 23 ;; esac\n' \
+    "$(command -v "$1")" "$2" "$1" > "$T/bin/$1"
+  chmod +x "$T/bin/$1"
+}
+
+@test "sync: a file where a copy's directory goes fails that source; its paths stay as committed" {
+  run_sync
+  assert_status 0
+  commit_root "vendor"
+  rm -r "$R/plugins/fake/skills/demo"
+  put "$R/plugins/fake/skills/demo" "a file, not the skill folder"
+  commit_root "demo is a file now"
+  put "$T/up/up-a/skills/demo/new.md" "new upstream file"
+  commit_upstream up-a A2 >/dev/null
+  put "$T/up/up-b/NOTICE" "notice b, version 2"
+  B2=$(commit_upstream up-b B2)
+
+  run_sync
+  assert_status 1
+  assert_line "error: fake-a: copying skills/demo to plugins/fake/skills/demo failed"
+  refute_output_contains "    skills/demo -> plugins/fake/skills/demo"
+  assert_line "==> FAILED sources: fake-a"
+  worktree_clean plugins/fake
+  assert_file_content "$R/plugins/fake/skills/demo" "a file, not the skill folder"
+  assert_eq "$(lock_sha fake-a)" "$A1" "fake-a lock sha"
+  assert_eq "$(lock_sha fake-b)" "$B2" "fake-b lock sha"
+}
+
+@test "sync: an rsync or cp error fails that source; what it wrote goes back to the last commit" {
+  run_sync
+  assert_status 0
+  commit_root "vendor"
+  put "$T/up/up-a/skills/demo/SKILL.md" $'---\nname: demo\ndescription: Demo skill. Use when testing sync.\n---\nbody v2, not wanted\n'
+  put "$T/up/up-a/skills/demo/new.md" "new upstream file"
+  commit_upstream up-a A2 >/dev/null
+  put "$T/up/up-b/skills/other/SKILL.md" $'---\nname: other\ndescription: Other skill. Use when testing trust tiers.\n---\nother v2, not wanted\n'
+  put "$T/up/up-b/NOTICE" "notice b, version 2"
+  commit_upstream up-b B2 >/dev/null
+  fail_after rsync plugins/fake/        # fake-a's folder copy
+  fail_after cp plugins/other/NOTICE    # fake-b's file copy, after its folder copy was written
+
+  PATH="$T/bin:$PATH" run_sync
+  assert_status 1
+  assert_line "error: fake-a: copying skills/demo to plugins/fake/skills/demo failed"
+  assert_line "error: fake-b: copying NOTICE to plugins/other/NOTICE failed"
+  assert_line "==> FAILED sources: fake-a fake-b"
+  worktree_clean plugins
+  assert_not_exists "$R/plugins/fake/skills/demo/new.md"
+  assert_eq "$(lock_sha fake-a)" "$A1" "fake-a lock sha"
+  assert_eq "$(lock_sha fake-b)" "$B1" "fake-b lock sha"
+}
+
 @test "sync: a failing source that was never committed leaves no files behind" {
   add_copy fake-a no/such/path plugins/fake/missing
   run_sync --only fake-a
@@ -180,19 +237,33 @@ setup() {
   assert_line "error: fake-a has no copy entries"
 }
 
-@test "sync: the lockfile records repo, ref, sha and trust per source, sorted, keeping other entries" {
-  echo '{"zz-old": {"repo": "x", "ref": "main", "sha": "0000000000000000000000000000000000000000", "trust": "low"}}' \
-    > "$R/UPSTREAM.lock.json"
+@test "sync: the lockfile records repo, ref, sha and trust per source, sorted" {
   run_sync
   assert_status 0
   assert_line "==> wrote UPSTREAM.lock.json"
   expected=$(jq -nS --arg ra "$(upstream_url up-a)" --arg rb "$(upstream_url up-b)" --arg a "$A1" --arg b "$B1" '{
     "fake-a": {repo: $ra, ref: "main", sha: $a, trust: "low"},
-    "fake-b": {repo: $rb, ref: "main", sha: $b, trust: "high"},
-    "zz-old": {repo: "x", ref: "main", sha: "0000000000000000000000000000000000000000", trust: "low"}}')
+    "fake-b": {repo: $rb, ref: "main", sha: $b, trust: "high"}}')
   assert_eq "$(cat "$R/UPSTREAM.lock.json")" "$expected" "UPSTREAM.lock.json"
   # jq -S layout: keys sorted at every level
   assert_eq "$(jq -r '.["fake-a"] | keys_unsorted | join(",")' "$R/UPSTREAM.lock.json")" "ref,repo,sha,trust" "entry key order"
+}
+
+@test "sync: a run over every source drops lock entries of sources not in sources.json; --only and --trust keep them" {
+  echo '{"zz-old": {"repo": "x", "ref": "main", "sha": "0000000000000000000000000000000000000000", "trust": "low"}}' \
+    > "$R/UPSTREAM.lock.json"
+  run_sync --only fake-a
+  assert_status 0
+  refute_output_contains "dropped"
+  run_sync --trust high
+  assert_status 0
+  refute_output_contains "dropped"
+  assert_eq "$(jq -c 'keys' "$R/UPSTREAM.lock.json")" '["fake-a","fake-b","zz-old"]' "lock keys after --only and --trust"
+
+  run_sync
+  assert_status 0
+  assert_line "==> dropped zz-old from the lockfile (not in sources.json)"
+  assert_eq "$(jq -c 'keys' "$R/UPSTREAM.lock.json")" '["fake-a","fake-b"]' "lock keys after a run over every source"
 }
 
 @test "sync: a second run with nothing new upstream changes nothing" {
@@ -218,6 +289,39 @@ setup() {
   assert_line "unknown option: --bogus"
   assert_not_exists "$R/UPSTREAM.lock.json"
   assert_not_exists "$R/SKILLS.md"
+}
+
+@test "sync: --only with a name that no source has exits 2 before doing anything" {
+  run_sync --only fake-aa
+  assert_status 2
+  assert_line "error: no source in sources.json matches --only fake-aa"
+  # fake-a exists, but its trust is low
+  run_sync --only fake-a --trust high
+  assert_status 2
+  assert_line "error: no source in sources.json matches --only fake-a --trust high"
+  refute_output_contains "==>"
+  assert_not_exists "$R/UPSTREAM.lock.json"
+  assert_not_exists "$R/SKILLS.md"
+  assert_not_exists "$R/plugins/fake"
+}
+
+@test "sync: --trust other than high or low exits 2 before doing anything" {
+  run_sync --trust High
+  assert_status 2
+  assert_line "error: --trust must be high or low, not: High"
+  refute_output_contains "==>"
+  assert_not_exists "$R/UPSTREAM.lock.json"
+  assert_not_exists "$R/plugins/other"
+}
+
+@test "sync: --only or --trust without a value exits 2" {
+  run_sync --only
+  assert_status 2
+  assert_line "error: --only needs a value"
+  run_sync --locked --trust
+  assert_status 2
+  assert_line "error: --trust needs a value"
+  assert_not_exists "$R/UPSTREAM.lock.json"
 }
 
 @test "sync: exits 1 naming a required tool that is missing (rsync)" {

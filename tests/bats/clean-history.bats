@@ -117,6 +117,18 @@ clean() { run bash "$REPO_ROOT/scripts/clean-history.sh" --owner 'Owner <owner@e
   assert_output_contains "nothing was pushed"
 }
 
+@test "clean-history: --help and a usage error print the header comment and no code" {
+  run bash "$REPO_ROOT/scripts/clean-history.sh" --help
+  assert_status 0
+  assert_output_contains "clean-history.sh --owner 'Name <email>' [options] BARE_REPO"
+  assert_output_contains "2 usage."
+  refute_output_contains "set -euo pipefail"
+  run bash "$REPO_ROOT/scripts/clean-history.sh" --bogus
+  assert_status 2
+  assert_line "clean-history: unknown option: --bogus"
+  refute_output_contains "set -euo pipefail"
+}
+
 @test "clean-history: refuses a non-bare repository, a mirror with refs/pull and a bad --owner" {
   run bash "$REPO_ROOT/scripts/clean-history.sh" --owner 'Owner <owner@example.com>' "$S"
   assert_status 1
