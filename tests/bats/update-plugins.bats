@@ -1,9 +1,11 @@
 #!/usr/bin/env bats
 # shellcheck disable=SC2016  # $* and $FAKE_CALLS belong to the generated fake script
-# scripts/update-plugins.sh: throttling, --force, missing tools, and the update/install loop.
+# scripts/update-plugins.sh: throttling, --force, missing tools, the update/install loop with its
+# snapshot of known plugins, and the refresh of the installed copy.
 # claude and copilot are fakes that log their arguments; HOME, the caches and CLAUDE_CONFIG_DIR are
 # temp dirs, and PATH holds only the fakes plus symlinks to the system tools the script needs, so the
-# real CLIs and ~/.claude are never touched.
+# real CLIs and ~/.claude are never touched. The script runs from the checkout, where it never
+# refreshes itself; the refresh tests run a copy outside it.
 
 setup() {
   load helpers
@@ -11,10 +13,12 @@ setup() {
   SCRIPT="$REPO_ROOT/scripts/update-plugins.sh"
   export HOME="$T/home" XDG_CACHE_HOME="$T/cache" XDG_CONFIG_HOME="$T/config" CLAUDE_CONFIG_DIR="$T/claude"
   unset MY_CLAUDE_SKILLS_INTERVAL MY_CLAUDE_SKILLS_ATTRIBUTION COPILOT_HOME
+  unset FAKE_CLAUDE_MP_RC FAKE_CLAUDE_LIST_RC FAKE_CLAUDE_INSTALL_FAIL
   mkdir -p "$HOME"
   CACHE="$XDG_CACHE_HOME/my-claude-skills"
   STAMP="$CACHE/last-run"
   LOG="$CACHE/update.log"
+  KNOWN="$CACHE/known-plugins"
   MP_DIR="$CLAUDE_CONFIG_DIR/plugins/marketplaces/my-claude-skills"
   export FAKE_CALLS="$T/calls.log" FAKE_STATE="$T/state"
   mkdir -p "$FAKE_STATE" "$MP_DIR/.claude-plugin"
@@ -34,10 +38,14 @@ setup() {
 echo "claude $*" >> "$FAKE_CALLS"
 case "$*" in
   "plugin marketplace update "*) exit "${FAKE_CLAUDE_MP_RC:-0}" ;;
-  "plugin list --json") cat "$FAKE_STATE/claude-installed.json" ;;
+  "plugin list --json")
+    [ -z "${FAKE_CLAUDE_LIST_RC:-}" ] || { echo "error: plugin list failed" >&2; exit "$FAKE_CLAUDE_LIST_RC"; }
+    cat "$FAKE_STATE/claude-installed.json" ;;
   "plugin update alpha@"*) echo "alpha is already up to date" ;;
   "plugin update "*) echo "updated ${3%@*} to 2.0.0" ;;
-  "plugin install "*) echo "installed ${3%@*}" ;;
+  "plugin install "*)
+    [ "${3%@*}" != "${FAKE_CLAUDE_INSTALL_FAIL:-}" ] || { echo "error: installing ${3%@*} failed"; exit 1; }
+    echo "installed ${3%@*}" ;;
 esac
 EOF
   cat > "$T/fake/copilot" <<'EOF'
@@ -50,37 +58,126 @@ EOF
   chmod +x "$T/fake/claude" "$T/fake/copilot"
   cp "$T/fake/claude" "$T/fake-claude-only/claude"
 
-  local tools=(bash sh env mkdir date stat touch grep cat sed tr head)
+  local tools=(bash sh env mkdir date stat touch grep cat sed tr head cmp cp mv rm dirname)
   link_tools "$T/sys" "${tools[@]}" jq
   link_tools "$T/sys-nojq" "${tools[@]}"
 }
 
-# run_update PATH-DIRS ARGS...: runs the real script with PATH set to PATH-DIRS only
+# run_update PATH-DIRS ARGS...: runs $SCRIPT (the real script) with PATH set to PATH-DIRS only
 run_update() {
   local path="$1"; shift
-  run env PATH="$path" "$BASH" "$SCRIPT" "$@"
+  run env PATH="$path" "${UPDATE_BASH:-$BASH}" "$SCRIPT" "$@"
 }
 
 calls() { cat "$FAKE_CALLS" 2>/dev/null; }
 mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"; }
 # age FILE SECONDS: sets FILE's mtime SECONDS in the past (portable, no GNU touch -d)
 age() { python3 -c 'import os, sys, time; t = time.time() - int(sys.argv[2]); os.utime(sys.argv[1], (t, t))' "$1" "$2"; }
+# snapshot NAME...: the known-plugins snapshot a previous run left behind
+snapshot() { mkdir -p "$CACHE"; printf '%s\n' "$@" > "$KNOWN"; }
+# installed NAME...: the plugins of this marketplace that Claude Code reports as installed
+installed() { printf '%s\n' "$@" | jq -R '{id: (. + "@my-claude-skills")}' | jq -s . > "$FAKE_STATE/claude-installed.json"; }
 
-@test "update-plugins: --force refreshes the marketplace, updates installed plugins, installs new ones" {
+@test "update-plugins: --force refreshes the marketplace, updates installed plugins, records a first snapshot" {
   run_update "$T/fake-claude-only:$T/sys" --force
   assert_status 0
   assert_eq "$output" "" "stdout/stderr (everything goes to the log)"
+  # no snapshot yet (first run of this version): beta is not installed, since nothing says it is new
+  assert_eq "$(calls)" "claude plugin marketplace update my-claude-skills
+claude plugin list --json
+claude plugin update alpha@my-claude-skills
+claude plugin update gamma@my-claude-skills" "claude calls"
+  grep -qxF "no plugin snapshot yet: recording the marketplace's 3 plugins, installing none" "$LOG"
+  assert_file_content "$KNOWN" $'alpha\nbeta\ngamma\n'
+  grep -qxF "updated gamma to 2.0.0" "$LOG"
+  refute grep -q "already up to date" "$LOG"
+  refute grep -q "new plugin" "$LOG"
+  grep -qxF "done" "$LOG"
+  grep -qE '^=== [0-9]{4}-[0-9]{2}-[0-9]{2}T' "$LOG"
+  assert_exists "$STAMP"
+}
+
+@test "update-plugins: a subset install stays a subset (a known plugin that is not installed is left out)" {
+  snapshot alpha beta gamma
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  refute grep -q "plugin install" "$FAKE_CALLS"
+  grep -qxF "claude plugin update alpha@my-claude-skills" "$FAKE_CALLS"
+  grep -qxF "claude plugin update gamma@my-claude-skills" "$FAKE_CALLS"
+  refute grep -q "beta" "$FAKE_CALLS"
+  assert_file_content "$KNOWN" $'alpha\nbeta\ngamma\n'
+}
+
+@test "update-plugins: an uninstalled plugin does not come back" {
+  installed alpha beta gamma
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  assert_file_content "$KNOWN" $'alpha\nbeta\ngamma\n'
+
+  installed alpha beta   # the user uninstalls gamma
+  : > "$FAKE_CALLS"
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  refute grep -q "gamma" "$FAKE_CALLS"
+  refute grep -q "plugin install" "$FAKE_CALLS"
+}
+
+@test "update-plugins: a plugin added to the marketplace after the snapshot is installed and recorded" {
+  snapshot alpha gamma
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
   assert_eq "$(calls)" "claude plugin marketplace update my-claude-skills
 claude plugin list --json
 claude plugin update alpha@my-claude-skills
 claude plugin install beta@my-claude-skills
 claude plugin update gamma@my-claude-skills" "claude calls"
   grep -qxF "new plugin: beta" "$LOG"
-  grep -qxF "updated gamma to 2.0.0" "$LOG"
-  refute grep -q "already up to date" "$LOG"
+  grep -qxF "installed beta" "$LOG"
+  assert_file_content "$KNOWN" $'alpha\nbeta\ngamma\n'
+}
+
+@test "update-plugins: a failed install of a new plugin stays out of the snapshot and is retried" {
+  snapshot alpha gamma
+  FAKE_CLAUDE_INSTALL_FAIL=beta run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  grep -qxF "install failed: beta (retried next run)" "$LOG"
+  assert_file_content "$KNOWN" $'alpha\ngamma\n'
+
+  : > "$FAKE_CALLS"
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  grep -qxF "claude plugin install beta@my-claude-skills" "$FAKE_CALLS"
+  assert_file_content "$KNOWN" $'alpha\nbeta\ngamma\n'
+}
+
+@test "update-plugins: a failing plugin list installs nothing, still updates, and keeps the snapshot" {
+  snapshot alpha gamma   # beta would be new
+  FAKE_CLAUDE_LIST_RC=1 run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  refute grep -q "plugin install" "$FAKE_CALLS"
+  grep -qxF "claude plugin update alpha@my-claude-skills" "$FAKE_CALLS"
+  grep -qxF "claude plugin update gamma@my-claude-skills" "$FAKE_CALLS"
+  grep -qxF "claude plugin list --json failed or gave no JSON list: updating only, installing no new plugins" "$LOG"
+  assert_file_content "$KNOWN" $'alpha\ngamma\n'
   grep -qxF "done" "$LOG"
-  grep -qE '^=== [0-9]{4}-[0-9]{2}-[0-9]{2}T' "$LOG"
-  assert_exists "$STAMP"
+}
+
+@test "update-plugins: plugin list output that is not a JSON list counts as a failed list" {
+  snapshot alpha gamma
+  echo "not json" > "$FAKE_STATE/claude-installed.json"
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  refute grep -q "plugin install" "$FAKE_CALLS"
+  grep -qF "failed or gave no JSON list" "$LOG"
+  assert_file_content "$KNOWN" $'alpha\ngamma\n'
+
+  # and without a snapshot, none is recorded from such a run
+  rm "$KNOWN"
+  echo '{"plugins": "not a list"}' > "$FAKE_STATE/claude-installed.json"
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  refute grep -q "plugin install" "$FAKE_CALLS"
+  assert_not_exists "$KNOWN"
 }
 
 @test "update-plugins: with copilot on PATH, updates only its installed plugins of this marketplace" {
@@ -92,7 +189,7 @@ claude plugin update gamma@my-claude-skills" "claude calls"
   refute grep -q "^copilot plugin install" "$FAKE_CALLS"
   refute grep -q "zeta" "$FAKE_CALLS"
   # Claude Code is still handled after Copilot
-  assert_eq "$(grep -c '^claude ' "$FAKE_CALLS")" "5" "claude calls"
+  assert_eq "$(grep -c '^claude ' "$FAKE_CALLS")" "4" "claude calls"
 }
 
 @test "update-plugins: a stamp younger than the interval exits 0 without doing anything" {
@@ -193,4 +290,122 @@ claude plugin update gamma@my-claude-skills" "claude calls"
   MY_CLAUDE_SKILLS_ATTRIBUTION=keep run_update "$T/fake-claude-only:$T/sys" --force
   assert_status 0
   refute grep -q "^guard" "$FAKE_CALLS"
+}
+
+# copy_to DIR: SCRIPT = a copy of the script in DIR
+copy_to() {
+  mkdir -p "$1"
+  SCRIPT="$1/update-plugins.sh"
+  cp "$REPO_ROOT/scripts/update-plugins.sh" "$SCRIPT"
+}
+
+# installed_copy: SCRIPT = a copy of the script where install.sh puts it, outside any checkout
+installed_copy() { copy_to "$T/data/my-claude-skills"; }
+
+# newer_in_clone: the marketplace clone holds a newer update-plugins.sh
+newer_in_clone() {
+  mkdir -p "$MP_DIR/scripts"
+  { cat "$REPO_ROOT/scripts/update-plugins.sh"; echo "# a newer version"; } > "$MP_DIR/scripts/update-plugins.sh"
+}
+
+@test "update-plugins: refreshes its installed copy from the marketplace clone, for the next run" {
+  installed_copy
+  newer_in_clone
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  cmp "$MP_DIR/scripts/update-plugins.sh" "$SCRIPT"
+  grep -qxF "refreshed $SCRIPT from the marketplace (applies next run)" "$LOG"
+  grep -qxF "done" "$LOG"   # the running copy finished its pass
+  assert_eq "$(ls "$T/data/my-claude-skills")" "update-plugins.sh" "files next to the copy"
+
+  # the refreshed copy runs next time and has nothing to refresh
+  : > "$LOG"
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  refute grep -q "refreshed" "$LOG"
+  grep -qxF "done" "$LOG"
+}
+
+@test "update-plugins: never refreshes a copy in a checkout of the repo, nor after a failed marketplace update" {
+  newer_in_clone
+  mkdir -p "$T/checkout/.claude-plugin"
+  echo '{}' > "$T/checkout/.claude-plugin/marketplace.json"
+  copy_to "$T/checkout/scripts"
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  cmp "$REPO_ROOT/scripts/update-plugins.sh" "$SCRIPT"
+  refute grep -q "refresh" "$LOG"
+
+  installed_copy
+  FAKE_CLAUDE_MP_RC=1 run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 1
+  cmp "$REPO_ROOT/scripts/update-plugins.sh" "$SCRIPT"
+}
+
+@test "update-plugins.ps1: the same snapshot rules and self-refresh (pwsh, or \$PWSH)" {
+  local pwsh="${PWSH:-}"
+  [ -n "$pwsh" ] || pwsh=$(command -v pwsh) || skip "pwsh not installed (set PWSH=/path/to/pwsh to run this)"
+  export LOCALAPPDATA="$T/local"
+  local ps1="$T/data/update-plugins.ps1" known="$T/local/my-claude-skills/known-plugins"
+  mkdir -p "$T/data" "$MP_DIR/scripts"
+  cp "$REPO_ROOT/scripts/update-plugins.ps1" "$ps1"
+  { cat "$REPO_ROOT/scripts/update-plugins.ps1"; echo "# a newer version"; } > "$MP_DIR/scripts/update-plugins.ps1"
+  run_ps1() { run env PATH="$T/fake-claude-only:$T/sys" "$pwsh" -NoLogo -NoProfile -NonInteractive -File "$ps1" -Force; }
+
+  # first run: records the snapshot, installs nothing, refreshes the copy for the next run
+  run_ps1
+  assert_status 0
+  assert_eq "$(calls)" "claude plugin marketplace update my-claude-skills
+claude plugin list --json
+claude plugin update alpha@my-claude-skills
+claude plugin update gamma@my-claude-skills" "claude calls"
+  assert_eq "$(cat "$known")" $'alpha\nbeta\ngamma' "snapshot"
+  cmp "$MP_DIR/scripts/update-plugins.ps1" "$ps1"
+
+  # a failing list installs nothing and keeps the snapshot
+  printf 'alpha\ngamma\n' > "$known"
+  : > "$FAKE_CALLS"
+  FAKE_CLAUDE_LIST_RC=1 run_ps1
+  assert_status 0
+  refute grep -q "plugin install" "$FAKE_CALLS"
+  grep -qxF "claude plugin update gamma@my-claude-skills" "$FAKE_CALLS"
+  assert_eq "$(cat "$known")" $'alpha\ngamma' "snapshot"
+
+  # beta is new since the snapshot: installed and recorded
+  : > "$FAKE_CALLS"
+  run_ps1
+  assert_status 0
+  grep -qxF "claude plugin install beta@my-claude-skills" "$FAKE_CALLS"
+  assert_eq "$(cat "$known")" $'alpha\nbeta\ngamma' "snapshot"
+
+  # beta is known but not installed (left out or uninstalled): it stays out
+  : > "$FAKE_CALLS"
+  run_ps1
+  assert_status 0
+  refute grep -q "plugin install" "$FAKE_CALLS"
+}
+
+@test "update-plugins: runs under bash 3.2, macOS's /bin/bash (set BASH32=/path/to/bash-3.2)" {
+  [ -n "${BASH32:-}" ] || skip "set BASH32=/path/to/bash-3.2 to run this"
+  installed_copy
+  newer_in_clone
+  snapshot alpha
+  UPDATE_BASH="$BASH32" run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  assert_eq "$(calls)" "claude plugin marketplace update my-claude-skills
+claude plugin list --json
+claude plugin update alpha@my-claude-skills
+claude plugin install beta@my-claude-skills
+claude plugin update gamma@my-claude-skills" "claude calls"
+  assert_file_content "$KNOWN" $'alpha\nbeta\ngamma\n'
+  cmp "$MP_DIR/scripts/update-plugins.sh" "$SCRIPT"
+  refute grep -qE "command not found|unbound variable" "$LOG"
+
+  # an empty marketplace and no snapshot: empty arrays under set -u
+  echo '{"name": "my-claude-skills", "plugins": []}' > "$MP_DIR/.claude-plugin/marketplace.json"
+  rm "$KNOWN"
+  UPDATE_BASH="$BASH32" run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  refute grep -qE "command not found|unbound variable" "$LOG"
+  assert_not_exists "$KNOWN"
 }
