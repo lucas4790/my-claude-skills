@@ -9,6 +9,8 @@ skill_md() {
 }
 # extra_txt X3 X5
 extra_txt() { printf 'x1\nx2\n%s\nx4\n%s\nx6\nx7\nx8\nx9\nx10\n' "$@"; }
+# sed_file SCRIPT FILE: edits FILE in place (portable: GNU and BSD/macOS sed disagree on -i)
+sed_file() { sed "$1" "$2" > "$2.tmp" && mv "$2.tmp" "$2"; }
 
 setup() {
   load helpers
@@ -42,9 +44,9 @@ setup() {
   assert_status 0
   commit_root "vendor pure upstream"
   mkdir -p "$R/patches"
-  sed -i 's/^line 4 original$/line 4 PATCHED by us/' "$F"
+  sed_file 's/^line 4 original$/line 4 PATCHED by us/' "$F"
   git -C "$R" diff -- plugins/fake > "$R/patches/fake.patch"
-  sed -i 's/^x5$/x5 PATCHED by us/' "$M/extra.txt"
+  sed_file 's/^x5$/x5 PATCHED by us/' "$M/extra.txt"
   rm "$M/drop.txt"
   put "$M/new.txt" "added by the patch"
   git -C "$R" add -A plugins/multi
@@ -161,7 +163,7 @@ expected_msg() { printf 'error: patches/fake.patch no longer applies to fake-pat
 
 @test "patch: a corrupted patch fails the source (normal and --locked)" {
   sync_and_commit
-  sed -i 's/^ line 3$/ line 3 CORRUPT/' "$R/patches/fake.patch"
+  sed_file 's/^ line 3$/ line 3 CORRUPT/' "$R/patches/fake.patch"
   refute cmp -s "$R/patches/fake.patch" <(git -C "$R" show HEAD:patches/fake.patch)
 
   run_sync --only fake-patched

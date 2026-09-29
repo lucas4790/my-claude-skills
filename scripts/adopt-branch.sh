@@ -19,8 +19,21 @@ me_name=$(git config user.name || true)
 me_mail=$(git config user.email || true)
 [ -n "$me_name" ] && [ -n "$me_mail" ] || { echo "set git user.name and user.email first" >&2; exit 1; }
 case $me_mail in *@anthropic.com) echo "user.email is the vendor identity; set your own first" >&2; exit 1 ;; esac
+if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then
+  echo "a rebase is in progress: finish it (git rebase --continue) or abort it (git rebase --abort) first" >&2; exit 1
+fi
 if ! git diff --quiet || ! git diff --cached --quiet; then echo "commit or stash your changes first" >&2; exit 1; fi
 start=$(git symbolic-ref -q --short HEAD || git rev-parse HEAD)
+# A run after a stop (e.g. after 'git rebase --continue') finds $new checked out and resumes at
+# the checks.
+resume=0
+if git show-ref --verify --quiet "refs/heads/$new"; then
+  [ "$start" = "$new" ] || {
+    echo "branch $new already exists: to finish an earlier run, switch to it and run this again; to start over, delete it" >&2
+    exit 1
+  }
+  resume=1
+fi
 
 # The guard from this checkout, copied into the git directory: older commits on the branch may not
 # contain it, and a rebase that stops half-way still needs it for 'git rebase --continue'.
@@ -28,24 +41,32 @@ here=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 tmp="$(cd "$(git rev-parse --git-dir)" && pwd)/adopt-branch"
 mkdir -p "$tmp"
 cp "$here/tools/attribution-guard/attribution-guard.sh" "$here/tools/attribution-guard/patterns.ere" "$tmp/"
+# The branch the first run started from, for the undo hint of every later run.
+[ "$resume" = 1 ] || printf '%s\n' "$start" >"$tmp/start"
+start=$(cat "$tmp/start" 2>/dev/null || echo "$base")
 done_ok=0
 on_exit() {
   if [ "$done_ok" != 1 ]; then
     cat >&2 <<EOF
-adopt-branch stopped. To continue after fixing the problem: git rebase --continue, then run this
-script again. To undo everything:
+adopt-branch stopped. To continue: fix the problem (a stopped rebase: resolve it and run
+'git rebase --continue' until it finishes), then run this script again with the same arguments;
+it resumes at the checks while $new is checked out. To undo everything:
   git rebase --abort 2>/dev/null; git switch $start; git branch -D $new; rm -rf "$tmp"
 EOF
   fi
 }
 trap on_exit EXIT
 
-git fetch origin "$src" "$base"
-git switch -c "$new" "origin/$src"
-# Each commit: strip attribution lines from its message, then re-commit it as you (author and
-# committer). --allow-empty keeps commits that were empty on purpose (e.g. to trigger CI).
-clean="m=\$(mktemp) && git log -1 --format=%B >\"\$m\" && ATTRIBUTION_GUARD_MODE=strip sh '$tmp/attribution-guard.sh' commit-msg \"\$m\" && git commit -q --amend --allow-empty --reset-author --cleanup=whitespace -F \"\$m\"; rc=\$?; rm -f \"\$m\"; exit \$rc"
-GIT_COMMITTER_NAME=$me_name GIT_COMMITTER_EMAIL=$me_mail git rebase -r --exec "$clean" "origin/$base"
+if [ "$resume" = 1 ]; then
+  echo "==> $new is checked out and no rebase is in progress: resuming at the checks"
+else
+  git fetch origin "$src" "$base"
+  git switch -c "$new" "origin/$src"
+  # Each commit: strip attribution lines from its message, then re-commit it as you (author and
+  # committer). --allow-empty keeps commits that were empty on purpose (e.g. to trigger CI).
+  clean="m=\$(mktemp) && git log -1 --format=%B >\"\$m\" && ATTRIBUTION_GUARD_MODE=strip sh '$tmp/attribution-guard.sh' commit-msg \"\$m\" && git commit -q --amend --allow-empty --reset-author --cleanup=whitespace -F \"\$m\"; rc=\$?; rm -f \"\$m\"; exit \$rc"
+  GIT_COMMITTER_NAME=$me_name GIT_COMMITTER_EMAIL=$me_mail git rebase -r --exec "$clean" "origin/$base"
+fi
 
 echo "==> checking the result"
 bad=0
@@ -61,8 +82,8 @@ git push -u origin "$new"
 done_ok=1
 rm -rf "$tmp"
 remote_url=$(git remote get-url origin)
-slug=$(printf '%s\n' "$remote_url" | sed -E 's#^(https?://([^@/]*@)?github\.com/|ssh://git@github\.com/|git@github\.com:)##; s#/$##; s#\.git$##')
-if [ "$slug" != "$remote_url" ]; then
+slug=$(printf '%s\n' "$remote_url" | sed -nE 's#^(https?://([^@/]*@)?github\.com/|ssh://git@github\.com/|git@github\.com:)##p' | sed -E 's#/$##; s#\.git$##')
+if [ -n "$slug" ]; then
   echo "==> open the PR yourself: https://github.com/$slug/compare/$base...$new"
 else
   echo "==> open the PR yourself from branch $new into $base"

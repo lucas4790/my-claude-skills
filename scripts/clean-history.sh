@@ -21,7 +21,7 @@ set -euo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 guard="$here/tools/attribution-guard/attribution-guard.sh"
 
-usage() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
 die() { echo "clean-history: $*" >&2; exit 1; }
 bad() { echo "clean-history: $*" >&2; usage >&2; exit 2; }
 
