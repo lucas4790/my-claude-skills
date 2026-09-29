@@ -5,7 +5,8 @@
     the marketplace since the last run, so plugins left out of a subset install or uninstalled stay out.
     The names it has seen are in plugins\my-claude-skills-known-plugins of the Claude config dir, one list
     per config (install.ps1 writes the first).
-    Runs from a Claude Code SessionStart hook in the background; throttled to once per interval.
+    Runs from a Claude Code SessionStart hook in the background; throttled to once per interval per config
+    dir (the stamp plugins\my-claude-skills-last-run sits next to that list).
 .PARAMETER Force
     Ignore the throttle and run now.
 #>
@@ -15,12 +16,15 @@ param([switch] $Force)
 
 $name = 'my-claude-skills'
 $cache = Join-Path $env:LOCALAPPDATA $name
-$stamp = Join-Path $cache 'last-run'
 $log = Join-Path $cache 'update.log'
 $claudeDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME '.claude' }
-$knownFile = Join-Path $claudeDir "plugins\$name-known-plugins"   # per config dir: each has its own plugins
+$pluginsDir = Join-Path $claudeDir 'plugins'
+$knownFile = Join-Path $pluginsDir "$name-known-plugins"   # per config dir: each has its own plugins
+# Per config dir too: with one shared stamp, a config that always starts within the interval after
+# another one would never update.
+$stamp = Join-Path $pluginsDir "$name-last-run"
 $interval = if ($env:MY_CLAUDE_SKILLS_INTERVAL) { [int] $env:MY_CLAUDE_SKILLS_INTERVAL } else { 21600 }
-New-Item -ItemType Directory -Path $cache -Force | Out-Null
+New-Item -ItemType Directory -Path $cache, $pluginsDir -Force | Out-Null
 
 if (-not $Force -and (Test-Path $stamp)) {
     $age = ((Get-Date) - (Get-Item $stamp).LastWriteTime).TotalSeconds

@@ -58,10 +58,12 @@ EOF
 }
 
 # driver: stubs, then runs an installer
-#   driver.ps1 file SCRIPT [PLUGIN...]  & SCRIPT PLUGIN, ... (as .\install.ps1 dotnet, powershell); prints exit=<code>
-#   driver.ps1 plugin SCRIPT PLUGIN...  & SCRIPT -Plugin PLUGIN, ...; prints exit=<code>
-#   driver.ps1 iex SCRIPT               Get-Content -Raw SCRIPT | Invoke-Expression, as `irm | iex` does,
-#                                       then prints what the installer left in the session
+#   driver.ps1 file SCRIPT [ARG...]      & SCRIPT ARG, ... (as .\install.ps1 dotnet, powershell); prints exit=<code>
+#   driver.ps1 plugin SCRIPT PLUGIN...   & SCRIPT -Plugin PLUGIN, ...; prints exit=<code>
+#   driver.ps1 profile SCRIPT NAME...    & SCRIPT -Profile NAME, ... (profiles also: -Profiles); prints exit=<code>
+#   driver.ps1 iex SCRIPT                Get-Content -Raw SCRIPT | Invoke-Expression, as `irm | iex` does, from a
+#                                        caller that has its own $Profiles and $Plugin; then prints what the
+#                                        installer left in the session
 write_driver() {
   cat > "$T/driver.ps1" <<'PS1'
 # pwsh puts its own directory first on PATH; without it, `pwsh` is the fake (and the fakes are all there is)
@@ -76,6 +78,7 @@ function global:Invoke-WebRequest {
 function global:Invoke-RestMethod {
     param([string] $Uri)
     if ($Uri -like '*/main/.claude-plugin/marketplace.json' -and $env:FAKE_MANIFEST) { return (Get-Content -Raw $env:FAKE_MANIFEST | ConvertFrom-Json) }
+    if ($Uri -like '*/main/profiles.json' -and $env:FAKE_PROFILES) { return (Get-Content -Raw $env:FAKE_PROFILES | ConvertFrom-Json) }
     throw "no network in tests: $Uri"
 }
 function global:Get-AppxPackage { if ($env:FAKE_DESKTOP) { [pscustomobject]@{ Name = 'Claude' } } }
@@ -90,18 +93,24 @@ if ($mode -ne 'iex') {
     try {
         if (-not $rest) { & $installer }
         elseif ($mode -eq 'file') { & $installer @($rest) }
+        elseif ($mode -eq 'profile') { & $installer -Profile @($rest) }
+        elseif ($mode -eq 'profiles') { & $installer -Profiles @($rest) }
         else { & $installer -Plugin @($rest) }
         "exit=$LASTEXITCODE"
     } catch { "threw: $($_.Exception.Message)" }
 } else {
-    $Plugin = 'preset'   # the caller's own variable of that name
+    $Profiles = 'preset'   # the caller's own variables of these names
+    $Plugin = 'preset'
     try { Get-Content -Raw $installer | Invoke-Expression } catch { "threw: $($_.Exception.Message)" }
     'still in the session'
     "ErrorActionPreference=$ErrorActionPreference"
+    "Profiles=[$Profiles]"
     "Plugin=[$Plugin]"
-    $vars = @('repo', 'name', 'failed', 'settings', 'settingsPath', 'updater', 'existing', 'scriptFile', 'here', 'knownFile') | Where-Object { Test-Path "variable:$_" }
+    $vars = @('repo', 'name', 'failed', 'settings', 'settingsPath', 'updater', 'existing', 'scriptFile', 'here', 'knownFile',
+              'ok', 'pj', 'localProfiles', 'cfg') | Where-Object { Test-Path "variable:$_" }
     "leaked variables=[$($vars -join ',')]"
-    $fns = @('Test-Cmd', 'Install-Winget', 'Invoke-Quiet', 'Test-PlainJson') | Where-Object { Test-Path "function:$_" }
+    $fns = @('Test-Cmd', 'Install-Winget', 'Invoke-Quiet', 'Test-PlainJson', 'Initialize-Path', 'Install-MyClaudeSkillsForCopilot') |
+        Where-Object { Test-Path "function:$_" }
     "leaked functions=[$($fns -join ',')]"
 }
 "ATTRIBUTION_GUARD_SKIP_CLAUDE=[$env:ATTRIBUTION_GUARD_SKIP_CLAUDE]"
@@ -516,4 +525,42 @@ EOF
   cmp "$T/before.json" "$T/copilot/settings.json"
   assert_output_contains "not plain JSON (comments or trailing commas)"
   assert_output_contains "autoUpdate = true and includeCoAuthoredBy = false by hand"
+}
+
+@test "install-copilot.ps1 takes profiles and plugins from its arguments only; under irm | iex it leaves the caller's session alone" {
+  copilot_fakes
+  # a clone: the script next to its profiles.json
+  mkdir -p "$T/clone"
+  cp "$REPO_ROOT/install-copilot.ps1" "$T/clone/"
+  echo '{"copilotDefault": ["cloud"], "profiles": {"cloud": ["alpha", "beta"], "extra": ["gamma"], "more": ["delta"]}}' \
+    > "$T/clone/profiles.json"
+  installs() { grep '^copilot plugin install' "$FAKE_CALLS" | sed 's/^copilot plugin install //; s/@my-claude-skills$//' | tr '\n' ' '; : > "$FAKE_CALLS"; }
+
+  run_ps file "$T/clone/install-copilot.ps1"   # no arguments: copilotDefault
+  assert_line "exit=0"
+  assert_eq "$(installs)" "alpha beta " "no arguments"
+  run_ps profile "$T/clone/install-copilot.ps1" extra more   # -Profile extra, more
+  assert_eq "$(installs)" "gamma delta " "-Profile"
+  run_ps profiles "$T/clone/install-copilot.ps1" extra   # -Profiles extra
+  assert_eq "$(installs)" "gamma " "-Profiles"
+  run_ps file "$T/clone/install-copilot.ps1" more extra   # positional: .\install-copilot.ps1 more, extra
+  assert_eq "$(installs)" "delta gamma " "positional"
+  run_ps plugin "$T/clone/install-copilot.ps1" epsilon   # -Plugin epsilon
+  assert_eq "$(installs)" "epsilon " "-Plugin"
+  refute_output_contains "finished with problems"
+
+  # irm | iex from a script whose directory has a profiles.json of its own: main's profiles.json (the stub
+  # serves it) and its default profile; the caller's $Profiles, $Plugin and preferences stay as they were
+  echo '{"copilotDefault": ["mine"], "profiles": {"mine": ["not-this"]}}' > "$T/profiles.json"
+  with_env FAKE_PROFILES="$T/clone/profiles.json"
+  run_ps iex "$REPO_ROOT/install-copilot.ps1"
+  assert_line "still in the session"
+  assert_line "ErrorActionPreference=Continue"
+  assert_line "Profiles=[preset]"
+  assert_line "Plugin=[preset]"
+  assert_line "leaked variables=[]"
+  assert_line "leaked functions=[]"
+  refute_output_contains "threw:"
+  refute_output_contains "finished with problems"
+  assert_eq "$(installs)" "alpha beta " "under irm | iex"
 }
