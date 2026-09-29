@@ -212,6 +212,12 @@ for a in awk mawk gawk original-awk busybox; do
     [ "$got" = Summary ] && ok "match.awk [$a]: strip drops hit lines and the separators they leave" || ko "match.awk [$a] strip: [$got]"
     rc=$(printf 'x\n' | m '(' report >/dev/null 2>&1; echo $?)
     [ "$rc" != 0 ] && ok "match.awk [$a]: report fails closed on a broken pattern" || ko "match.awk [$a]: broken pattern reported clean"
+    # Most callers only read the output (< <(awk ...), [ -n "$(awk ...)" ]): a mode this copy does not
+    # know, or a report with a failed self-test, must print a hit (line 0), not an empty clean result.
+    got=$(for md in reprot '' report; do [ "$md" = report ] && r= || r=$RE
+        o=$(printf 'x\n' | m "$r" "$md" 2>/dev/null); printf '%s:%s ' "$o" "$?"; done)
+    [ "$got" = '0:2 0:2 0:2 ' ] && ok "match.awk [$a]: an unknown mode or a failed report prints line 0 and exits 2" \
+        || ko "match.awk [$a] unknown mode / failed report: [$got]"
     # shellcheck disable=SC2059 # $z is an octal escape for printf
     got=$(for z in $ZW; do printf "Co-Authored-By: Cl${z}aude <bot@example.com>\n" | m "$RE" report; done | tr -d '\n')
     [ "$got" = 111111111111 ] && ok "match.awk [$a]: removes every zero-width character" || ko "match.awk [$a] zero-width: [$got]"
@@ -233,6 +239,50 @@ bad=$(awk '
 copies=$(cat "$R/.github/workflows/attribution-guard.yml" "$R/.github/workflows/attribution-audit.yml" \
     "$S/azure-devops/ado-pr-guard.sh" "$S/azure-devops/gen.py" | grep -c -e 'ATTRIB_ZW' -e 'ATTRIB_AWK:' -e "ATTRIB_AWK='")
 [ "$copies" = 0 ] && ok "no inline copy of the matcher in the workflows or the Azure DevOps guard" || ko "$copies inline matcher line(s) found"
+# main-audit reads the patterns and matcher of main before the push; it may use the pushed (here:
+# weakened) copy only for a new branch or when that commit predates the file, never on an API error.
+wf_run() { # $1 = workflow, $2 = step name: print the step's run: script
+    awk -v name="$2" '
+        index($0, "- name: " name) == 0 && !found { next }
+        !found { found = 1; next }
+        !inrun { if ($0 ~ /^ *run: \|/) inrun = 1; next }
+        /^ *$/ { print ""; next }
+        { match($0, /^ */); if (!ind) ind = RLENGTH; if (RLENGTH < ind) exit; print substr($0, ind + 1) }' "$1"
+}
+if command -v jq >/dev/null 2>&1 && command -v bash >/dev/null 2>&1 && [ "$(printf 'eA==' | base64 -d 2>/dev/null)" = x ]; then
+    AU="$W/audit"; mkdir -p "$AU/co/tools/attribution-guard" "$AU/bin" "$AU/tmp"
+    wf_run "$R/.github/workflows/attribution-audit.yml" 'Check the commits that just landed on main' >"$AU/step.sh"
+    cp "$S/match.awk" "$AU/co/tools/attribution-guard/"
+    echo 'co-authored-by:[[:space:]]*claude' >"$AU/co/tools/attribution-guard/patterns.ere"
+    cat >"$AU/bin/gh" <<'EOF'
+#!/bin/sh
+# fake gh: GH_MODE ok (the files of main before the push), empty, 404 (file absent), gone (404 and no such commit), 502
+case "$*" in
+*/contents/*) case $GH_MODE in
+    ok) for a do u=$a; done; u=${u##*/}; cat "$GH_SRC/${u%%\?*}" ;;
+    empty) ;;
+    404 | gone) echo '{"message":"Not Found"}'; echo 'gh: Not Found (HTTP 404)' >&2; exit 1 ;;
+    *) echo 'gh: Server Error (HTTP 502)' >&2; exit 1 ;;
+    esac ;;
+*/commits/*) [ "$GH_MODE" = 404 ] || { echo 'gh: No commit found for SHA (HTTP 422)' >&2; exit 1; }; echo abc ;;
+*) exit 1 ;;
+esac
+EOF
+    chmod +x "$AU/bin/gh"
+    printf '{"commits":[{"id":"abcdef1234","message":"Fix\\n\\nClaude-Session: https://claude.ai/code/session_0123456789abcdefghijklmn","author":{"email":"l@example.com"},"committer":{"email":"l@example.com"}}]}\n' >"$AU/event.json"
+    audit() { # $1 = GH_MODE, $2 = BEFORE; prints the exit status, output in $AU/out
+        (cd "$AU/co" && PATH="$AU/bin:$PATH" GH_MODE=$1 GH_SRC=$S RUNNER_TEMP="$AU/tmp" GITHUB_EVENT_PATH="$AU/event.json" \
+            REPO=o/r BEFORE=$2 IDENT_RE='@anthropic\.com$' bash "$AU/step.sh" >"$AU/out" 2>&1); echo $?
+    }
+    sha=0123456789abcdef0123456789abcdef01234567 zero=0000000000000000000000000000000000000000
+    [ -s "$AU/step.sh" ] && [ "$(audit ok "$sha")" = 1 ] && grep -q 'commit abcdef1 message, line 3' "$AU/out" \
+        && ok "main-audit judges a push with the patterns of main before it" || ko "main-audit with the patterns before the push: $(cat "$AU/out")"
+    got=$(for md in 502 empty gone; do printf '%s ' "$(audit "$md" "$sha")"; grep -q 'No AI attribution' "$AU/out" && printf 'passed '; done)
+    [ "$got" = '1 1 1 ' ] && ok "main-audit fails when the patterns before the push cannot be read (API error, empty, no such commit)" \
+        || ko "main-audit fell back to the pushed patterns: [$got]"
+    [ "$(audit 404 "$sha")" = 0 ] && grep -q 'does not exist in 0123456' "$AU/out" && [ "$(audit 502 "$zero")" = 0 ] \
+        && ok "main-audit uses main after the push only for a file the commit before lacks, or a new branch" || ko "main-audit fallback: $(cat "$AU/out")"
+fi
 git config attributionguard.mode strip
 while IFS= read -r m; do
   printf '%s\n' "$m" | sed 's/\\n/\n/g' >"$W/msg"
@@ -518,6 +568,32 @@ done <<'EOF'
 2 plain {"tool_name":"Bash","tool_input":{"command":"sudo chmod -v a=r .githooks/pre-push"}}
 0 plain {"tool_name":"Bash","tool_input":{"command":"chmod -R 755 .githooks"}}
 0 plain {"tool_name":"Bash","tool_input":{"command":"chmod -R +x .git/attribution-guard/hooks"}}
+# any mode that leaves the owner without execute, wherever x sits in the clause; chmod behind find -exec,
+# xargs, a path or a prefix command; after cd into the hooks directory; modes that keep u+x pass
+2 plain {"tool_name":"Bash","tool_input":{"command":"chmod a-xr .git/attribution-guard/hooks/commit-msg"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"chmod -xr .git/attribution-guard/hooks/commit-msg"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"chmod u-xw .git/attribution-guard/hooks/commit-msg"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"chmod u-x+r .githooks/pre-push"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"chmod u=rw .githooks/pre-push"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"chmod = .githooks/pre-push"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"chmod -- -x .githooks/pre-push"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"chmod --reference=/etc/hosts .githooks/pre-push"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"chmod --reference /etc/hosts .githooks/pre-push"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"find .git/attribution-guard/hooks -type f -exec chmod 644 {} +"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"ls .git/attribution-guard/hooks/* | xargs chmod 644"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"cd .git/attribution-guard/hooks && chmod 644 commit-msg"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"/bin/chmod 644 .githooks/pre-push"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"sudo -u bob chmod 0644 .githooks/pre-push"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"chmod go=r .githooks/pre-push"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"chmod og-x .githooks/pre-push"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"chmod u+x,go=r .githooks/pre-push"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"chmod u=rwX,go=r .githooks/pre-push"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"chmod 4755 .githooks/pre-push"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"chmod +x scripts/foo.sh"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"chmod -R 755 dir"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"chmod 644 docs/notes.md"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"git commit -m \"chmod 644 .githooks/pre-push is blocked now\""}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"find .githooks -exec grep -l chmod {} +"}}
 # env -i / env - / unsetting HOME next to a git write: git then skips the user-level guard
 2 plain {"tool_name":"Bash","tool_input":{"command":"env -i PATH=/usr/bin git commit -m x"}}
 2 plain {"tool_name":"Bash","tool_input":{"command":"env - PATH=/usr/bin git push origin HEAD"}}
@@ -534,6 +610,23 @@ done <<'EOF'
 0 plain {"tool_name":"Bash","tool_input":{"command":"env -i PATH=/usr/bin git status"}}
 0 plain {"tool_name":"Bash","tool_input":{"command":"env LC_ALL=C git commit -m x"}}
 0 plain {"tool_name":"Bash","tool_input":{"command":"env -u LANG git commit -m x"}}
+# GNU env: any unique prefix of a long option, short options clustered, a value after a long option,
+# env behind a command that runs it (nice, nohup, timeout 60, sudo -u bob, ...)
+2 plain {"tool_name":"Bash","tool_input":{"command":"env --ignore-env git commit -m x"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env --ignore-e git commit -m x"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env --u HOME git commit -m x"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env --uns=HOME git commit -m x"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env -vu HOME git commit -m x"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env --unset LANG -i git commit -m x"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env --chdir /tmp -i git commit -m x"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"nice env -i git commit -m x"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"timeout -s KILL 60 env -i git commit -m x"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"sudo -u bob env -i git commit -m x"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"nice env HOME=/tmp git commit -m x"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"nice env -u LANG git commit -m x"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"nice env -i git status"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"env LC_ALL=C git log"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"git commit -m \"use env -i here\""}}
 # --strict: gh api field flags with an attached value; write verbs of the other gh command groups
 2 strict {"tool_name":"Bash","tool_input":{"command":"gh api -fbody=hi repos/o/r/issues/1/comments"}}
 2 strict {"tool_name":"Bash","tool_input":{"command":"gh api repos/o/r/issues/1/comments -Fbody=@/tmp/x.md"}}
@@ -573,9 +666,54 @@ done <<'EOF'
 0 strict {"tool_name":"Bash","tool_input":{"command":"gh label list"}}
 0 strict {"tool_name":"Bash","tool_input":{"command":"gh ruleset list"}}
 0 strict {"tool_name":"Bash","tool_input":{"command":"gh api repos/o/r/pulls --jq .[].title | cut -f1 | sort -fu"}}
+# --strict gh api: -i clustered with -f/-F/-X; each gh api command on its own; the last -X counts
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh api -if body=hi repos/o/r/issues/1/comments"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh api -ifbody=hi repos/o/r/issues/1/comments"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh api -iX POST repos/o/r/issues/1/comments"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh api -iXDELETE repos/o/r/git/refs/heads/main"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh api -X POST -f body=hi repos/o/r/issues/1/comments; gh api -X GET repos/o/r"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh api repos/o/r/issues/1/comments -X GET -X POST -f body=hi"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh api -X POST -f body=hi repos/o/r/issues/1/comments; echo graphql"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh api repos/o/r/issues/1/comments -f \"body=reads use -X GET\""}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"gh api -X POST -X GET repos/o/r/pulls -fstate=open"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"gh api repos/o/r/pulls | grep -if x"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"cut -f1 file"}}
+# --strict gh write verbs count only where gh runs: not in a commit message, a heredoc body, a search
+# string or a comment; they do when the text goes to a shell or a command substitution
+0 strict {"tool_name":"Bash","tool_input":{"command":"git commit -m \"docs: agents never run gh release create\""}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"git commit -m \"docs: gh pr create is owner-only\""}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"git commit -m \"Fix\n\ngh secret set is owner-only (see docs); gh pr merge too\""}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"git commit -F - <<'MSG'\ndocs: explain why gh workflow run is left to the owner\nMSG"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"git commit -F - <<'MSG'\nKeep releases with the owner\n\ngh release create; gh label create (both owner-only)\nMSG"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"git commit -m \"$(cat <<'EOF'\nFix\n\ngh release create is owner-only\nEOF\n)\""}}
+0 strict {"tool_name":"PowerShell","tool_input":{"command":"git commit -m @\"\nFix\n\ngh release create is owner-only\n\"@"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"gh issue list --search \"release create\""}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"gh search issues \"label create\" --repo o/r"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"grep -n 'gh workflow run' file"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"gh run list | grep \"gh run cancel\""}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"cat f # gh repo create"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"GH_TOKEN=x gh release create v1"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"sudo gh secret set X"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh pr -R o/r create --title x"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"\"gh\" release create v1"}}
+2 strict {"tool_name":"PowerShell","tool_input":{"command":"& 'C:\\Program Files\\GitHub CLI\\gh.exe' release create v1"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"sh -c \"gh release create v1\""}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"echo \"gh release create v1\" | sh"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"cat <<'EOF' | bash\ngh release create v1\nEOF"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"git commit -m \"$(gh release create v1)\""}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"git commit -F - <<EOF\n$(gh release create v1)\nEOF"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"git commit -F - <<'MSG'\nx\nMSG\ngh release create v1"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"x=$((1<<2))\ngh release create v1"}}
 # what agent sessions in this repository do all the time must keep passing (strict)
 0 strict {"tool_name":"Bash","tool_input":{"command":"GIT_AUTHOR_NAME='x' GIT_AUTHOR_EMAIL='x@users.noreply.github.com' GIT_COMMITTER_NAME='x' GIT_COMMITTER_EMAIL='x@users.noreply.github.com' git commit -q -F - <<'MSG'\nFix the guard tests\n\nCheck that each commit landed.\nMSG"}}
 0 strict {"tool_name":"Bash","tool_input":{"command":"git push -u origin some-branch"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"git push -q origin some-branch"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"git push -q origin some-branch"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"git -C /d log --oneline -3"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"chmod +x scripts/foo.sh"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"chmod -R 755 dir"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"env LC_ALL=C git log"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"GIT_AUTHOR_NAME='x' GIT_AUTHOR_EMAIL='x@users.noreply.github.com' GIT_COMMITTER_NAME='x' GIT_COMMITTER_EMAIL='x@users.noreply.github.com' git commit -q -F - <<'MSG'\nFix the guard tests\n\nCheck that each commit landed.\nMSG"}}
 0 strict {"tool_name":"Bash","tool_input":{"command":"git -C /some/dir log --oneline -5"}}
 0 strict {"tool_name":"Bash","tool_input":{"command":"git -C /some/dir diff --stat main...HEAD"}}
 0 strict {"tool_name":"Bash","tool_input":{"command":"git -C /some/dir status --short"}}

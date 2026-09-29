@@ -86,10 +86,10 @@ plugin is installed, and Copilot CLI keeps a skill's `allowed-tools` approvals f
 publish PR/issue text, comments, merges or API commits, and the usual spellings of git hook bypasses. A PreToolUse
 hook blocks other spellings, GitHub API writes and other `gh` repository writes (settings, variables and secrets,
 workflow runs, releases, labels), edits of git config and hook files, and git, gh and az commands,
-GitHub/Azure DevOps REST calls and MCP writes whose text carries attribution. None of this is airtight against a
+GitHub/Azure DevOps REST calls and MCP writes whose text carries attribution. The strict `gh` rules count only commands, not commit messages, search text or heredoc bodies, unless a shell runs that text. None of this is airtight against a
 determined agent; the git hooks, the required check and the main audit stand behind it. A PR that changes
 `.github/workflows/` can add a job named like a required check, so review those changes before merging. The main
-audit judges a push with the patterns and matcher from before it, but runs the pushed `attribution-audit.yml`, so a
+audit judges a push with the patterns and matcher from before it (and fails when it cannot read them), but runs the pushed `attribution-audit.yml`, so a
 push that edits that workflow can change its own audit. See [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md). A PR that
 loosens these rules changes what agents may publish under the owner's name.
 
