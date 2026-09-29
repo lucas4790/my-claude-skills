@@ -1,6 +1,5 @@
 """Offline tests for scripts/skill_descriptions.py, the description checks validate.py runs on every PR."""
-import ast
-import re
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -48,20 +47,12 @@ def test_frontmatter_forms():
     assert not sd.is_true(None) and sd.is_true('"yes"')
 
 
-def _gen_catalog_frontmatter():
-    """gen-catalog.py's own parser, without executing the script (importing it rewrites SKILLS.md)."""
-    src = (ROOT / "scripts/gen-catalog.py").read_text(encoding="utf-8")
-    fn = next(n for n in ast.parse(src).body if isinstance(n, ast.FunctionDef) and n.name == "frontmatter")
-    ns = {"re": re, "Path": Path}
-    exec(ast.get_source_segment(src, fn), ns)
-    return ns["frontmatter"]
-
-
-def test_descriptions_match_the_catalog_parser():
-    gc = _gen_catalog_frontmatter()
-    for s in sd.load_skills(ROOT):
-        expected = " ".join(gc(ROOT / s.path).get("description", "").split())
-        assert s.description == expected, s.path
+def test_frontmatter_keeps_an_unmatched_quote_and_reads_keep_blocks():
+    # gen-catalog.py once had its own parser that cut the trailing quote and kept ">+" as text; it now
+    # imports this one (tests/test_script_gen_catalog.py checks SKILLS.md)
+    fm = sd.parse_frontmatter('---\ndescription: Use when you run "make"\nx-y1: >+\n  kept\n---\n')
+    assert fm["description"] == 'Use when you run "make"'
+    assert fm["x-y1"] == "kept"
 
 
 def test_repo_index():
@@ -166,17 +157,20 @@ def test_real_repo_noise_stays_reasonable():
     assert len(lines) <= 40, "description warnings got noisy; revisit the thresholds"
 
 
-def test_changed_skill_paths(tmp_path):
+def test_changed_skill_paths(tmp_path, git_env, monkeypatch):
     def git(*a):
-        subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
+        subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True, env=git_env)
     git("init", "-q")
-    git("config", "user.email", "t@example.invalid")
-    git("config", "user.name", "t")
     (tmp_path / "plugins/p/skills/a").mkdir(parents=True)
     (tmp_path / "plugins/p/skills/a/SKILL.md").write_text("---\nname: a\n---\n")
     (tmp_path / "plugins/p/skills/a/ref.md").write_text("x")
     git("add", "-A")
-    git("-c", "commit.gpgsign=false", "commit", "-qm", "init")
+    git("commit", "-qm", "init")
+    # changed_skill_paths runs git itself: the same isolation (no outer GIT_DIR, no user git config)
+    for k in set(os.environ) - set(git_env):
+        monkeypatch.delenv(k)
+    for k, v in git_env.items():
+        monkeypatch.setenv(k, v)
     (tmp_path / "plugins/p/skills/a/SKILL.md").write_text("---\nname: a\ndescription: new\n---\n")
     (tmp_path / "plugins/p/skills/a/ref.md").write_text("y")
     (tmp_path / "plugins/p/skills/b").mkdir()
@@ -187,3 +181,15 @@ def test_changed_skill_paths(tmp_path):
                                                         "plugins/p/skills/ünï/SKILL.md"}
     with pytest.raises(subprocess.CalledProcessError):
         sd.changed_skill_paths(tmp_path, "no-such-ref")
+
+
+def test_changed_skill_paths_decodes_git_output_as_utf8(monkeypatch):
+    """git -z prints raw UTF-8 paths; the locale codec (cp1252 on Windows) would garble or reject them."""
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(kw)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+    monkeypatch.setattr(sd.subprocess, "run", fake_run)
+    assert sd.changed_skill_paths(ROOT, "HEAD") == set()
+    assert calls and all(kw.get("encoding") == "utf-8" and kw.get("errors") == "replace" for kw in calls)

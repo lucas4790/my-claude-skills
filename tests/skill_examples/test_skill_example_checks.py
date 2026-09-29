@@ -2,7 +2,8 @@
 
 Self-contained: no conftest, no network (Pester is never installed from here: SKILL_EXAMPLES_NO_INSTALL=1).
 Tests that need a tool (pwsh, Pester 6, shellcheck, yamllint, PyYAML) are skipped when it is missing, unless
-SKILL_EXAMPLES_REQUIRE_TOOLS=1 is set (CI), which turns a missing tool into a failure.
+SKILL_EXAMPLES_REQUIRE_TOOLS=1 is set (CI), which turns a missing tool into a failure. The two runs of the
+repository's real config are skipped unless SKILL_EXAMPLES_REAL_CONFIG=1: scripts/test-skill-examples.sh runs it.
 """
 from __future__ import annotations
 
@@ -71,8 +72,10 @@ def need(*tools: str) -> None:
 
 def run_script(*args, env: dict | None = None, path: str | None = None, timeout: int = 900) -> tuple[int, str]:
     full = dict(os.environ)
-    # CI sets SKILL_EXAMPLES_REQUIRE_TOOLS for this suite; the script under test must not inherit it.
-    for name in ("SKILL_EXAMPLES_ALLOW_MISSING_TOOLS", "SKILL_EXAMPLES_REQUIRE_TOOLS", "TEST_SKILL_EXAMPLES_KEEP"):
+    # CI sets SKILL_EXAMPLES_REQUIRE_TOOLS for this suite; the script under test must not inherit it, nor the
+    # host's SHELLCHECK_OPTS (the checker drops it too; a test passes it through `env` to check that).
+    for name in ("SKILL_EXAMPLES_ALLOW_MISSING_TOOLS", "SKILL_EXAMPLES_REQUIRE_TOOLS", "TEST_SKILL_EXAMPLES_KEEP",
+                 "SHELLCHECK_OPTS"):
         full.pop(name, None)
     full["SKILL_EXAMPLES_NO_INSTALL"] = "1"
     full["PYTHONDONTWRITEBYTECODE"] = "1"
@@ -203,6 +206,16 @@ def test_broken_block_fails_in_enforce_mode(tmp_path, case):
     assert marker in text, out
     assert 'block 1 (' in text and 'under "Broken"' in text
     assert "result: FAIL (exit 1)" in out
+
+
+def test_shellcheck_opts_of_the_host_do_not_change_the_result(tmp_path):
+    lang, code, marker, tools = BROKEN["bash-shellcheck"]
+    need(*tools)
+    skill = write_skill(tmp_path, [("## Broken", lang, code)])
+    rc, out = run_script("--config", write_config(tmp_path, {skill: {"mode": "enforce"}}),
+                         env={"SHELLCHECK_OPTS": f"-e {marker}"})
+    assert rc == 1, out
+    assert marker in summary(out), out
 
 
 @pytest.mark.parametrize("case", sorted(BROKEN))
@@ -524,7 +537,15 @@ def test_repo_config_modes_follow_the_vendoring_rules():
             assert skill.resolve() in configured, f"{rel} is repo-controlled and has code blocks: add it to {REAL_CONFIG.name}"
 
 
+def real_config_opt_in() -> None:
+    """The real config runs in scripts/test-skill-examples.sh (CI's "Skill examples" step, right after
+    run-tests.sh); running it here too would report one broken example twice."""
+    if os.environ.get("SKILL_EXAMPLES_REAL_CONFIG", "") in ("", "0"):
+        pytest.skip("the real config runs in scripts/test-skill-examples.sh; SKILL_EXAMPLES_REAL_CONFIG=1 runs it here")
+
+
 def test_repo_config_passes():
+    real_config_opt_in()
     need("pwsh", "pester", "shellcheck", "pyyaml", "yamllint")
     rc, out = run_script()
     assert rc == 0, out
@@ -538,6 +559,7 @@ def test_repo_config_passes():
 
 
 def test_pester_skill_path_argument_still_works():
+    real_config_opt_in()
     need("pwsh", "pester")
     rc, out = run_script("plugins/powershell/skills/pester/SKILL.md")
     assert rc == 0, out

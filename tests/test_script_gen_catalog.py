@@ -164,13 +164,29 @@ def test_pipe_in_a_description_does_not_break_the_table(bare_layout):
     assert row == "| [`s`](plugins/p/skills/s/SKILL.md) | Reads a \\| b tables. |"
 
 
+def test_values_are_read_like_validate_py_and_the_evals_read_them(bare_layout):
+    """One frontmatter parser (scripts/skill_descriptions.py): an unmatched quote stays, `>+` / `|+` block
+    scalars are blocks, keys may hold digits."""
+    bare_layout.write_json(".claude-plugin/marketplace.json",
+                           {"plugins": [{"name": "p", "source": "./plugins/p", "description": "P"}]})
+    bare_layout.write("plugins/p/skills/a/SKILL.md", '---\nname: a\ndescription: Use when you run "make"\n---\n')
+    bare_layout.write("plugins/p/skills/b/SKILL.md", "---\nname: b\ndescription: >+\n  Folded, keep.\n---\n")
+    bare_layout.write("plugins/p/agents/x.md", "---\nx-y1: 1\nname: agent-x\ndescription: |+\n  Literal.\n---\n")
+    bare_layout.gen_catalog()
+    rows = [x for x in bare_layout.read("SKILLS.md").splitlines() if x.startswith("| [`")]
+    assert rows == ['| [`a`](plugins/p/skills/a/SKILL.md) | Use when you run "make" |',
+                    "| [`b`](plugins/p/skills/b/SKILL.md) | Folded, keep. |",
+                    "| [`agent-x`](plugins/p/agents/x.md) | Literal. |"]
+
+
 def test_the_repo_catalog_is_generated_from_the_committed_marketplace(tmp_path):
     """Smoke test on the real layout, copied: gen-catalog.py runs and covers every marketplace plugin."""
     root = tmp_path / "copy"
     shutil.copytree(REPO / "plugins", root / "plugins")
     shutil.copytree(REPO / ".claude-plugin", root / ".claude-plugin")
     (root / "scripts").mkdir()
-    shutil.copy2(REPO / "scripts/gen-catalog.py", root / "scripts/gen-catalog.py")
+    for script in ("gen-catalog.py", "skill_descriptions.py"):   # gen-catalog imports the shared parser
+        shutil.copy2(REPO / "scripts" / script, root / "scripts" / script)
     res = subprocess.run([sys.executable, str(root / "scripts/gen-catalog.py")], capture_output=True, text=True)
     assert res.returncode == 0, res.stderr
     names = [p["name"] for p in json.loads((root / ".claude-plugin/marketplace.json").read_text())["plugins"]]

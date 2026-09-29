@@ -368,11 +368,11 @@ class Skill:
 
 # ----------------------------------------------------------------------------------------------- runner
 
-def run(cmd: list[str], timeout: int, cwd: Path | None = None) -> tuple[int, str]:
+def run(cmd: list[str], timeout: int, cwd: Path | None = None, env: dict | None = None) -> tuple[int, str]:
     """Runs cmd, returns (exit code, stdout+stderr). A timeout is exit code -1."""
     try:
         p = subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                           text=True, encoding="utf-8", errors="replace", timeout=timeout)
+                           text=True, encoding="utf-8", errors="replace", timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         return -1, f"timed out after {timeout}s"
     return p.returncode, p.stdout
@@ -453,7 +453,9 @@ class Runner:
         cmd = [self.tools["shellcheck"], "--norc", "-f", "json1", "-S", sc["severity"], "-s", dialect]
         if sc["exclude"]:
             cmd += ["-e", ",".join(sc["exclude"])]
-        rc, out = run(cmd + [str(path)], TIMEOUT["lint"])
+        # like --norc: the user's SHELLCHECK_OPTS (e.g. -e SC2086) must not change the result
+        env = {k: v for k, v in os.environ.items() if k != "SHELLCHECK_OPTS"}
+        rc, out = run(cmd + [str(path)], TIMEOUT["lint"], env=env)
         if rc not in (0, 1):
             r.problems.append(f"shellcheck exited {rc}: {tail(out)}")
             return
