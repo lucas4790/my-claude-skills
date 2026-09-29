@@ -22,8 +22,10 @@ VS Code. Most of `plugins/` is **vendored** from upstream repos listed in `sourc
   README plugin table → `scripts/sync.sh --only <name>` → a `report` entry in `tests/skill-examples.json` if its skills
   have bash/yaml/python/json/PowerShell examples worth checking.
 - `trust: "high"` only for vendors whose code you would run unreviewed; everything else is `low`.
-- Hooks in repo-owned plugins never block or fail: every error path exits 0 silently, and findings go to
-  `hookSpecificOutput.additionalContext`. A hook that depends on Claude Code's payload or output goes in a
+- Hooks in repo-owned plugins never block or fail: every error path exits 0, findings go to
+  `hookSpecificOutput.additionalContext`, and a hook whose tool is missing stays silent. A hook whose tool is there
+  but cannot run says so in one "inactive" line of that context instead (the yaml-hooks hook does this when yamllint
+  is older than 1.30 or rejects its config). A hook that depends on Claude Code's payload or output goes in a
   `claude-only` plugin. A new or changed hook registration under `plugins/` (any event: a `hooks.json`, a
   manifest's `hooks` key or a file it names, `hooks:` frontmatter), or any edit of a reviewed hook file or of a
   script it runs through `${CLAUDE_PLUGIN_ROOT}`, fails `validate.py --diff` until that file is listed with its new
@@ -41,8 +43,12 @@ VS Code. Most of `plugins/` is **vendored** from upstream repos listed in `sourc
   tests fail on unknown skill names). New or edited repo-owned skill descriptions start with a when-to-use phrase
   ("Use when ...") and name look-alike skills they are not for; validate.py warns otherwise.
 - Changes to `settings/permissions*.json` widen what agents may run unprompted on every machine that merged
-  them; explain each rule in the PR. Keep `permissions.json` read-only: an allow rule covers every flag of its
-  command, so a flag that would let it run a program or write a file needs an ask rule in the same file (ask wins).
+  them; explain each rule in the PR. Keep `permissions.json` read-only. An allow rule ending in `*` covers every flag
+  of its command, and ask rules match the command text as written, so a quoted or escaped flag or flags passed through
+  `xargs` get past them: an ask rule is a backstop, not a fix. Prefer exact rules, and add none for what Claude Code's
+  built-in read-only check already allows (`git diff`/`log`/`show`/`blame`). An allow wildcard belongs in
+  `permissions.json` only if its residual risk is documented in its `$comment` and the README; a rule whose flags can
+  run a program from the clone belongs in `permissions-trusted-repo.json`.
 - Never push to `main`; push a branch and give the owner the compare link (the owner opens and merges the PR).
   The sync workflow opens its own PRs.
 
