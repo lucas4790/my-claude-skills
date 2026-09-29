@@ -32,9 +32,16 @@ if [ -n "$common" ]; then
     # An existing copy stays in force on a branch that has no tools/attribution-guard.
     if [ -x "$d/hooks/commit-msg" ]; then
         cur=$(git -C "$root" config --local --get core.hooksPath 2>/dev/null || true)
+        prev=$(git -C "$root" config --local --get attributionguard.previousHooksPath 2>/dev/null || true)
+        # A guard hooks directory is never the repository's own hooks path: after moving or copying
+        # the clone, core.hooksPath still names the old one (and an older version saved it).
+        case $prev in
+            *[/\\]attribution-guard[/\\]hooks | *[/\\]attribution-guard[/\\]hooks[/\\])
+                git -C "$root" config --local --unset attributionguard.previousHooksPath; prev= ;;
+        esac
         case $cur in
-            '' | .githooks | "$d/hooks") ;;
-            *) if [ -z "$(git -C "$root" config --local --get attributionguard.previousHooksPath 2>/dev/null)" ]; then
+            '' | .githooks | *[/\\]attribution-guard[/\\]hooks | *[/\\]attribution-guard[/\\]hooks[/\\]) ;;
+            *) if [ -z "$prev" ]; then
                    git -C "$root" config --local attributionguard.previousHooksPath "$cur"
                    printf 'attribution-guard: core.hooksPath was %s; its hooks still run through the guard.\n' "$cur" >&2
                fi ;;

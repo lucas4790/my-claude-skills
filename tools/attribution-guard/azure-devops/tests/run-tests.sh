@@ -85,6 +85,10 @@ stop flip
 # 5b. a pattern that does not compile fails closed instead of passing everything
 common 1; out=$(ATTRIB_RE='x|(' bash "$guard" 2>&1); rc=$?
 [ $rc -eq 2 ] && echo "$out" | grep -q 'does not compile' && ok "broken pattern fails closed (rc 2)" || { ko "broken pattern rc=$rc"; echo "$out"; }
+# 5c. the shared matcher (../match.awk) missing next to the guard fails closed too
+mkdir -p "$work/lonely/azure-devops" && cp "$guard" "$work/lonely/azure-devops/"
+common 1; out=$(bash "$work/lonely/azure-devops/ado-pr-guard.sh" 2>&1); rc=$?
+[ $rc -eq 2 ] && echo "$out" | grep -q 'match.awk is missing' && ok "missing match.awk fails closed (rc 2)" || { ko "missing match.awk rc=$rc"; echo "$out"; }
 
 # 6. unset PR id macro (manual run) -> exit 2
 common 1; out=$(PR_ID='$(System.PullRequest.PullRequestId)' bash "$guard" 2>&1); rc=$?

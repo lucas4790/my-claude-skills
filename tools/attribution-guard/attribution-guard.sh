@@ -55,11 +55,11 @@ if ! awk_hit 'Co-Authored-By: Claude <noreply@anthropic.com>' || awk_hit x; then
     die "the attribution pattern fails its self-test (awk)"
 fi
 
-# Remove zero-width characters (U+200B-U+200D, U+2060, U+FEFF) that would split a pattern.
-norm() {
-    sed -e "s/$(printf '\342\200\213')//g" -e "s/$(printf '\342\200\214')//g" -e "s/$(printf '\342\200\215')//g" \
-        -e "s/$(printf '\342\201\240')//g" -e "s/$(printf '\357\273\277')//g"
-}
+# Remove zero-width and invisible characters that would split a pattern: U+00AD, U+034F, U+180E,
+# U+200B-U+200D, U+2060-U+2064 and U+FEFF, as UTF-8 bytes (the same list as match.awk).
+NORM_SED=$(printf 's/\302\255//g;s/\315\217//g;s/\341\240\216//g;s/\342\200\213//g;s/\342\200\214//g;s/\342\200\215//g
+s/\342\201\240//g;s/\342\201\241//g;s/\342\201\242//g;s/\342\201\243//g;s/\342\201\244//g;s/\357\273\277//g')
+norm() { sed -e "$NORM_SED"; }
 
 guard_mode() {
     m=${ATTRIBUTION_GUARD_MODE:-$(git config --get attributionguard.mode 2>/dev/null || true)}
@@ -133,12 +133,27 @@ scan_lines() {
 # A URL without the user:password@ part, for messages.
 anon() { printf '%s' "$1" | sed 's#//[^/@]*@#//#'; }
 
+# The ssh command git would run, with connect and keep-alive timeouts, so a stalled SSH connection
+# cannot hang the push. Only for OpenSSH; empty for plink and other GIT_SSH programs.
+ssh_bounded() {
+    c=${GIT_SSH_COMMAND:-$(git config --get core.sshCommand 2>/dev/null)}
+    [ -n "$c" ] || [ -n "${GIT_SSH:-}" ] || c=ssh
+    case ${c%% *} in
+        ssh | ssh.exe | */ssh | */ssh.exe)
+            printf '%s -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=2\n' "$c" ;;
+    esac
+}
+
 # Branch and tag tips a URL publishes, as the remote advertises them now. Refuses (status 2) when an
 # insteadOf rewrite would send the listing to a different repository than the URL names.
 advertised() {
     [ "$(git ls-remote --get-url "$1" 2>/dev/null)" = "$1" ] || return 2
-    GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 \
-        ls-remote --heads --tags "$1" 2>/dev/null
+    (
+        s=$(ssh_bounded)
+        [ -z "$s" ] || { GIT_SSH_COMMAND=$s; export GIT_SSH_COMMAND; }
+        GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 \
+            ls-remote --heads --tags "$1" 2>/dev/null
+    )
 }
 
 pre_push() {
@@ -238,7 +253,13 @@ case ${1:-} in
     commit-msg) shift; commit_msg "$@" ;;
     pre-push) shift; pre_push "$@" ;;
     check) shift
-        hits=$(cat "${1:--}" | norm | grep -a -E -i -n -e "$ATTRIB_RE")
+        # A file that cannot be read must not pass as clean text (sh has no pipefail to tell).
+        case ${1:--} in
+            -) ;;
+            *) { [ -r "$1" ] && [ ! -d "$1" ]; } || die "cannot read $1"
+               exec <"$1" ;;
+        esac
+        hits=$(norm | grep -a -E -i -n -e "$ATTRIB_RE")
         rc=$?
         [ "$rc" -le 1 ] || die "could not scan the text"
         [ -z "$hits" ] || { printf '%s\n' "$hits"; exit 1; } ;;

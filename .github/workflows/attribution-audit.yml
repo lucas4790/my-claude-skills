@@ -4,17 +4,19 @@ name: Attribution audit
 #  - main-audit: the final squash/merge message is composed at merge time, and an API merge sets
 #    its own. This job fails loudly (red X on main plus a failure e-mail) when attribution or a
 #    vendor author/committer lands on main, or a pushed tag (its message, tagger, nested tags and
-#    the tagged commit) carries it. Detection only.
+#    the tagged commit) carries it. Detection only. A push to main is judged with the patterns and
+#    matcher of main before that push; a tag with those of main.
 #  - comment-sanitize: strips attribution lines from PR/issue comments, review bodies and issue
 #    descriptions (issue titles are only reported). Commit comments start no workflow; cleanup
 #    covers them.
 #  - cleanup (manual, Actions > Attribution audit > Run workflow): strips attribution from the
 #    description of every PR and issue and from every comment, edited as github-actions[bot];
-#    optionally deletes workflow runs whose head commit message carries attribution. GitHub keeps
-#    edit history; see docs/ATTRIBUTION.md for removing old revisions by hand.
+#    reports every tag that carries attribution (like a pushed tag); optionally deletes workflow
+#    runs whose head commit message carries attribution. GitHub keeps edit history; see
+#    docs/ATTRIBUTION.md for removing old revisions by hand.
 # Strict like attribution-guard.yml: code blocks are checked too, and logs name places and line
-# numbers only. Separate file from attribution-guard.yml so no skipped job named
-# `attribution-guard` exists.
+# numbers only. The matcher is tools/attribution-guard/match.awk. Separate file from
+# attribution-guard.yml so no skipped job named `attribution-guard` exists.
 on:
   push:
     branches: [main]
@@ -37,22 +39,6 @@ on:
 permissions: {}
 
 env:
-  ATTRIB_ZW: "​|‌|‍|⁠|﻿"
-  ATTRIB_AWK: |
-    BEGIN { re = tolower(ENVIRON["ATTRIB_RE"]); zw = ENVIRON["ATTRIB_ZW"] }
-    {
-      sub(/\r$/, "")
-      s = $0
-      if (zw != "") gsub(zw, "", s)
-      hit = tolower(s) ~ re
-      if (mode == "report") { if (hit) print NR; next }
-      if (!hit) out[++n] = $0
-    }
-    END {
-      if (mode != "strip") exit
-      while (n > 0 && (out[n] ~ /^[[:space:]]*$/ || out[n] ~ /^[[:space:]]*---+[[:space:]]*$/)) n--
-      for (i = 1; i <= n; i++) print out[i]
-    }
   IDENT_RE: '@anthropic\.com$'
 
 jobs:
@@ -66,20 +52,38 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-          ref: ${{ github.event.repository.default_branch }}   # patterns from main, also for a tag push
+          ref: ${{ github.event.repository.default_branch }}   # patterns from main for a tag push
           sparse-checkout: tools/attribution-guard
       - name: Check the commits that just landed on main
         if: startsWith(github.ref, 'refs/heads/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
+          t=$RUNNER_TEMP
+          # Patterns and matcher from main as it was BEFORE this push, never from the push being
+          # audited (it could weaken them); main after the push only when that commit has no copy
+          # (a new branch, or a commit from before the file existed). This workflow file itself
+          # still comes from the push: review changes to .github/workflows/.
+          for f in patterns.ere match.awk; do
+            cp "tools/attribution-guard/$f" "$t/$f"
+            case $BEFORE in *[!0]*)
+              if gh api -H 'Accept: application/vnd.github.raw+json' \
+                  "repos/$REPO/contents/tools/attribution-guard/$f?ref=$BEFORE" > "$t/$f.before" 2>/dev/null \
+                  && [ -s "$t/$f.before" ]; then
+                mv "$t/$f.before" "$t/$f"
+              else
+                echo "::warning::tools/attribution-guard/$f of ${BEFORE:0:7} (main before the push) could not be read; using main after the push."
+              fi ;;
+            esac
+          done
+          ATTRIB_RE=$(sed -n '1p' "$t/patterns.ere"); export ATTRIB_RE
+          ATTRIB_AWK=$(cat "$t/match.awk")
           # Self-test: a pattern that does not compile, is empty or matches everything must fail the
           # job, never pass (or strip) everything.
-          printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" >/dev/null
-          [ -n "$(printf 'Co-Authored-By: Claude <noreply@anthropic.com>\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
-            && [ -z "$(printf 'x\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
-            || { echo "::error::the attribution pattern fails its self-test"; exit 1; }
-          t=$RUNNER_TEMP
+          awk -v mode=selftest "$ATTRIB_AWK" </dev/null || { echo "::error::the attribution pattern fails its self-test"; exit 1; }
           fail=0
           jq -r '.commits[] | @base64' "$GITHUB_EVENT_PATH" > "$t/commits.b64"
           while IFS= read -r c; do
@@ -109,12 +113,10 @@ jobs:
         run: |
           set -euo pipefail
           ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
+          ATTRIB_AWK=$(cat tools/attribution-guard/match.awk)
           # Self-test: a pattern that does not compile, is empty or matches everything must fail the
           # job, never pass (or strip) everything.
-          printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" >/dev/null
-          [ -n "$(printf 'Co-Authored-By: Claude <noreply@anthropic.com>\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
-            && [ -z "$(printf 'x\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
-            || { echo "::error::the attribution pattern fails its self-test"; exit 1; }
+          awk -v mode=selftest "$ATTRIB_AWK" </dev/null || { echo "::error::the attribution pattern fails its self-test"; exit 1; }
           t=$RUNNER_TEMP
           fail=0
           obj=$(jq -r '.after' "$GITHUB_EVENT_PATH")
@@ -171,12 +173,10 @@ jobs:
         run: |
           set -euo pipefail
           ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
+          ATTRIB_AWK=$(cat tools/attribution-guard/match.awk)
           # Self-test: a pattern that does not compile, is empty or matches everything must fail the
           # job, never pass (or strip) everything.
-          printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" >/dev/null
-          [ -n "$(printf 'Co-Authored-By: Claude <noreply@anthropic.com>\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
-            && [ -z "$(printf 'x\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
-            || { echo "::error::the attribution pattern fails its self-test"; exit 1; }
+          awk -v mode=selftest "$ATTRIB_AWK" </dev/null || { echo "::error::the attribution pattern fails its self-test"; exit 1; }
           t=$RUNNER_TEMP
           case $EVENT in
             issues)
@@ -225,12 +225,10 @@ jobs:
         run: |
           set -euo pipefail
           ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
+          ATTRIB_AWK=$(cat tools/attribution-guard/match.awk)
           # Self-test: a pattern that does not compile, is empty or matches everything must fail the
           # job, never pass (or strip) everything.
-          printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" >/dev/null
-          [ -n "$(printf 'Co-Authored-By: Claude <noreply@anthropic.com>\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
-            && [ -z "$(printf 'x\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
-            || { echo "::error::the attribution pattern fails its self-test"; exit 1; }
+          awk -v mode=selftest "$ATTRIB_AWK" </dev/null || { echo "::error::the attribution pattern fails its self-test"; exit 1; }
           t=$RUNNER_TEMP
           failed=0
           fix() { # $1 = api path, $2 = method, $3 = field, text in $t/in.md; returns 1 when the edit failed
@@ -270,15 +268,35 @@ jobs:
               fix "repos/$REPO/$kind/$id" PATCH body || { echo "::warning::could not edit $kind/$id"; failed=$((failed + 1)); }
             done < "$t/comments"
           done
-          # Annotated tags cannot be edited: report them (delete and re-create by hand).
-          gh api --paginate "repos/$REPO/git/matching-refs/tags" --jq '.[] | select(.object.type == "tag") | "\(.ref) \(.object.sha)"' > "$t/tags" || : > "$t/tags"
-          while read -r ref sha; do
-            gh api "repos/$REPO/git/tags/$sha" > "$t/tag.json" || continue
-            jq -r '.message // ""' "$t/tag.json" > "$t/in.md"
-            if [ -n "$(awk -v mode=report "$ATTRIB_AWK" "$t/in.md")" ] || jq -r '.tagger.email // ""' "$t/tag.json" | grep -Eiq -e "$IDENT_RE"; then
-              echo "::warning::${ref#refs/tags/} carries attribution; delete and re-create the tag by hand."; failed=$((failed + 1))
+          # Tags cannot be edited: report them. Every tag, lightweight or annotated, also one whose push
+          # started no run; the same walk as for a pushed tag: each tag object (message, tagger; nested
+          # up to 10 levels), then the tagged commit (message, author, committer).
+          tag_check() { # $1 = tag name, $2 = object type, $3 = object id
+            local type=$2 obj=$3 depth=0 hit=0 who
+            while [ "$type" = tag ] && [ "$depth" -lt 10 ]; do
+              gh api "repos/$REPO/git/tags/$obj" > "$t/tag.json" || { echo "::warning::could not read tag $1"; failed=$((failed + 1)); return 0; }
+              jq -r '.message // ""' "$t/tag.json" > "$t/in.md"
+              if [ -n "$(awk -v mode=report "$ATTRIB_AWK" "$t/in.md")" ] || jq -r '.tagger.email // ""' "$t/tag.json" | grep -Eiq -e "$IDENT_RE"; then
+                echo "::warning::tag $1 (tag object ${obj:0:7}) carries attribution; delete and re-create the tag by hand."; failed=$((failed + 1))
+              fi
+              obj=$(jq -r '.object.sha' "$t/tag.json"); type=$(jq -r '.object.type' "$t/tag.json")
+              depth=$((depth + 1))
+            done
+            if [ "$type" = tag ]; then echo "::warning::tag $1: tags nested deeper than 10"; failed=$((failed + 1)); return 0; fi
+            [ "$type" = commit ] || return 0
+            gh api "repos/$REPO/commits/$obj" > "$t/c.json" || { echo "::warning::could not read the commit of tag $1"; failed=$((failed + 1)); return 0; }
+            jq -r '.commit.message // ""' "$t/c.json" > "$t/in.md"
+            [ -z "$(awk -v mode=report "$ATTRIB_AWK" "$t/in.md")" ] || hit=1
+            for who in author committer; do
+              if jq -r ".commit.$who.email // \"\"" "$t/c.json" | grep -Eiq -e "$IDENT_RE"; then hit=1; fi
+            done
+            if [ "$hit" -ne 0 ]; then
+              echo "::warning::tag $1 points at commit ${obj:0:7}, which carries attribution; delete the tag or rewrite the history (docs/HISTORY-CLEANUP.md)."; failed=$((failed + 1))
             fi
-          done < "$t/tags"
+          }
+          gh api --paginate "repos/$REPO/git/matching-refs/tags" --jq '.[] | "\(.ref) \(.object.type) \(.object.sha)"' > "$t/tags" \
+            || { echo "::warning::could not list the tags"; failed=$((failed + 1)); : > "$t/tags"; }
+          while read -r ref type sha; do tag_check "${ref#refs/tags/}" "$type" "$sha"; done < "$t/tags"
           if [ "$failed" -gt 0 ]; then echo "::error::$failed item(s) could not be cleaned; see the warnings above."; exit 1; fi
       - name: Delete workflow runs whose head commit message carries attribution
         if: inputs.delete_runs
@@ -289,12 +307,10 @@ jobs:
         run: |
           set -euo pipefail
           ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
+          ATTRIB_AWK=$(cat tools/attribution-guard/match.awk)
           # Self-test: a pattern that does not compile, is empty or matches everything must fail the
           # job, never pass (or strip) everything.
-          printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" >/dev/null
-          [ -n "$(printf 'Co-Authored-By: Claude <noreply@anthropic.com>\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
-            && [ -z "$(printf 'x\n' | awk -v mode=report "$ATTRIB_AWK")" ] \
-            || { echo "::error::the attribution pattern fails its self-test"; exit 1; }
+          awk -v mode=selftest "$ATTRIB_AWK" </dev/null || { echo "::error::the attribution pattern fails its self-test"; exit 1; }
           t=$RUNNER_TEMP
           gh api --paginate "repos/$REPO/actions/runs?per_page=100" --jq '.workflow_runs[] | select(.status == "completed") | @base64' > "$t/runs"
           while IFS= read -r r; do

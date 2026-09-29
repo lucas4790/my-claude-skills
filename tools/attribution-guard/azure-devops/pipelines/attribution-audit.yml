@@ -61,14 +61,52 @@ jobs:
       ERE
       )
       fi
-      ATTRIB_ZW=$'\xe2\x80\x8b|\xe2\x80\x8c|\xe2\x80\x8d|\xe2\x81\xa0|\xef\xbb\xbf'
-      export ATTRIB_RE ATTRIB_ZW
-      # Self-test: some awks treat a pattern that does not compile as one that never matches.
-      canary=${ATTRIB_CANARY:-"Co-Authored-By: Claude <noreply@anthropic.com>"}
-      probe() { printf '%s\n' "$1" | awk 'BEGIN { re = tolower(ENVIRON["ATTRIB_RE"]) } { if (tolower($0) ~ re) hit = 1 } END { exit !hit }'; }
-      if ! { [[ -n $ATTRIB_RE ]] && probe "$canary" && ! probe x; } 2>/dev/null; then
-        err "the attribution pattern does not compile or fails its self-test."
-      fi
+      export ATTRIB_RE
+      # The matcher; its self-test fails on a pattern that does not compile (some awks treat one as never
+      # matching), misses a known trailer (ATTRIB_CANARY replaces it) or matches a plain word.
+      IFS= read -r -d '' ATTRIB_AWK <<'AWK' || true  # tools/attribution-guard/match.awk
+      # Attribution matcher of the CI checks, one file for all of them: .github/workflows/attribution-*.yml
+      # run it from their checkout, azure-devops/ado-pr-guard.sh reads it from here and gen.py embeds it
+      # in the generated pipelines. (The local hooks, attribution-guard.sh, match with sed and grep.)
+      # The pattern is ENVIRON["ATTRIB_RE"], the first line of patterns.ere.
+      #   awk -v mode=selftest -f match.awk </dev/null   exit 0, or 2 when the self-test fails
+      #   awk -v mode=report -f match.awk FILE           print the number of each line with a hit
+      #   awk -v mode=strip -f match.awk FILE            print the text without those lines (and without
+      #                                                   the blank and --- lines they leave at the end)
+      # Every mode runs the self-test first and exits 2 when the pattern is empty, does not compile,
+      # misses a known trailer (ENVIRON["ATTRIB_CANARY"] replaces it) or matches a plain word: some awks
+      # treat a pattern that does not compile as one that never matches, and a check must fail, never pass.
+      # Zero-width and invisible characters (U+00AD, U+034F, U+180E, U+200B-U+200D, U+2060-U+2064, U+FEFF,
+      # written as UTF-8 bytes) are removed before matching; attribution-guard.sh removes the same list.
+      BEGIN {
+        re = tolower(ENVIRON["ATTRIB_RE"])
+        zw = "\302\255|\315\217|\341\240\216|\342\200\213|\342\200\214|\342\200\215|\342\201\240|\342\201\241|\342\201\242|\342\201\243|\342\201\244|\357\273\277"
+        canary = ENVIRON["ATTRIB_CANARY"]
+        if (canary == "") canary = "Co-Authored-By: Claude <noreply@anthropic.com>"
+        if (re == "" || tolower(canary) !~ re || "x" ~ re) {
+          print "attribution-guard: the attribution pattern is empty, does not compile or fails its self-test" > "/dev/stderr"
+          failed = 1
+          exit 2
+        }
+        if (mode == "selftest") exit 0
+      }
+      {
+        sub(/\r$/, "")
+        s = $0
+        gsub(zw, "", s)
+        hit = tolower(s) ~ re
+        if (mode == "report") { if (hit) print NR; next }
+        if (!hit) out[++n] = $0
+      }
+      END {
+        if (failed) exit 2
+        if (mode != "strip") exit
+        while (n > 0 && (out[n] ~ /^[[:space:]]*$/ || out[n] ~ /^[[:space:]]*---+[[:space:]]*$/)) n--
+        for (i = 1; i <= n; i++) print out[i]
+      }
+      AWK
+      awk -v mode=selftest "$ATTRIB_AWK" </dev/null 2>/dev/null \
+        || err "the attribution pattern does not compile or fails its self-test."
 
       # A range that reaches the shallow boundary would silently skip older side-branch commits.
       shallow=$(git rev-parse --git-path shallow)
@@ -78,8 +116,7 @@ jobs:
       fail=0 n=0
       while IFS= read -r c; do
         n=$((n + 1))
-        lines=$(git log -1 --format=%B "$c" | awk 'BEGIN { re = tolower(ENVIRON["ATTRIB_RE"]); zw = ENVIRON["ATTRIB_ZW"] }
-          { s = $0; gsub(zw, "", s); if (tolower(s) ~ re) printf "%d ", NR }')
+        lines=$(git log -1 --format=%B "$c" | awk -v mode=report "$ATTRIB_AWK" | tr '\n' ' ')
         if [[ -n $lines ]]; then
           echo "##vso[task.logissue type=error]AI attribution landed on $BUILD_SOURCEBRANCHNAME in commit ${c:0:8}, line(s) $lines"; fail=1
         fi
