@@ -234,17 +234,24 @@ installs() { grep '^copilot plugin install ' "$FAKE_CALLS" | sed 's/^copilot plu
 
 # --- install.sh against a fake claude ---------------------------------------------------------------
 
-# install_fixture: fake claude, git, node, npm and curl (serves only the main branch's marketplace
-# manifest, with alpha and beta) on $IPATH; CLAUDE_CONFIG_DIR does not exist yet
+# install_fixture: fake claude (installs all but $FAKE_CLAUDE_INSTALL_FAIL and lists them), git, node, npm
+# and curl (serves only the main branch's marketplace manifest, with alpha and beta) on $IPATH;
+# CLAUDE_CONFIG_DIR does not exist yet
 install_fixture() {
   mkdir -p "$T/ifake" "$T/home" "$T/tmp"
   export HOME="$T/home" CLAUDE_CONFIG_DIR="$T/claude" XDG_DATA_HOME="$T/data" XDG_CACHE_HOME="$T/cache" \
-    XDG_CONFIG_HOME="$T/config" TMPDIR="$T/tmp" FAKE_CALLS="$T/calls.log" MY_CLAUDE_SKILLS_ATTRIBUTION=keep
-  unset MY_CLAUDE_SKILLS_YES
+    XDG_CONFIG_HOME="$T/config" TMPDIR="$T/tmp" FAKE_CALLS="$T/calls.log" FAKE_INSTALLED="$T/installed" \
+    MY_CLAUDE_SKILLS_ATTRIBUTION=keep
+  unset MY_CLAUDE_SKILLS_YES FAKE_CLAUDE_INSTALL_FAIL
+  KNOWN="$CLAUDE_CONFIG_DIR/plugins/my-claude-skills-known-plugins"
   cat > "$T/ifake/claude" <<'EOF'
 #!/usr/bin/env bash
 echo "claude $*" >> "$FAKE_CALLS"
-case "$*" in --version) echo "2.1.0 (Claude Code)" ;; esac
+case "$*" in
+  --version) echo "2.1.0 (Claude Code)" ;;
+  "plugin install "*) [ "${3%@*}" != "${FAKE_CLAUDE_INSTALL_FAIL:-}" ] || exit 1; echo "$3" >> "$FAKE_INSTALLED" ;;
+  "plugin list --json") if [ -f "$FAKE_INSTALLED" ]; then jq -R '{id: .}' "$FAKE_INSTALLED" | jq -s .; else echo '[]'; fi ;;
+esac
 EOF
   cat > "$T/ifake/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -258,8 +265,16 @@ EOF
   printf '#!/bin/sh\necho v22.0.0\n' > "$T/ifake/node"
   printf '#!/bin/sh\nexit 0\n' > "$T/ifake/npm"
   chmod +x "$T/ifake/"*
-  link_tools "$T/isys" bash env dirname mkdir cp mv chmod cat rm mktemp grep sed jq head sort awk uname
+  # (date, touch and cmp: for update-plugins.sh)
+  link_tools "$T/isys" bash env dirname mkdir cp mv chmod cat rm mktemp grep sed jq head sort awk uname date touch cmp
   IPATH="$T/ifake:$T/isys"
+}
+
+# offers NAME...: the marketplace clone that `claude plugin marketplace add` made lists NAME...
+offers() {
+  local clone="$CLAUDE_CONFIG_DIR/plugins/marketplaces/my-claude-skills"
+  mkdir -p "$clone/.claude-plugin"
+  printf '%s\n' "$@" | jq -R '{name: .}' | jq -s '{name: "my-claude-skills", plugins: .}' > "$clone/.claude-plugin/marketplace.json"
 }
 
 run_install() { run env PATH="$IPATH" "${INSTALL_BASH:-$BASH}" "$REPO_ROOT/install.sh" "$@"; }
@@ -282,6 +297,28 @@ claude plugin install beta@my-claude-skills" "installs"
   assert_status 0
   assert_line "==> startup auto-update hook already registered"
   assert_eq "$(session_start_count "$CLAUDE_CONFIG_DIR/settings.json")" "1" "hooks after a re-run"
+}
+
+@test "install.sh: records the plugins for the updater without the failed ones, so the next update retries those" {
+  install_fixture
+  offers alpha beta gamma
+  FAKE_CLAUDE_INSTALL_FAIL=beta run_install alpha beta
+  assert_status 1
+  assert_line "warning: failed plugins: beta"
+  # gamma was left out: known, so it stays out; beta failed: not known, so the updater installs it
+  assert_file_content "$KNOWN" $'alpha\ngamma\n'
+  : > "$FAKE_CALLS"
+  run env PATH="$IPATH" bash "$XDG_DATA_HOME/my-claude-skills/update-plugins.sh" --force
+  assert_status 0
+  assert_eq "$(grep '^claude plugin install' "$FAKE_CALLS")" "claude plugin install beta@my-claude-skills" "the updater's installs"
+  assert_file_content "$KNOWN" $'alpha\nbeta\ngamma\n'
+
+  # a re-run adds what it installed and takes a failed plugin out; delta, new upstream, stays new
+  printf 'alpha\nbeta\n' > "$KNOWN"
+  offers alpha beta gamma delta
+  FAKE_CLAUDE_INSTALL_FAIL=beta run_install beta gamma
+  assert_status 1
+  assert_file_content "$KNOWN" $'alpha\ngamma\n'
 }
 
 @test "install.sh: exits 1 with a message when the plugin list cannot be fetched" {
@@ -341,7 +378,7 @@ EOF
   rm "$T/ifake/pipx" "$HOME/.local/bin/yamllint"
   run_install yaml-hooks
   assert_status 0
-  assert_output_contains "warning: yamllint 1.26.3 ($T/old/yamllint) is older than 1.30: the yaml-hooks hook stays silent with it."
+  assert_output_contains "warning: yamllint 1.26.3 ($T/old/yamllint) is older than 1.30: the yaml-hooks hook does not lint with it (it only reports that it is inactive)."
 
   # a current one is left as it is
   printf '#!/bin/sh\necho "yamllint 1.30.0"\n' > "$T/old/yamllint"
@@ -394,11 +431,13 @@ PS1
 @test "install.sh and install-copilot.sh run under bash 3.2, macOS's /bin/bash (set BASH32=/path/to/bash-3.2)" {
   [ -n "${BASH32:-}" ] || skip "set BASH32=/path/to/bash-3.2 to run this"
   install_fixture
+  offers alpha beta
   INSTALL_BASH="$BASH32" run_install
   assert_status 0
   refute_output_contains "command not found"
   refute_output_contains "unbound variable"
   assert_eq "$(grep -c '^claude plugin install' "$FAKE_CALLS")" "2" "installs"
+  assert_file_content "$KNOWN" $'alpha\nbeta\n'
 
   copilot_fixture
   run env PATH="$T/fake:$T/sys" "$BASH32" "$C/install-copilot.sh" --profile cloud,claude-only

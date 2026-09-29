@@ -8,7 +8,9 @@
 # on PATH and HOME, USERPROFILE, LOCALAPPDATA, COPILOT_HOME, XDG_CONFIG_HOME and TMPDIR in the test's temp
 # dir (env -i: nothing else from the caller's environment). A driver stubs what Linux lacks
 # (Get-AppxPackage) or would reach the network: Invoke-WebRequest and Invoke-RestMethod serve this
-# repository's raw.githubusercontent.com URLs from the checkout and throw for anything else.
+# repository's raw.githubusercontent.com URLs from the checkout and throw for anything else (Invoke-WebRequest
+# logs its URLs to $FAKE_CALLS). Set-Content, Add-Content and Out-File throw: with -Encoding utf8 they write a
+# BOM on Windows PowerShell 5.1, which pwsh 7 does not, so the installers must write through Write-Utf8.
 #
 # pwsh: $PWSH, else pwsh on PATH. Without pwsh (or PSScriptAnalyzer, for the compatibility check) the tests
 # skip, unless SKILL_EXAMPLES_REQUIRE_TOOLS is set (not 0), where a missing tool fails them (tool_missing).
@@ -21,6 +23,7 @@ setup() {
   mkdir -p "$T/bin" "$T/home" "$T/local" "$T/tmp" "$FAKE_STATE"
   link_tools "$T/sys" bash touch cp chmod dirname basename
   SETTINGS="$T/home/.claude/settings.json"
+  KNOWN="$T/home/.claude/plugins/my-claude-skills-known-plugins"
   UPDATER="$T/local/my-claude-skills/update-plugins.ps1"
   HOOK_CMD="powershell -NoProfile -ExecutionPolicy Bypass -File \"$UPDATER\""
 }
@@ -65,6 +68,7 @@ write_driver() {
 $env:PATH = @($env:PATH -split [IO.Path]::PathSeparator | Where-Object { $_ -and $_ -ne $PSHOME }) -join [IO.Path]::PathSeparator
 function global:Invoke-WebRequest {
     param([string] $Uri, [string] $OutFile, [switch] $UseBasicParsing)
+    [IO.File]::AppendAllText($env:FAKE_CALLS, "Invoke-WebRequest $Uri`n")
     $prefix = 'https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/'
     if (-not $Uri.StartsWith($prefix)) { throw "no network in tests: $Uri" }
     Copy-Item (Join-Path $env:REPO_ROOT $Uri.Substring($prefix.Length)) $OutFile
@@ -76,6 +80,9 @@ function global:Invoke-RestMethod {
 }
 function global:Get-AppxPackage { if ($env:FAKE_DESKTOP) { [pscustomobject]@{ Name = 'Claude' } } }
 function global:Read-Host { $env:FAKE_REPLY }
+foreach ($cmd in 'Set-Content', 'Add-Content', 'Out-File') {
+    Set-Item "function:global:$cmd" ([scriptblock]::Create("throw '$cmd writes a BOM on Windows PowerShell 5.1: use Write-Utf8'"))
+}
 
 $mode, $installer, $rest = $args
 if ($mode -ne 'iex') {
@@ -87,10 +94,12 @@ if ($mode -ne 'iex') {
         "exit=$LASTEXITCODE"
     } catch { "threw: $($_.Exception.Message)" }
 } else {
+    $Plugin = 'preset'   # the caller's own variable of that name
     try { Get-Content -Raw $installer | Invoke-Expression } catch { "threw: $($_.Exception.Message)" }
     'still in the session'
     "ErrorActionPreference=$ErrorActionPreference"
-    $vars = @('repo', 'name', 'failed', 'settings', 'settingsPath', 'updater', 'existing', 'scriptFile', 'here') | Where-Object { Test-Path "variable:$_" }
+    "Plugin=[$Plugin]"
+    $vars = @('repo', 'name', 'failed', 'settings', 'settingsPath', 'updater', 'existing', 'scriptFile', 'here', 'knownFile') | Where-Object { Test-Path "variable:$_" }
     "leaked variables=[$($vars -join ',')]"
     $fns = @('Test-Cmd', 'Install-Winget', 'Invoke-Quiet', 'Test-PlainJson') | Where-Object { Test-Path "function:$_" }
     "leaked functions=[$($fns -join ',')]"
@@ -122,6 +131,13 @@ our_hooks() {
 manifest() {
   printf '%s\n' "$@" | jq -R . | jq -s '{name: "my-claude-skills", plugins: [.[] | {name: .}]}' > "$T/manifest.json"
   with_env FAKE_MANIFEST="$T/manifest.json"
+}
+
+# offers NAME...: the marketplace clone that `claude plugin marketplace add` made lists NAME...
+offers() {
+  local clone="$T/home/.claude/plugins/marketplaces/my-claude-skills"
+  mkdir -p "$clone/.claude-plugin"
+  printf '%s\n' "$@" | jq -R '{name: .}' | jq -s '{name: "my-claude-skills", plugins: .}' > "$clone/.claude-plugin/marketplace.json"
 }
 
 # --- Windows PowerShell 5.1 compatibility ------------------------------------------------------------
@@ -178,6 +194,7 @@ PS1
   run_ps iex "$REPO_ROOT/install.ps1"
   assert_line "still in the session"
   assert_line "ErrorActionPreference=Continue"
+  assert_line "Plugin=[preset]"
   assert_line "leaked variables=[]"
   assert_line "leaked functions=[]"
   assert_line "ATTRIBUTION_GUARD_SKIP_CLAUDE=[]"
@@ -186,6 +203,7 @@ PS1
   grep -qxF "claude plugin install alpha@my-claude-skills" "$FAKE_CALLS"
   grep -qxF "claude plugin install broken@my-claude-skills" "$FAKE_CALLS"
   # update-plugins.ps1 came from the (stubbed) download, and the hook runs it
+  grep -qxF "Invoke-WebRequest https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/scripts/update-plugins.ps1" "$FAKE_CALLS"
   cmp "$REPO_ROOT/scripts/update-plugins.ps1" "$UPDATER"
   assert_eq "$(our_hooks "$SETTINGS")" "$HOOK_CMD" "hook command"
 }
@@ -211,11 +229,29 @@ PS1
 claude plugin install broken@my-claude-skills" "installs"
   # the local scripts/update-plugins.ps1 is copied, nothing is downloaded
   cmp "$REPO_ROOT/scripts/update-plugins.ps1" "$UPDATER"
+  refute grep -q "^Invoke-WebRequest" "$FAKE_CALLS"
 
   : > "$FAKE_CALLS"
-  run_ps file "$REPO_ROOT/install.ps1" alpha
+  run_ps plugin "$REPO_ROOT/install.ps1" alpha   # -Plugin alpha
   assert_line "exit=0"
   assert_eq "$(grep 'plugin install' "$FAKE_CALLS")" "claude plugin install alpha@my-claude-skills" "installs"
+}
+
+@test "install.ps1 records the plugins for the updater without the failed ones, so the next update retries those" {
+  base_fakes
+  offers alpha broken gamma
+  run_ps file "$REPO_ROOT/install.ps1" alpha broken
+  assert_line "exit=1"
+  # gamma was left out: known, so it stays out; broken failed: not known, so the updater installs it
+  assert_eq "$(cat "$KNOWN")" $'alpha\ngamma' "known plugins"
+
+  # a re-run adds what it installed and takes a failed plugin out; delta, new upstream, stays new
+  printf 'alpha\nbroken\n' > "$KNOWN"
+  offers alpha broken gamma delta
+  run_ps file "$REPO_ROOT/install.ps1" broken gamma
+  assert_line "exit=1"
+  assert_eq "$(cat "$KNOWN")" $'alpha\ngamma' "known plugins after a re-run"
+  refute_output_contains "could not write"
 }
 
 @test "install.ps1 registers the SessionStart hook once, however often it runs, and replaces an older registration" {
@@ -234,11 +270,18 @@ claude plugin install broken@my-claude-skills" "installs"
   }
 }
 EOF
+  # UTF-8 without BOM from the SessionStart write itself (the attribution step rewrites the file after it)
+  with_env MY_CLAUDE_SKILLS_ATTRIBUTION=keep
+  run_ps file "$REPO_ROOT/install.ps1" alpha
+  assert_line "exit=0"
+  assert_eq "$(our_hooks "$SETTINGS")" "$HOOK_CMD" "our hooks after the first run"
+  assert_eq "$(head -c 1 "$SETTINGS")" "{" "first byte after the SessionStart write"
+  FAKE_ENV=()
   run_ps file "$REPO_ROOT/install.ps1" alpha
   assert_line "exit=0"
   run_ps file "$REPO_ROOT/install.ps1" alpha
   assert_line "exit=0"
-  assert_eq "$(our_hooks "$SETTINGS")" "$HOOK_CMD" "our hooks after two runs"
+  assert_eq "$(our_hooks "$SETTINGS")" "$HOOK_CMD" "our hooks after three runs"
   assert_eq "$(jq -c '[.hooks.SessionStart[] | select(.hooks[].command | test("update-plugins")) | .matcher, .hooks[0].shell, .hooks[0].async]' "$SETTINGS")" \
     '["startup","powershell",true]' "our hook's matcher, shell and async"
   assert_eq "$(jq -r '[.hooks.SessionStart[].hooks[].command] | map(select(. == "echo mine")) | length' "$SETTINGS")" 1 "the user's hook"
@@ -270,6 +313,25 @@ EOF
   assert_output_contains "could not register the startup auto-update hook in $SETTINGS (not plain JSON"
   assert_output_contains "could not update $SETTINGS; add \"attribution\""
   assert_line "Done. Restart Claude Code to load the plugins."
+}
+
+@test "install.ps1 sees the hook in a settings.json with comments that already has it (added by hand)" {
+  base_fakes
+  mkdir -p "$(dirname "$SETTINGS")"
+  # as the warning above says to add it; a Windows path with JSON-escaped backslashes
+  cat > "$SETTINGS" <<'EOF'
+{
+  // added by hand
+  "hooks": { "SessionStart": [ { "matcher": "startup", "hooks": [ { "type": "command", "shell": "powershell", "async": true,
+    "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\u\\AppData\\Local\\my-claude-skills\\update-plugins.ps1\"" } ] } ] }
+}
+EOF
+  cp "$SETTINGS" "$T/before.json"
+  run_ps file "$REPO_ROOT/install.ps1" alpha
+  assert_line "exit=0"
+  assert_line "==> startup auto-update hook already registered"
+  refute_output_contains "could not register the startup auto-update hook"
+  cmp "$T/before.json" "$SETTINGS"
 }
 
 @test "install.ps1 sets ATTRIBUTION_GUARD_SKIP_CLAUDE only for the guard's install.sh" {
@@ -372,7 +434,7 @@ EOF
   run_ps file "$REPO_ROOT/install.ps1" yaml-hooks
   assert_line "exit=0"
   grep -qxF "uv tool install yamllint" "$FAKE_CALLS"
-  assert_output_contains "yamllint 1.26.3 ($T/bin/yamllint) comes first on PATH and is older than 1.30"
+  assert_output_contains "yamllint 1.26.3 ($T/bin/yamllint) comes first on PATH and is older than 1.30; the yaml-hooks hook does not lint with it (it only reports that it is inactive)"
 
   # no uv and no winget: a warning, and the installer goes on
   rm "$T/bin/uv"
@@ -432,6 +494,7 @@ EOF
   refute_output_contains "WARNING"
   assert_eq "$(jq -c '{a: .extraKnownMarketplaces["my-claude-skills"], c: .includeCoAuthoredBy}' "$T/copilot/settings.json")" \
     '{"a":{"source":{"source":"github","repo":"lucas4790/my-claude-skills"},"autoUpdate":true},"c":false}' "settings"
+  assert_eq "$(head -c 1 "$T/copilot/settings.json")" "{" "first byte (UTF-8 without BOM)"
 }
 
 @test "install-copilot.ps1 updates a plain Copilot settings.json in place, keeping the other settings" {
