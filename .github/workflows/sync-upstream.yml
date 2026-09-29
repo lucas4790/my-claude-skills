@@ -43,11 +43,12 @@ jobs:
           persist-credentials: false
       - run: python3 scripts/validate.py --diff "origin/${{ github.base_ref }}"
       - name: Install test tools
-        # bats 1.10, pytest 7.4 and yamllint from Ubuntu; shellcheck, pwsh, git, rsync and jq are
-        # preinstalled. The pytest suite of the skill-example checker never installs Pester, so it comes first.
+        # bats 1.10, pytest 7.4, yamllint and git-filter-repo (for tests/bats/clean-history.bats) from
+        # Ubuntu; shellcheck, pwsh, git, rsync and jq are preinstalled. The pytest suite of the
+        # skill-example checker never installs Pester, so it comes first.
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends bats python3-pytest yamllint
+          sudo apt-get install -y -qq --no-install-recommends bats python3-pytest yamllint git-filter-repo
           pwsh -NoProfile -Command 'Install-Module Pester -MinimumVersion 6.0.0 -Scope CurrentUser -Force -SkipPublisherCheck'
       - name: Script tests (bats + pytest)
         env:
@@ -104,7 +105,7 @@ jobs:
       - name: Install test tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends bats python3-pytest yamllint
+          sudo apt-get install -y -qq --no-install-recommends bats python3-pytest yamllint git-filter-repo
       # The same tests as validate-pr, on the synced tree. That tree is upstream content nobody has
       # reviewed yet, which the tests read and the skill examples partly run, so they run as a
       # throwaway user with an empty environment on a copy of the tree: they cannot read the runner

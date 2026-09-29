@@ -233,7 +233,7 @@ Vendored files are never edited by hand (the next sync overwrites them). A copy 
 
 `scripts/run-tests.sh` runs the repo's own tests and prints a summary per suite: the bats suites in `tests/bats/` (`sync.sh` copying, `--only`/`--trust`/`--locked`, failing sources and patches; `update-plugins.sh`; `bump-pinned.sh`; `bash -n`, shellcheck and a PowerShell parse check of the installers and scripts) and `python3 -m pytest tests/` (`validate.py`, `gen-catalog.py` and the other pytest suites under `tests/`). Every test works in a temp dir against local fake upstreams and fake `claude`/`copilot` binaries: no network, and neither the checkout nor `~/.claude` is touched.
 
-Prerequisites: bats-core ≥ 1.4 and pytest (`sudo apt install bats python3-pytest`; macOS: `brew install bats-core` and `python3 -m pip install pytest`), plus git, rsync, jq and python3. shellcheck and pwsh are optional; their checks are skipped without them (`PWSH=/path/to/pwsh` for a pwsh outside PATH). `scripts/run-tests.sh bats` or `scripts/run-tests.sh pytest` runs one kind; `RUN_KNOWN_BUGS=1` also runs tests that document an open bug (marked with `known_bug`; they fail until it is fixed, then the marker goes).
+Prerequisites: bats-core ≥ 1.4 and pytest (`sudo apt install bats python3-pytest`; macOS: `brew install bats-core` and `python3 -m pip install pytest`), plus git, rsync, jq and python3. shellcheck, pwsh and git-filter-repo are optional; their checks are skipped without them (`PWSH=/path/to/pwsh` for a pwsh outside PATH). `scripts/run-tests.sh bats` or `scripts/run-tests.sh pytest` runs one kind; `RUN_KNOWN_BUGS=1` also runs tests that document an open bug (marked with `known_bug`; they fail until it is fixed, then the marker goes).
 
 ### Skill example tests
 
