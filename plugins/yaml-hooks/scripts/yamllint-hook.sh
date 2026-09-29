@@ -6,8 +6,8 @@
 # and exits 0: Claude Code adds that text next to the tool result without treating the edit as failed.
 # The hook never blocks and never fails: no yamllint, not a YAML file, file gone, Helm or Jinja
 # template, unexpected input or any internal error all end in a silent exit 0. A yamllint that stops
-# with a usage or config error instead of linting (older than 1.30, or a broken config) gets one line
-# of additionalContext saying the hook is inactive and why, also with exit 0.
+# instead of linting (older than 1.30, a broken config, or a crash such as a file that is not UTF-8)
+# gets one line of additionalContext saying the hook is inactive and why, also with exit 0.
 #
 # Config, in yamllint's own order of preference:
 #   1. .yamllint / .yamllint.yaml / .yamllint.yml in the file's directory or above (up to $HOME or /);
@@ -56,16 +56,24 @@ json_escape() {
     sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e "s/$TAB/\\\\t/g" -e 's/$/\\n/' | tr -d '\n'
 }
 
-# cannot_lint ARGS...: `yamllint ARGS` stopped with a usage or config error instead of linting: yamllint
-# is older than 1.30 (--list-files is new in 1.29, the default config's anchors rule in 1.30), or the
-# config is broken (the last line yamllint writes to stderr says how). One line of context; exit 0.
+# cannot_lint ARGS...: `yamllint ARGS` stopped instead of linting: yamllint is older than 1.30
+# (--list-files is new in 1.29, the default config's anchors rule in 1.30), the config is broken, or it
+# crashed. Its stderr says how: an "invalid config:" line with the parser's message and position after it
+# (not the snippet and caret below them), else the last unindented line, such as a traceback's exception.
+# One line of context; exit 0.
 cannot_lint() {
   [ -f "$file" ] || exit 0
   ver=$(yamllint --version 2>/dev/null)
   ver=${ver##* }
   case $ver in
     0.* | 1.[0-9].* | 1.[12][0-9].*) why="yamllint $ver is older than 1.30" ;;
-    *) why="$(cd -- "$workdir" 2>/dev/null && yamllint "$@" 2>&1 >/dev/null | tail -n 1) (config: $label)" ;;
+    *)
+      err=$(cd -- "$workdir" 2>/dev/null && yamllint "$@" 2>&1 >/dev/null)
+      why=$(printf '%s\n' "$err" | sed -n '/^invalid config:/,$ { /^    /d; /^[[:space:]]*$/d; s/^ *//; p; }' | tr '\n' ' ')
+      [ -n "$why" ] || why=$(printf '%s\n' "$err" | grep '^[^[:space:]]' | tail -n 1)
+      why=${why% }
+      why="${why:-no message from yamllint} (config: $label)"
+      ;;
   esac
   ctx=$(printf 'yaml-hooks: YAML lint hook inactive: %s\n' "$why" | json_escape)
   printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$ctx"
@@ -157,7 +165,11 @@ else
 fi
 
 out=$(cd -- "$workdir" 2>/dev/null && yamllint -f parsable "$@" -- "$rel" 2>/dev/null)
-case $? in 0 | 1) ;; *) cannot_lint -f parsable "$@" -- "$rel" ;; esac # 1: problems found
+case $? in
+  0) ;;
+  1) [ -n "$out" ] || cannot_lint -f parsable "$@" -- "$rel" ;; # problems found, or a crash (a traceback, no problems)
+  *) cannot_lint -f parsable "$@" -- "$rel" ;;
+esac
 [ -n "$out" ] || exit 0
 
 nerr=$(printf '%s\n' "$out" | grep -c ': \[error\] ')

@@ -10,11 +10,12 @@
 #               check when pwsh is on PATH or PWSH=/path/to/pwsh is set).
 # - pytest:     python3 -m pytest tests/: validate.py, gen-catalog.py and every other pytest suite there.
 # - shellcheck: the attribution guard's shell scripts (tools/attribution-guard, .githooks and the bash
-#               steps of its Azure DevOps pipelines), which no bats suite covers; every severity but SC2016.
+#               steps of its Azure DevOps pipelines), which no bats suite covers; every severity.
 #
 # Needs bats-core >= 1.4, python3 with pytest, git, rsync and jq. Without shellcheck, pwsh, yamllint,
-# git-filter-repo or PyYAML their checks are skipped (and shown as skipped); SKILL_EXAMPLES_REQUIRE_TOOLS=1
-# (CI) makes a missing tool fail them instead. No network access; every fixture lives in a temp dir.
+# git-filter-repo or PyYAML their checks are skipped (and shown as skipped); SKILL_EXAMPLES_REQUIRE_TOOLS set to
+# anything but 0 (CI) makes a missing tool fail them, and the run, instead. No network access; every fixture
+# lives in a temp dir.
 # RUN_KNOWN_BUGS=1 also runs the tests that document open bugs in the scripts (they fail until fixed).
 # Exit status: 0 all passed, 1 a test failed, 2 usage error or a required tool is missing.
 set -uo pipefail
@@ -59,17 +60,27 @@ if [ "${#missing[@]}" -gt 0 ]; then
   exit 2
 fi
 # optional tools: a missing one skips its checks, or fails them under SKILL_EXAMPLES_REQUIRE_TOOLS (the
-# rule of tool_missing in tests/bats/helpers.bash and of the skill-example checks and their pytest suite)
+# rule of tool_missing in tests/bats/helpers.bash and of the skill-example checks and their pytest suite).
+# Under that variable the run fails here too, so a check that skips anyway cannot leave it green.
 case ${SKILL_EXAMPLES_REQUIRE_TOOLS:-} in '' | 0) require_tools=0 ;; *) require_tools=1 ;; esac
+missing_tools=()
 for tool in shellcheck pwsh yamllint git-filter-repo PyYAML; do
+  case $tool in # only the tools a selected kind needs
+    git-filter-repo) [ "$run_bats" = 1 ] ;;
+    PyYAML) [ "$run_pytest" = 1 ] ;;
+    shellcheck) [ "$run_bats$run_pytest$run_shellcheck" != 000 ] ;;
+    *) [ "$run_bats$run_pytest" != 00 ] ;;
+  esac || continue
   case $tool in
-    pwsh) command -v pwsh >/dev/null 2>&1 || [ -n "${PWSH:-}" ] ;;
+    # $PWSH serves the bats suites; the pytest suite looks for pwsh on PATH only
+    pwsh) command -v pwsh >/dev/null 2>&1 || { [ -n "${PWSH:-}" ] && [ "$run_pytest" = 0 ]; } ;;
     git-filter-repo) git filter-repo --version >/dev/null 2>&1 ;;
     PyYAML) python3 -c 'import yaml' >/dev/null 2>&1 ;;
     *) command -v "$tool" >/dev/null 2>&1 ;;
   esac && continue
   if [ "$require_tools" = 1 ]; then
     echo "run-tests: note: $tool not found; its checks fail (SKILL_EXAMPLES_REQUIRE_TOOLS is set)"
+    missing_tools+=("$tool")
   else
     echo "run-tests: note: $tool not found; its checks are skipped"
   fi
@@ -126,8 +137,9 @@ PY
 fi
 
 # --- shellcheck: the attribution guard's shell scripts, which no bats suite covers ---------------------
-# Every severity except SC2016 (a $ inside single quotes, meant for sed, awk or PowerShell), the rule of
-# the shellcheck line in AGENTS.md "Checks before a PR".
+# Every severity. The shellcheck line in AGENTS.md "Checks before a PR" excludes SC2016 for install.sh's
+# PowerShell strings; no guard file needs that, and one that means a literal $ in single quotes (a sed, awk or
+# jq program) says so with an inline `# shellcheck disable=SC2016 # <reason>`.
 if [ "$run_shellcheck" = 1 ]; then
   echo "=== shellcheck attribution guard"
   p=0 f=0 s=0
@@ -151,7 +163,7 @@ if [ "$run_shellcheck" = 1 ]; then
         "$tmp"/*) label="pipeline step ${file##*/}" shell=bash ;; # no shebang
         *) label=$file shell= ;;
       esac
-      if shellcheck ${shell:+"--shell=$shell"} --exclude=SC2016 "$file"; then
+      if shellcheck ${shell:+"--shell=$shell"} "$file"; then
         p=$((p + 1)); echo "ok $label"
       else
         f=$((f + 1)); echo "not ok $label"
@@ -174,8 +186,11 @@ for row in "${summary[@]}"; do
 done
 printf '%-60s %7s %7s %8s\n' "total" "$total_p" "$total_f" "$total_s"
 
+if [ "${#missing_tools[@]}" -gt 0 ]; then
+  printf 'run-tests: FAILED: missing %s (SKILL_EXAMPLES_REQUIRE_TOOLS is set)\n' "${missing_tools[*]}" >&2
+fi
 if [ "${#failed_suites[@]}" -gt 0 ]; then
   printf 'run-tests: FAILED: %s\n' "${failed_suites[*]}" >&2
-  exit 1
 fi
+[ "${#failed_suites[@]}" -eq 0 ] && [ "${#missing_tools[@]}" -eq 0 ] || exit 1
 echo "run-tests: all suites passed"
