@@ -30,13 +30,20 @@
   // Never add an AI co-author trailer to commits made from VS Code (docs/ATTRIBUTION.md).
   "git.addAICoAuthor": "off"
 
-  // Optional: auto-approve the same read-only commands as settings/permissions.json.
+  // Optional: auto-approve a subset of the read-only commands in settings/permissions.json. An entry here
+  // approves every flag of a matching command, so these regexes leave out the flags that permissions.json
+  // covers with ask rules (git --output, kubectl/helm --kubeconfig, kubectl --cache-dir and
+  // --profile-output, helm --post-renderer, --output-dir, --repository-*, --registry-config and
+  // --dependency-update); git branch only lists, and az only shows or lists in the groups permissions.json
+  // names (no `az keyvault secret show`, no `... keys list`). Shell redirection (> file) is not covered.
   // VS Code's default deny rules stay active; do not set chat.tools.terminal.ignoreDefaultAutoApproveRules.
   // , "chat.tools.terminal.autoApprove": {
-  //     "/^git (status|diff|log|show|branch)\\b/": true,
-  //     "/^kubectl (get|describe|logs|top|explain|version)\\b/": true,
-  //     "/^helm (list|status|history|lint|version)\\b/": true,
+  //     "/^git status\\b/": true,
+  //     "/^git branch( -a| --show-current)?$/": true,
+  //     "/^git (diff|log|show)\\b(?!.*--out)/": true,
+  //     "/^kubectl (get|describe|logs|top|explain|version|api-resources)\\b(?!.*--(kubeconfig|cache-dir|profile-output))/": true,
+  //     "/^helm (list|status|history|lint|version)\\b(?!.*--(kubeconfig|post-renderer|output-dir|repository-|registry-config|dependency-update))/": true,
   //     "/^terraform (validate|version|fmt -check)\\b/": true,
-  //     "/^az [a-z -]+ (show|list)\\b/": true
+  //     "/^az (account|group|resource|aks|aks nodepool|keyvault|identity|acr|acr repository|network vnet|role assignment|role definition|monitor metrics|pipelines|pipelines runs|repos|repos pr|boards work-item) (show|list)(\\s|$)/": true
   //   }
 }

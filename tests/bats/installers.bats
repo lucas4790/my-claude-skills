@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # shellcheck disable=SC2016  # $*, $3 and $FAKE_CALLS belong to the generated fake scripts
 # Static checks of the installers and scripts, and runs of install.sh and install-copilot.sh against
-# fakes: claude, copilot, git, node, npm, curl (no network), pipx on a PATH of only these fakes and
+# fakes: claude, copilot, git, node, npm, curl (no network), pipx, pwsh on a PATH of only these fakes and
 # the system tools the installers need, with HOME, CLAUDE_CONFIG_DIR, COPILOT_HOME, TMPDIR and the
 # XDG dirs in temp dirs. install.sh runs with MY_CLAUDE_SKILLS_ATTRIBUTION=keep: the git attribution
 # guard it would install has its own tests (tools/attribution-guard/tests).
@@ -20,8 +20,10 @@ bash_n_each() {
   return "$bad"
 }
 
-need_shellcheck() {
-  command -v shellcheck >/dev/null || skip "shellcheck not installed"
+# need_pwsh: $PWSH_BIN = $PWSH, else pwsh on PATH
+need_pwsh() {
+  PWSH_BIN="${PWSH:-}"
+  [ -n "$PWSH_BIN" ] || PWSH_BIN=$(command -v pwsh) || tool_missing "pwsh not installed (set PWSH=/path/to/pwsh to run this)"
 }
 
 @test "static: bash -n on install.sh and install-copilot.sh" {
@@ -35,25 +37,25 @@ need_shellcheck() {
 }
 
 @test "static: shellcheck install-copilot.sh (all severities)" {
-  need_shellcheck
+  need_tool shellcheck
   run shellcheck "$REPO_ROOT/install-copilot.sh"
   assert_status 0
 }
 
 @test "static: shellcheck install.sh (all severities except SC2016: PowerShell \$ inside single quotes is intended)" {
-  need_shellcheck
+  need_tool shellcheck
   run shellcheck --exclude=SC2016 "$REPO_ROOT/install.sh"
   assert_status 0
 }
 
 @test "static: shellcheck scripts/*.sh" {
-  need_shellcheck
+  need_tool shellcheck
   run shellcheck "$REPO_ROOT"/scripts/*.sh
   assert_status 0
 }
 
 @test "static: shellcheck the bats suites and their helpers" {
-  need_shellcheck
+  need_tool shellcheck
   run shellcheck "$REPO_ROOT"/tests/bats/*.bats "$REPO_ROOT"/tests/bats/*.bash
   assert_status 0
 }
@@ -76,8 +78,7 @@ need_shellcheck() {
 }
 
 @test "static: PowerShell installers and scripts parse (pwsh, or \$PWSH)" {
-  local pwsh="${PWSH:-}"
-  [ -n "$pwsh" ] || pwsh=$(command -v pwsh) || skip "pwsh not installed (set PWSH=/path/to/pwsh to run this)"
+  need_pwsh
   # -File, not -Command: -Command would join the file arguments into the script text
   cat > "$T/parse.ps1" <<'PS1'
 $bad = 0
@@ -88,7 +89,7 @@ foreach ($f in $args) {
 }
 exit $bad
 PS1
-  run "$pwsh" -NoLogo -NoProfile -NonInteractive -File "$T/parse.ps1" \
+  run "$PWSH_BIN" -NoLogo -NoProfile -NonInteractive -File "$T/parse.ps1" \
     "$REPO_ROOT/install.ps1" "$REPO_ROOT/install-copilot.ps1" "$REPO_ROOT"/scripts/*.ps1
   assert_status 0
 }
@@ -349,6 +350,45 @@ EOF
   assert_status 0
   assert_line "==> yamllint present (1.30.0)"
   refute grep -q "pipx" "$FAKE_CALLS"
+}
+
+@test "install.sh: powershell installs Pester 6 unless 6.0.0 or newer is present, and PSScriptAnalyzer when missing" {
+  install_fixture
+  export FAKE_MODULES="$T/modules.ps1"
+  # a fake pwsh: answers the version query and records the module command
+  cat > "$T/ifake/pwsh" <<'EOF'
+#!/usr/bin/env bash
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = -Command ]; then
+    case "$2" in *PSVersionTable*) echo 7.5.0 ;; *) printf '%s\n' "$2" > "$FAKE_MODULES" ;; esac
+  fi
+  shift
+done
+EOF
+  chmod +x "$T/ifake/pwsh"
+  run_install powershell
+  assert_status 0
+  assert_line "==> pwsh present (7.5.0)"
+  assert_exists "$FAKE_MODULES"
+  # run the recorded command with stubs in a real pwsh: which modules would it install?
+  need_pwsh
+  cat > "$T/modules-driver.ps1" <<'PS1'
+$have = @{}
+if ($args[0] -ne 'none') { $have.Pester = [version] $args[0] }
+if ($args[1] -ne 'none') { $have.PSScriptAnalyzer = [version] $args[1] }
+function Get-Module { param([switch] $ListAvailable, [string] $Name) if ($have[$Name]) { [pscustomobject]@{ Name = $Name; Version = $have[$Name] } } }
+function Install-Module { param([string] $Name, [version] $MinimumVersion, [string] $Scope, [switch] $Force, [switch] $SkipPublisherCheck) "install $Name min=$MinimumVersion" }
+Invoke-Expression (Get-Content -Raw $args[2])
+PS1
+  run "$PWSH_BIN" -NoLogo -NoProfile -NonInteractive -File "$T/modules-driver.ps1" 5.7.1 1.21.0 "$FAKE_MODULES"
+  assert_status 0
+  assert_eq "$output" "install Pester min=6.0.0" "with Pester 5.7.1"
+  run "$PWSH_BIN" -NoLogo -NoProfile -NonInteractive -File "$T/modules-driver.ps1" 6.1.0 1.21.0 "$FAKE_MODULES"
+  assert_status 0
+  assert_eq "$output" "" "with Pester 6.1.0"
+  run "$PWSH_BIN" -NoLogo -NoProfile -NonInteractive -File "$T/modules-driver.ps1" none none "$FAKE_MODULES"
+  assert_status 0
+  assert_eq "$output" $'install PSScriptAnalyzer min=\ninstall Pester min=6.0.0' "with neither"
 }
 
 @test "install.sh and install-copilot.sh run under bash 3.2, macOS's /bin/bash (set BASH32=/path/to/bash-3.2)" {

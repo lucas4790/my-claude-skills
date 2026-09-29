@@ -112,7 +112,7 @@ guarantees and where it stops.
   ```bash
   bash scripts/adopt-branch.sh claude/<branch> [new-branch] [base]
   ```
-  It re-commits every commit on a branch of your own, with you as author and committer and attribution lines stripped, pushes it, prints the compare link and offers to delete the `claude/` branch. GitHub Support can purge the old commits' cached views. Otherwise, do such work locally or through Remote Control.
+  It re-commits every commit on a branch of your own, with you as author and committer and attribution lines stripped, pushes it, prints the compare link and offers to delete the `claude/` branch. If it stops (for example on a rebase conflict), resolve it and run `git rebase --continue`, then run the script again with the same arguments: it resumes at the checks and the push. GitHub Support can purge the old commits' cached views. Otherwise, do such work locally or through Remote Control.
 - **Branch names.** The working branch is always `claude/...` and git can push only to that branch; `adopt-branch.sh` moves the work to a name of your own.
 - **Create PR button.** The claude.ai/code "Create PR" button (full or draft) opens the PR as the app, with a generated title and description; no local layer sees it. Use the compare link, or the button's GitHub compose option, and write the title and description yourself.
 - **Multi-repository sessions** read only plugin settings from `.claude/settings.json`: no attribution setting, no deny rules, no hooks. Do this work in single-repository sessions. Also set these on the cloud environment:

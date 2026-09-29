@@ -22,24 +22,25 @@ Both sync PRs regenerate `SKILLS.md` and `UPSTREAM.lock.json`, so after merging 
 
 `scripts/validate.py` runs on every PR and on every sync (a PR that touches `plugins/` or `.claude-plugin/` also runs `claude plugin validate`):
 
-- manifests parse, plugin names unique, every source dir and `plugin.json` exists, declared skill paths resolve
-- every `SKILL.md` has frontmatter with `name` and `description`, is under 200 KB
+- manifests parse, plugin names unique, every source dir and `plugin.json` exists, declared skill paths resolve;
+  a `SKILL.md` that a plugin's explicit `skills` list leaves out is a warning (it would never load)
+- every `SKILL.md` has frontmatter with a non-empty `name` and `description`, is under 200 KB
 - no file over 5 MB
 - external sources use https and a 40-char sha
 - `SKILLS.md` is current
 
 ### Injection scan
 
-Every text file under `plugins/` (`.md`, `.json`, `.yaml`, `.sh`, `.ps1`, `.py`, `.js`, `.ts`, …) is matched against patterns in two tiers:
+Every file under `plugins/` that is text (`.md`, `.json`, `.yaml`, `.sh`, `.ps1`, `.py`, `.cs`, `.ts`, … always; any other file, extensionless ones included, when its first 8 KB hold no NUL byte) is matched against patterns in two tiers:
 
 | Severity | Patterns |
 |---|---|
-| `high` | instructions aimed at the model ("ignore previous instructions", "you are now", "do not tell the user", "without asking the user", "secretly"), HTML comments containing instructions, exfiltration hosts (`webhook.site`, `ngrok`, `hooks.slack.com`, Discord webhooks, `interact.sh`, …), external images with a query string, credential paths (`~/.ssh`, `~/.aws`, `~/.kube`, `id_rsa`, …), token-minting commands (`gh auth token`, `az account get-access-token`, …), API-key / secret references, `curl \| sh`, `irm \| iex`, `base64 -d \| sh`, hook event registrations, zero-width and bidi-override unicode |
+| `high` | instructions aimed at the model ("ignore previous instructions", "you are now", "do not tell the user", "without asking the user", "secretly"), HTML comments containing instructions, exfiltration hosts (`webhook.site`, `ngrok`, `hooks.slack.com`, Discord webhooks, `interact.sh`, …), external images with a query string, credential paths (`~/.ssh`, `~/.aws`, `~/.kube`, `id_rsa`, …), token-minting commands (`gh auth token`, `az account get-access-token`, …), API-key / secret references, `curl \| sh`, `irm \| iex`, `base64 -d \| sh`, hook registrations (read as JSON from every `hooks.json`, the `hooks` key of `plugin.json` and marketplace entries and the files it names, and `hooks:` frontmatter; any event name; each new or changed event, matcher and handler counts), hook JSON in other text, zero-width and bidi-override unicode |
 | `low` | external images, `base64 -d` on its own, long base64-looking blobs, `eval(` / `Invoke-Expression(` |
 
-A `high` phrase that sits inside quotes (`"ignore previous instructions"`) is downgraded to `low`: that is a skill *describing* injection so it can resist it, which several vendored agents do.
+A `high` phrase that sits inside quotes (`"ignore previous instructions"`) is downgraded to `low`: that is a skill *describing* injection so it can resist it, which several vendored agents do. This is decided per occurrence: a quoted mention does not hide an unquoted one elsewhere in the file.
 
-A hook registration in a repo-owned plugin that the owner reviewed is listed with the sha256 of its file in [`scripts/reviewed-hooks.json`](scripts/reviewed-hooks.json) and then reported as `[reviewed]`. The entry covers only the hook registration, only while the file is unchanged: any edit of that file in a PR fails `--diff` again (validate.py prints the new hash), and a PR that changes the list gets a notice, so adding or changing an entry is part of reviewing that hook. The hash pins the registration file, not the scripts it runs: those are reviewed like any other change in the PR diff.
+A hook registration in a repo-owned plugin that the owner reviewed is listed with the sha256 of its file in [`scripts/reviewed-hooks.json`](scripts/reviewed-hooks.json) and then reported as `[reviewed]`. The entry covers only the hook registration, only while the file is unchanged: any edit of that file in a PR fails `--diff` again (validate.py prints the new hash), and a PR that changes the list gets a notice, so adding or changing an entry is part of reviewing that hook. Scripts a listed hook file runs through `${CLAUDE_PLUGIN_ROOT}/...` are pinned the same way: each needs its own entry (validate.py warns with the hash to add while one is missing), and an edit of one fails `--diff` until it is listed with its new hash. Files those scripts read or source are not followed; they are reviewed like any other change in the PR diff.
 
 The scan is **diff-aware**. With `--diff REF` only lines added since `REF` (plus whole new files) are scanned, so the same known text does not raise the same warning every day:
 
@@ -83,11 +84,14 @@ plugin is installed, and Copilot CLI keeps a skill's `allowed-tools` approvals f
 
 `.claude/settings.json` denies agents (Bash and PowerShell alike) the usual GitHub tools and `gh` commands that
 publish PR/issue text, comments, merges or API commits, and the usual spellings of git hook bypasses. A PreToolUse
-hook blocks other spellings, GitHub API writes, edits of git config and hook files, and git, gh and az commands,
+hook blocks other spellings, GitHub API writes and other `gh` repository writes (settings, variables and secrets,
+workflow runs, releases, labels), edits of git config and hook files, and git, gh and az commands,
 GitHub/Azure DevOps REST calls and MCP writes whose text carries attribution. None of this is airtight against a
 determined agent; the git hooks, the required check and the main audit stand behind it. A PR that changes
-`.github/workflows/` can add a job named like a required check, so review those changes before merging. See [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md). A PR that loosens these rules changes what agents may
-publish under the owner's name.
+`.github/workflows/` can add a job named like a required check, so review those changes before merging. The main
+audit judges a push with the patterns and matcher from before it, but runs the pushed `attribution-audit.yml`, so a
+push that edits that workflow can change its own audit. See [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md). A PR that
+loosens these rules changes what agents may publish under the owner's name.
 
 ## Reporting
 

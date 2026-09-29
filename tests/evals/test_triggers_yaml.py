@@ -1,6 +1,7 @@
 """Offline schema check of tests/evals/triggers.yaml against the repo's real skills."""
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -9,7 +10,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.dont_write_bytecode = True  # keep scripts/__pycache__ out of the working tree
 sys.path.insert(0, str(ROOT / "scripts"))
-yaml = pytest.importorskip("yaml")
 
 spec = importlib.util.spec_from_file_location("eval_triggers", ROOT / "scripts" / "eval-triggers.py")
 et = sys.modules.setdefault("eval_triggers", importlib.util.module_from_spec(spec))
@@ -18,8 +18,18 @@ if not hasattr(et, "main"):
 from skill_descriptions import load_skills  # noqa: E402
 
 
+def need_pyyaml() -> None:
+    """Skips without PyYAML, or fails when SKILL_EXAMPLES_REQUIRE_TOOLS is set to anything but 0 (CI: every
+    check must run), like need() in tests/skill_examples."""
+    if importlib.util.find_spec("yaml") is None:
+        if os.environ.get("SKILL_EXAMPLES_REQUIRE_TOOLS", "") not in ("", "0"):
+            pytest.fail("missing tool(s): pyyaml (SKILL_EXAMPLES_REQUIRE_TOOLS is set)")
+        pytest.skip("missing tool(s): pyyaml")
+
+
 @pytest.fixture(scope="module")
 def cases_and_index():
+    need_pyyaml()
     errors = []
     cases = et.load_cases(ROOT / "tests/evals/triggers.yaml", errors)
     assert not errors, errors

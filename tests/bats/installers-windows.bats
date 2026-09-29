@@ -11,7 +11,7 @@
 # repository's raw.githubusercontent.com URLs from the checkout and throw for anything else.
 #
 # pwsh: $PWSH, else pwsh on PATH. Without pwsh (or PSScriptAnalyzer, for the compatibility check) the tests
-# skip, unless SKILL_EXAMPLES_REQUIRE_TOOLS=1, where a missing tool fails them.
+# skip, unless SKILL_EXAMPLES_REQUIRE_TOOLS is set (not 0), where a missing tool fails them (tool_missing).
 
 setup() {
   load helpers
@@ -25,18 +25,9 @@ setup() {
   HOOK_CMD="powershell -NoProfile -ExecutionPolicy Bypass -File \"$UPDATER\""
 }
 
-# missing_tool REASON: skips, or fails when SKILL_EXAMPLES_REQUIRE_TOOLS=1
-missing_tool() {
-  if [ "${SKILL_EXAMPLES_REQUIRE_TOOLS:-}" = 1 ]; then
-    echo "required tool missing (SKILL_EXAMPLES_REQUIRE_TOOLS=1): $*"
-    return 1
-  fi
-  skip "$*"
-}
-
 need_pwsh() {
   PWSH_BIN="${PWSH:-}"
-  [ -n "$PWSH_BIN" ] || PWSH_BIN=$(command -v pwsh) || missing_tool "pwsh not installed (set PWSH=/path/to/pwsh to run this)"
+  [ -n "$PWSH_BIN" ] || PWSH_BIN=$(command -v pwsh) || tool_missing "pwsh not installed (set PWSH=/path/to/pwsh to run this)"
 }
 
 # fake NAME: an executable $T/bin/NAME that logs "NAME ARGS" to $FAKE_CALLS, then runs the script on stdin
@@ -138,7 +129,7 @@ manifest() {
 @test "static: install.ps1, install-copilot.ps1 and scripts/update-plugins.ps1 are Windows PowerShell 5.1 compatible (PSScriptAnalyzer)" {
   need_pwsh
   "$PWSH_BIN" -NoLogo -NoProfile -NonInteractive -Command 'if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) { exit 1 }' \
-    || missing_tool "PSScriptAnalyzer not installed (Install-Module PSScriptAnalyzer -Scope CurrentUser)"
+    || tool_missing "PSScriptAnalyzer not installed (Install-Module PSScriptAnalyzer -Scope CurrentUser)"
   cat > "$T/compat.ps1" <<'PS1'
 # The two Windows PowerShell 5.1 profiles PSScriptAnalyzer ships (Windows 10 and Server 2019)
 $profiles = @('win-48_x64_10.0.17763.0_5.1.17763.316_x64_4.0.30319.42000_framework',
