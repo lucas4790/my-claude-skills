@@ -2,7 +2,8 @@
 
 Each test gets a throwaway copy of the repo layout in tmp_path with the real scripts copied in. Both
 scripts derive ROOT from their own location, so they validate and rewrite the copy, never the checkout.
-Only plain (non-autouse) fixtures live here, so other suites under tests/ are unaffected.
+Only plain (non-autouse) fixtures live here, so other suites under tests/ are unaffected; they may use
+git_env for their own throwaway git repositories.
 """
 import json
 import os
@@ -32,12 +33,21 @@ Run the beta check.
 
 
 def _env() -> dict:
+    # A test started from inside a git hook would otherwise operate on the outer repository, and the user's
+    # global/system git config (commit.gpgsign, hook.* commands, init.templateDir) would reach every fixture.
     env = {k: v for k, v in os.environ.items()
            if k not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_PREFIX")}
     env.update(GIT_AUTHOR_NAME="test", GIT_AUTHOR_EMAIL="test@example.invalid",
                GIT_COMMITTER_NAME="test", GIT_COMMITTER_EMAIL="test@example.invalid",
+               GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1",
                PYTHONIOENCODING="utf-8", PYTHONDONTWRITEBYTECODE="1")
     return env
+
+
+@pytest.fixture
+def git_env() -> dict:
+    """The environment for git in a throwaway repo: no outer repository, no user or system git config."""
+    return _env()
 
 
 class FakeRepo:

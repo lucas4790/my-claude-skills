@@ -41,11 +41,15 @@ DISTINCTIVE_DF = 0.10      # a word used by more than this share of skills is bo
 
 # --- frontmatter ------------------------------------------------------------------------------
 
+FRONTMATTER_RX = re.compile(r"^---\s*\n(.*?)\n---", re.S)
+
+
 def parse_frontmatter(text: str) -> dict[str, str]:
-    """Top-level `key: value` pairs of a YAML frontmatter block, including folded (`>`, `>-`) and
-    literal (`|`, `|-`) block scalars and indented continuation lines. Same approach as
-    scripts/gen-catalog.py (no PyYAML dependency); block scalars are joined with spaces."""
-    m = re.match(r"^---\s*\n(.*?)\n---", text, re.S)
+    """Top-level `key: value` pairs of a YAML frontmatter block, including folded (`>`, `>-`, `>+`)
+    and literal (`|`, `|-`, `|+`) block scalars and indented continuation lines (no PyYAML
+    dependency); block scalars are joined with spaces. The one parser of validate.py, gen-catalog.py
+    and the eval index, so the checks, SKILLS.md and the evals read the same values."""
+    m = FRONTMATTER_RX.match(text)
     if not m:
         return {}
     data: dict[str, str] = {}
@@ -116,8 +120,8 @@ def plugin_name(plugin_dir: Path) -> str:
 
 
 def skill_files(plugin_dir: Path) -> list[Path]:
-    """Same rule as scripts/gen-catalog.py: the manifest's explicit skill list when every entry
-    exists, otherwise every SKILL.md under the plugin."""
+    """The manifest's explicit skill list when every entry exists, otherwise every SKILL.md under
+    the plugin. gen-catalog.py lists these in SKILLS.md; validate.py warns about any other SKILL.md."""
     manifest = plugin_dir / ".claude-plugin/plugin.json"
     try:
         declared = json.loads(manifest.read_text(encoding="utf-8")).get("skills") if manifest.exists() else None
@@ -255,7 +259,9 @@ def changed_skill_paths(root: Path, ref: str) -> set[str]:
     """SKILL.md paths under plugins/ changed since REF in the working tree, plus untracked ones
     (the same scope validate.py --diff scans). Raises subprocess.CalledProcessError on a bad ref."""
     def git(*a: str) -> str:
-        return subprocess.run(["git", *a], cwd=root, capture_output=True, text=True, check=True).stdout
+        # -z paths are raw UTF-8; the locale codec (cp1252 on Windows) would garble or reject them
+        return subprocess.run(["git", *a], cwd=root, capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", check=True).stdout
     # -z: git C-quotes non-ASCII paths otherwise, and they would never match
     paths = set(git("diff", "--name-only", "-z", "--no-renames", ref, "--", "plugins/").split("\0"))
     paths |= set(git("ls-files", "-z", "--others", "--exclude-standard", "--", "plugins/").split("\0"))

@@ -130,13 +130,13 @@ put() {
 
 # --- a throwaway copy of the repo layout ------------------------------------------------------------
 
-# new_root: $R = git repo with the real scripts/sync.sh and scripts/gen-catalog.py, an empty
+# new_root: $R = git repo with the real scripts/sync.sh and scripts/gen-catalog.py (+ the skill_descriptions.py it imports), an empty
 # sources.json, a marketplace.json with the plugins passed as arguments (./plugins/<name>) and the
 # real .gitignore, committed once.
 new_root() {
   R="$T/root"
   mkdir -p "$R/scripts" "$R/.claude-plugin" "$R/plugins"
-  cp "$REPO_ROOT/scripts/sync.sh" "$REPO_ROOT/scripts/gen-catalog.py" "$R/scripts/"
+  cp "$REPO_ROOT/scripts/sync.sh" "$REPO_ROOT/scripts/gen-catalog.py" "$REPO_ROOT/scripts/skill_descriptions.py" "$R/scripts/"
   cp "$REPO_ROOT/.gitignore" "$R/.gitignore"
   echo '{"sources": []}' > "$R/sources.json"
   write_marketplace "$@"

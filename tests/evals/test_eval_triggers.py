@@ -121,6 +121,34 @@ def test_parser_ignores_noise_and_subagent_text():
     assert p.invoked == ["pester"]
 
 
+def test_a_skill_call_the_cli_rejected_is_not_a_load():
+    p = et.StreamParser(stop_after_chars=None)
+    events = [
+        {"type": "assistant", "parent_tool_use_id": None, "message": {"content": [
+            {"type": "tool_use", "id": "t1", "name": "Skill", "input": {"skill": "powershell:pester"}},
+            {"type": "tool_use", "id": "t2", "name": "Skill", "input": {"skill": "powershell:ghost"}},
+            {"type": "tool_use", "id": "t3", "name": "Skill", "input": {"skill": "azure-dns"}}]}},
+        {"type": "user", "parent_tool_use_id": None, "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "t1", "content": "Launching skill: powershell:pester"},
+            {"type": "tool_result", "tool_use_id": "t2", "is_error": True, "content": "Unknown skill: powershell:ghost"}]}},
+    ]                                           # t3: no result yet (a run can stop first); it counts
+    for e in events:
+        p.feed(json.dumps(e))
+    p.feed("{truncated")
+    assert p.invoked == ["powershell:pester", "azure-dns"] and p.rejected == ["powershell:ghost"]
+    assert p.bad_lines == 1
+    ix = make_index()
+    r = et.RunResult("c1", 0, invoked=p.invoked, rejected=p.rejected, bad_lines=p.bad_lines)
+    cr = et.score_case(case(expect=["pester"]), [r], ix)
+    assert cr.status == "PASS" and cr.other == []  # the rejected call is neither loaded nor "other"
+    s = et.summarize([cr], et.skill_stats([cr], ix))
+    assert (s["rejected_calls"], s["bad_lines"]) == (1, 1)
+    line = et.summary_line(s)
+    assert "1 Skill call(s) rejected by the CLI" in line and "1 unreadable stream line(s)" in line
+    run_json = et.json_report([cr], {}, s)["cases"][0]["runs"][0]
+    assert run_json["rejected"] == ["powershell:ghost"] and run_json["bad_lines"] == 1
+
+
 def test_text_after_a_tool_use_in_the_same_message_does_not_stop():
     p = et.StreamParser(stop_after_chars=5)
     events = [
@@ -462,6 +490,9 @@ def test_dry_run_and_config_errors(fake_cli, capsys):
     assert "# pester-case" in out and "--plugin-dir" in out and "env -u CLAUDE_CODE_SESSION_ID" in out
     assert not [c for c in calls(log) if "-p" in c]
     assert et.main(["--cases", str(cases), "--claude", str(exe), "--filter", "no-such-case"]) == 2
+    capsys.readouterr()
+    assert et.main(["--cases", str(cases), "--claude", str(exe), "--dry-run", "--filter", "("]) == 2  # usage error
+    assert "✗ --filter: " in capsys.readouterr().err
     bad = tmp / "bad.yaml"
     bad.write_text("cases:\n  - id: x\n    prompt: p\n    expect: [no-such-skill]\n", encoding="utf-8")
     assert et.main(["--cases", str(bad), "--claude", str(exe), "--dry-run"]) == 2

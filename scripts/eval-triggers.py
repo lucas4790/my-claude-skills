@@ -26,7 +26,9 @@ each run. Never --dangerously-skip-permissions.
 
 Detection (verified on Claude Code 2.1.284): a skill load is an `assistant` event whose content has a
 `tool_use` block named "Skill" with input {"skill": "<plugin>:<name>"} (sometimes the bare alias),
-followed by a `user` tool_result "Launching skill: <plugin>:<name>". Skills load before the answer, so
+followed by a `user` tool_result "Launching skill: <plugin>:<name>"; a call the CLI answers with an error
+result (an unknown name, a skill with disable-model-invocation) is reported as rejected and not scored, and
+a call whose result never arrived still counts. Skills load before the answer, so
 a run stops once the model has written --stop-after characters of answer text or reaches for any
 other tool (it tries Write for "write a module" prompts; that tool does not exist here). The approach
 (stream-json, Skill tool_use detection, stopping early) follows scripts/run_eval.py of the vendored
@@ -239,7 +241,6 @@ class Invocation:
     name: str                  # as the model wrote it
     tool_use_id: str = ""
     ok: bool | None = None     # from the tool_result; None = no result seen (run stopped first)
-    parent: str | None = None  # parent_tool_use_id (None = main conversation)
 
 
 class StreamParser:
@@ -293,7 +294,7 @@ class StreamParser:
                         inp = block.get("input") or {}
                         name = inp.get("skill") or inp.get("command") or inp.get("name") or ""
                         if name and not any(i.tool_use_id and i.tool_use_id == block.get("id") for i in self.invocations):
-                            self.invocations.append(Invocation(str(name), block.get("id") or "", None, parent))
+                            self.invocations.append(Invocation(str(name), block.get("id") or ""))
                     elif parent is None and self._acting(block.get("name")):
                         return True
                 elif block.get("type") == "text" and parent is None and not self.tool_in_message:
@@ -356,7 +357,13 @@ class StreamParser:
 
     @property
     def invoked(self) -> list[str]:
-        return [i.name for i in self.invocations]
+        """Skills that loaded: every Skill call except those the CLI rejected (an error tool_result, e.g. an
+        unknown name). A call without a result still counts: the run may stop before the result arrives."""
+        return [i.name for i in self.invocations if i.ok is not False]
+
+    @property
+    def rejected(self) -> list[str]:
+        return [i.name for i in self.invocations if i.ok is False]
 
     @property
     def error(self) -> str:
@@ -379,6 +386,8 @@ class RunResult:
     case_id: str
     run: int
     invoked: list[str] = field(default_factory=list)
+    rejected: list[str] = field(default_factory=list)  # Skill calls the CLI answered with an error; never scored
+    bad_lines: int = 0         # stream-json lines that were not JSON
     error: str = ""
     cost_usd: float = 0.0      # only when the run reached its result event (not after an early stop)
     tokens: dict = field(default_factory=dict)
@@ -489,6 +498,8 @@ def run_once(case: Case, run: int, args, plugin_paths: list[Path], supports: set
             pass
     res.seconds = time.monotonic() - start
     res.invoked = parser.invoked
+    res.rejected = parser.rejected
+    res.bad_lines = parser.bad_lines
     res.stopped_early = parser.stopped_early
     res.stop_reason = parser.stop_reason
     res.model = parser.init.get("model", "")
@@ -603,6 +614,8 @@ def summarize(results: list[CaseResult], stats: dict[str, dict]) -> dict:
         "tokens": {k: sum(r.tokens.get(k, 0) for r in runs) for k in ("input", "cache_write", "cache_read", "output")},
         "models": sorted({r.model for r in runs if r.model}),
         "listing": sorted({r.listing for r in runs if r.listing}),
+        "rejected_calls": sum(len(r.rejected) for r in runs),
+        "bad_lines": sum(r.bad_lines for r in runs),
     }
 
 
@@ -664,9 +677,11 @@ def summary_line(s: dict) -> str:
     tok = (f"tokens in {t.get('input', 0) + t.get('cache_write', 0) + t.get('cache_read', 0):,} "
            f"(cache write {t.get('cache_write', 0):,}, read {t.get('cache_read', 0):,}), out {t.get('output', 0):,}+")
     cost = f", ${s['cost_usd']:.2f} reported by {s['runs_with_cost']} run(s)" if s.get("runs_with_cost") else ""
+    odd = [f"{n} {what}" for n, what in ((s.get("rejected_calls", 0), "Skill call(s) rejected by the CLI, not scored"),
+                                         (s.get("bad_lines", 0), "unreadable stream line(s)")) if n]
     return (f"{s['pass']}/{s['cases']} cases passed ({s['fail']} failed, {s['error']} errors, {s['skip']} skipped); "
             f"micro precision {_pct(s['precision'])}, recall {_pct(s['recall'])} (TP {s['tp']}, FP {s['fp']}, FN {s['fn']}); "
-            f"{s['runs']} runs, {tok}{cost}; model {', '.join(s['models']) or '?'}")
+            f"{s['runs']} runs, {tok}{cost}; model {', '.join(s['models']) or '?'}" + "".join(f"; {x}" for x in odd))
 
 
 def markdown_report(results: list[CaseResult], stats: dict, summary: dict, index: SkillIndex) -> str:
@@ -694,7 +709,8 @@ def json_report(results: list[CaseResult], stats: dict, summary: dict) -> dict:
             "expect": ["|".join(g) for g in r.case.expect], "accept": r.case.accept, "forbid": r.case.forbid,
             "loaded": r.loaded, "rates": r.rates, "other": r.other, "missing": r.missing,
             "forbidden": r.forbidden, "extra": r.extra,
-            "runs": [{"invoked": x.invoked, "error": x.error, "cost_usd": x.cost_usd, "tokens": x.tokens,
+            "runs": [{"invoked": x.invoked, "rejected": x.rejected, "bad_lines": x.bad_lines,
+                      "error": x.error, "cost_usd": x.cost_usd, "tokens": x.tokens,
                       "seconds": round(x.seconds, 1),
                       "model": x.model, "stopped_early": x.stopped_early, "stop_reason": x.stop_reason,
                       "listing": x.listing} for x in r.runs],
@@ -797,8 +813,12 @@ def main(argv: list[str] | None = None) -> int:
 
     selected = cases
     if args.filter:
-        rx = re.compile(args.filter, re.I)
-        selected = [c for c in cases if any(rx.search(x) for x in (c.id, c.prompt, *c.tags, *(a for g in c.expect for a in g)))]
+        try:
+            rx = re.compile(args.filter, re.I)
+        except re.error as e:  # a usage error (2), not a failed case (1)
+            print(f"✗ --filter: {e}", file=sys.stderr)
+            return 2
+        selected =[c for c in cases if any(rx.search(x) for x in (c.id, c.prompt, *c.tags, *(a for g in c.expect for a in g)))]
     if args.limit is not None:
         selected = selected[: args.limit]
     if not selected:
@@ -872,6 +892,10 @@ def main(argv: list[str] | None = None) -> int:
                     abort = r.error
             names = ", ".join(index.label(n) for n in r.invoked) or "-"
             state = f"ERROR {r.error[:120]}" if r.error else f"loaded: {names}"
+            if r.rejected:
+                state += f"; rejected by the CLI: {', '.join(r.rejected)}"
+            if r.bad_lines:
+                state += f"; {r.bad_lines} unreadable stream line(s)"
             print(f"[{done}/{len(jobs)}] {c.id} #{i}: {state} ({r.seconds:.0f}s)", file=sys.stderr)
             for pe in r.plugin_errors:
                 print(f"  plugin error: {pe}", file=sys.stderr)

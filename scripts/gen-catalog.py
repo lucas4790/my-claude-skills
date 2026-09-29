@@ -1,35 +1,21 @@
 #!/usr/bin/env python3
 """Generates SKILLS.md from the marketplace manifest and each plugin's skills, commands and agents."""
 import json
-import re
+import sys
 from pathlib import Path
+
+# No scripts/__pycache__: the sync job runs this script and then `git add -A`.
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+# the same frontmatter parser and skill list as validate.py and the eval index
+from skill_descriptions import parse_frontmatter, skill_files  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 MARKETPLACE = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
 
 
 def frontmatter(path: Path) -> dict:
-    text = path.read_text(encoding="utf-8", errors="replace")
-    m = re.match(r"^---\s*\n(.*?)\n---", text, re.S)
-    if not m:
-        return {}
-    data, key, buf, folded = {}, None, [], False
-    for line in m.group(1).splitlines():
-        if key and (line.startswith(" ") or line.startswith("\t")):
-            buf.append(line.strip())
-            continue
-        if key:
-            data[key] = (" " if folded else "\n").join(buf).strip()
-        km = re.match(r"^([A-Za-z_-]+):\s*(.*)$", line)
-        if not km:
-            key = None
-            continue
-        key, val = km.group(1), km.group(2).strip()
-        folded = val in (">", ">-", "|", "|-")
-        buf = [] if folded else [val.strip("'\"")]
-    if key:
-        data[key] = (" " if folded else "\n").join(buf).strip()
-    return data
+    return parse_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
 
 
 def first_sentence(text: str, limit: int = 220) -> str:
@@ -38,16 +24,6 @@ def first_sentence(text: str, limit: int = 220) -> str:
         return text
     cut = text[:limit]
     return cut[: cut.rfind(" ")] + "…"
-
-
-def skill_files(plugin_dir: Path):
-    manifest = plugin_dir / ".claude-plugin/plugin.json"
-    declared = json.loads(manifest.read_text(encoding="utf-8")).get("skills") if manifest.exists() else None
-    if isinstance(declared, list):
-        explicit = [plugin_dir / d / "SKILL.md" for d in declared]
-        if explicit and all(f.exists() for f in explicit):
-            return explicit
-    return sorted(plugin_dir.rglob("SKILL.md"))
 
 
 def collect(plugin_dir: Path, kind: str, pattern: str):

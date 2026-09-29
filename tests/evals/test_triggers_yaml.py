@@ -1,5 +1,6 @@
 """Offline schema check of tests/evals/triggers.yaml against the repo's real skills."""
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -26,16 +27,9 @@ def cases_and_index():
 
 
 def test_every_name_is_a_real_model_invocable_skill(cases_and_index):
+    # also rejects a bare name that two plugins share ("ambiguous; use plugin:name")
     cases, index = cases_and_index
     assert et.validate_cases(cases, index) == []
-
-
-def test_bare_names_are_unambiguous(cases_and_index):
-    cases, index = cases_and_index
-    for c in cases:
-        for name in [a for g in c.expect for a in g] + c.accept + c.forbid:
-            if ":" not in name:
-                assert name not in index.ambiguous, f"{c.id}: {name} is ambiguous; use plugin:name"
 
 
 def test_shape_of_the_prompt_set(cases_and_index):
@@ -49,9 +43,14 @@ def test_shape_of_the_prompt_set(cases_and_index):
     assert all(len(c.prompt) >= 40 for c in cases), "prompts should be realistic, not keywords"
 
 
-def test_expected_plugins_exist_locally(cases_and_index):
+def test_named_skills_come_from_local_marketplace_plugins(cases_and_index):
+    """The evals load every local plugin dir (the weekly workflow passes no --plugins/--profile), so a skill
+    from a plugins/ dir that the marketplace does not list would be scored although no user installs it."""
     cases, index = cases_and_index
+    marketplace = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
+    local = {p["name"] for p in marketplace["plugins"] if isinstance(p.get("source"), str)}
     for c in cases:
-        for g in c.expect:
-            for a in g:
-                assert index.resolve(a).plugin in index.plugins
+        for name in [a for g in c.expect for a in g] + c.accept + c.forbid:
+            s = index.resolve(name)
+            if s is not None:  # unknown names: test_every_name_is_a_real_model_invocable_skill
+                assert s.plugin in local, f"{c.id}: {name} is from {s.plugin}, not a local marketplace plugin"
