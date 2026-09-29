@@ -39,7 +39,8 @@ VS Code. Most of `plugins/` is **vendored** from upstream repos listed in `sourc
   tests fail on unknown skill names). New or edited repo-owned skill descriptions start with a when-to-use phrase
   ("Use when ...") and name look-alike skills they are not for; validate.py warns otherwise.
 - Changes to `settings/permissions*.json` widen what agents may run unprompted on every machine that merged
-  them; keep them read-only and explain each rule in the PR.
+  them; explain each rule in the PR. Keep `permissions.json` read-only: an allow rule covers every flag of its
+  command, so a flag that would let it run a program or write a file needs an ask rule in the same file (ask wins).
 - Never push to `main`; push a branch and give the owner the compare link (the owner opens and merges the PR).
   The sync workflow opens its own PRs.
 

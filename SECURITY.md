@@ -8,7 +8,7 @@ Everything under `plugins/` is **third-party prompt text and code** that Claude 
 
 | Tier | Sources | How updates land |
 |---|---|---|
-| high | anthropics/skills, anthropics/claude-plugins-official, dotnet/skills, vercel-labs/agent-browser | Daily sync opens a **pull request** on branch `sync/high-trust`; expected to be a quick merge, but a human still looks |
+| high | anthropics/skills, anthropics/claude-plugins-official, dotnet/skills, MicrosoftDocs/agent-skills, vercel-labs/agent-browser | Daily sync opens a **pull request** on branch `sync/high-trust`; expected to be a quick merge, but a human still looks |
 | low | community repos (Aaronontheweb, Misaka-Mikoto-Tech, mattpocock, eabait), github/awesome-copilot | Daily sync opens a **pull request** on branch `sync/low-trust`; read it |
 | pinned external | `caveman` (runs hooks via `node` on every prompt) | Referenced by exact `sha` in `marketplace.json`; `scripts/bump-pinned.sh` proposes bumps in the low-trust PR |
 
@@ -20,7 +20,7 @@ Both sync PRs regenerate `SKILLS.md` and `UPSTREAM.lock.json`, so after merging 
 
 ## What the validator checks
 
-`scripts/validate.py` runs on every PR that touches `plugins/` and on every sync:
+`scripts/validate.py` runs on every PR and on every sync (a PR that touches `plugins/` or `.claude-plugin/` also runs `claude plugin validate`):
 
 - manifests parse, plugin names unique, every source dir and `plugin.json` exists, declared skill paths resolve
 - every `SKILL.md` has frontmatter with `name` and `description`, is under 200 KB
@@ -46,14 +46,14 @@ The scan is **diff-aware**. With `--diff REF` only lines added since `REF` (plus
 | Where | Invocation | Effect of a `high` hit |
 |---|---|---|
 | Human PR touching `plugins/` | `validate.py --diff origin/main` | check fails (exit 2) — reword or justify in the PR |
-| Sync PRs (both tiers) | `validate.py --diff HEAD --warn-only` | listed with `‼` in the PR body and counted in the title; merge is a human decision |
+| Sync PRs (both tiers) | `validate.py --diff HEAD --warn-only` | listed as `⚠ path:line: [high] …` in the PR body and counted in the title; merge is a human decision |
 | Local, no flags | `validate.py` | full scan, warnings only — for a baseline read |
 
 Regexes catch the obvious, not the paraphrased: the PR body tells you *where* to look, not whether it is safe.
 
 ## Reviewing a sync PR
 
-1. Open the PR; read the validator hits in the body. Every `‼ [high]` line is a file:line to open in context.
+1. Open the PR; read the validator hits in the body. Every `[high]` line is a file:line to open in context.
 2. Diff every changed `SKILL.md`, `agents/*.md`, `commands/*.md`, `hooks/`, `scripts/`.
 3. Look for instructions aimed at the model rather than the user (exfiltration, "ignore", hidden text), new shell commands, new network calls, new hooks.
 4. Merge or close. Closed PRs are re-opened on the next sync if upstream still differs.

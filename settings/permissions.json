@@ -1,5 +1,5 @@
 {
-  "$comment": "Read-only inspection commands, merged by hand into ~/.claude/settings.json permissions.allow (the installer does not apply this file). Nothing here mutates state or runs code from the checked-out repository; anything that can (apply, delete, push, set, create, upgrade, build, test) stays out on purpose. Build and test runners live in permissions-trusted-repo.json.",
+  "$comment": "Read-only inspection commands, merged by hand into ~/.claude/settings.json (allow and ask; the installer does not apply this file). An allow rule covers its command with every flag, so each flag that would let one of these reads run a program or write a file has an ask rule here, and ask wins over allow: git diff/log/show/blame --output=FILE, git fetch --upload-pack, kubectl/helm --kubeconfig (a kubeconfig's exec credential plugin runs a program), kubectl --cache-dir/--profile-output, helm --post-renderer/--output-dir/--repository-cache/--repository-config/--registry-config/--dependency-update, terraform plan -out/-generate-config-out. Left out: terraform fmt without -check (rewrites files) and terraform providers lock/mirror (write files). Edge cases in on purpose: git fetch talks to the network (it writes only .git/), terraform plan runs the configuration's providers and external data sources against the configured backend (it does not apply), terraform validate/show/state show start the provider plugins terraform init put in .terraform/, and shell redirection (> file) can still write a file after any rule. Build and test runners live in permissions-trusted-repo.json.",
   "permissions": {
     "allow": [
       "Bash(git status)",
@@ -85,13 +85,12 @@
       "Bash(terraform version)",
       "Bash(terraform validate *)",
       "Bash(terraform fmt -check *)",
-      "Bash(terraform fmt -diff *)",
       "Bash(terraform plan *)",
       "Bash(terraform show *)",
       "Bash(terraform output *)",
       "Bash(terraform state list *)",
       "Bash(terraform state show *)",
-      "Bash(terraform providers *)",
+      "Bash(terraform providers)",
 
       "Bash(docker ps *)",
       "Bash(docker images *)",
@@ -104,6 +103,24 @@
       "Bash(node --version)",
       "Bash(npm --version)",
       "Bash(jq *)"
+    ],
+    "ask": [
+      "Bash(git diff *--out*)",
+      "Bash(git log *--out*)",
+      "Bash(git show *--out*)",
+      "Bash(git blame *--out*)",
+      "Bash(git fetch *--upl*)",
+      "Bash(kubectl *--kubeconfig*)",
+      "Bash(kubectl *--cache-dir*)",
+      "Bash(kubectl *--profile-output*)",
+      "Bash(helm *--kubeconfig*)",
+      "Bash(helm *--post-renderer*)",
+      "Bash(helm *--output-dir*)",
+      "Bash(helm *--repository-cache*)",
+      "Bash(helm *--repository-config*)",
+      "Bash(helm *--registry-config*)",
+      "Bash(helm *--dependency-update*)",
+      "Bash(terraform plan *-out*)"
     ]
   }
 }
