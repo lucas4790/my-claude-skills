@@ -47,6 +47,10 @@ owner_name=${owner% <*} owner_email=${owner##*<}; owner_email=${owner_email%>}
 case $owner_email in *@anthropic.com) bad "--owner is the vendor identity" ;; esac
 [ -z "$mailmap" ] || [ -f "$mailmap" ] || bad "no such mailmap file: $mailmap"
 [ -z "$replace" ] || [ -f "$replace" ] || bad "no such replace-text file: $replace"
+# absolute: git filter-repo runs inside BARE_REPO, where a relative path would point elsewhere
+abs() { printf '%s/%s\n' "$(cd "$(dirname "$1")" && pwd)" "$(basename "$1")"; }
+[ -z "$mailmap" ] || mailmap=$(abs "$mailmap")
+[ -z "$replace" ] || replace=$(abs "$replace")
 [ -f "$guard" ] || die "attribution guard not found at $guard"
 git filter-repo --version >/dev/null 2>&1 || die "git filter-repo is not installed (apt/brew install git-filter-repo, or pip install git-filter-repo)"
 command -v python3 >/dev/null || die "python3 is required"
@@ -54,6 +58,7 @@ command -v python3 >/dev/null || die "python3 is required"
 [ -z "$(git -C "$repo" for-each-ref refs/pull)" ] || die "$repo has refs/pull/*: use git clone --bare, not --mirror"
 report=${report:-$repo.clean-history}
 mkdir -p "$report"
+report=$(cd "$report" && pwd)
 url=$(git -C "$repo" config --get remote.origin.url || true)
 
 # --- before ---------------------------------------------------------------------------------------
