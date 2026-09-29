@@ -47,8 +47,10 @@ FRONTMATTER_RX = re.compile(r"^---\s*\n(.*?)\n---", re.S)
 def parse_frontmatter(text: str) -> dict[str, str]:
     """Top-level `key: value` pairs of a YAML frontmatter block, including folded (`>`, `>-`, `>+`)
     and literal (`|`, `|-`, `|+`) block scalars and indented continuation lines (no PyYAML
-    dependency); block scalars are joined with spaces. The one parser of validate.py, gen-catalog.py
-    and the eval index, so the checks, SKILLS.md and the evals read the same values."""
+    dependency); block scalars are joined with spaces. A blank line does not end a value (YAML ends it
+    at the next less-indented line), so `description: >-` followed by a blank line is not empty. The one
+    parser of validate.py, gen-catalog.py and the eval index, so the checks, SKILLS.md and the evals read
+    the same values."""
     m = FRONTMATTER_RX.match(text)
     if not m:
         return {}
@@ -66,6 +68,8 @@ def parse_frontmatter(text: str) -> dict[str, str]:
         data[key] = val
 
     for line in m.group(1).splitlines():
+        if key and not line.strip():
+            continue
         if key and (line.startswith(" ") or line.startswith("\t")):
             buf.append(line.strip())
             continue

@@ -55,6 +55,14 @@ def test_frontmatter_keeps_an_unmatched_quote_and_reads_keep_blocks():
     assert fm["x-y1"] == "kept"
 
 
+def test_frontmatter_blank_lines_do_not_end_a_value():
+    # YAML ends a value at the next less-indented line, not at a blank one: `description: >-` followed by a
+    # blank line is not empty, and a paragraph break does not cut a block
+    fm = sd.parse_frontmatter("---\nname: a\n\ndescription: >-\n\n  first\n\n  second\n\nb: c\n---\n")
+    assert fm == {"name": "a", "description": "first second", "b": "c"}
+    assert sd.parse_frontmatter("---\nname: a\ndescription: >-\n\nlicense: MIT\n---\n")["description"] == ""
+
+
 def test_repo_index():
     skills = sd.load_skills(ROOT)
     q = {s.qualified: s for s in skills}

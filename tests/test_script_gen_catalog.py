@@ -179,6 +179,18 @@ def test_values_are_read_like_validate_py_and_the_evals_read_them(bare_layout):
                     "| [`agent-x`](plugins/p/agents/x.md) | Literal. |"]
 
 
+def test_a_blank_line_in_a_block_description_does_not_cut_it(bare_layout):
+    bare_layout.write_json(".claude-plugin/marketplace.json",
+                           {"plugins": [{"name": "p", "source": "./plugins/p", "description": "P"}]})
+    bare_layout.write("plugins/p/skills/a/SKILL.md", "---\nname: a\ndescription: >-\n\n  Starts after a blank.\n---\n")
+    bare_layout.write("plugins/p/agents/x.md",
+                      "---\nname: agent-x\ndescription: |\n  First paragraph.\n\n  Use when: second.\ntools: Read\n---\n")
+    bare_layout.gen_catalog()
+    rows = [x for x in bare_layout.read("SKILLS.md").splitlines() if x.startswith("| [`")]
+    assert rows == ["| [`a`](plugins/p/skills/a/SKILL.md) | Starts after a blank. |",
+                    "| [`agent-x`](plugins/p/agents/x.md) | First paragraph. Use when: second. |"]
+
+
 def test_the_repo_catalog_is_generated_from_the_committed_marketplace(tmp_path):
     """Smoke test on the real layout, copied: gen-catalog.py runs and covers every marketplace plugin."""
     root = tmp_path / "copy"

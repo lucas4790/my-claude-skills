@@ -15,7 +15,9 @@ never change the exit code; with --diff they cover only SKILL.md files changed s
 Exit codes: 0 ok, 1 structural problem, 2 high-severity injection hit in added lines.
 """
 import argparse
+import codecs
 import collections
+import difflib
 import hashlib
 import json
 import posixpath
@@ -36,11 +38,30 @@ warnings: list[str] = []
 injections: list[str] = []  # high-severity hits in --diff mode
 
 # The injection scan reads every file under plugins/ that is text: these types always (a NUL byte, which
-# makes git call a file binary, must not hide one from the scan), any other file (.gitattributes,
-# LICENSE, a new language) when its first 8 KB hold no NUL byte. Images and other binaries are skipped.
+# makes git call a file binary, must not hide one from the scan), any other file (.gitattributes, LICENSE,
+# a script without an extension, a new language) unless its first 8 KB hold a NUL byte and, NUL bytes aside,
+# are not UTF-8: bash and sh run the lines after a stray NUL. A script (#!) and a UTF-16/32 file (byte-order
+# mark; PowerShell runs those) are always text. Images and other binaries are skipped. UTF-16/32 files are
+# decoded as such, and NUL bytes are dropped before matching: shells drop them too (`cu\0rl` runs curl).
 TEXT_EXT = {".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".xml", ".html",
             ".sh", ".bash", ".zsh", ".ps1", ".psm1", ".psd1", ".bat", ".cmd",
             ".py", ".rb", ".go", ".cs", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx"}
+WIDE_BOMS = ((codecs.BOM_UTF32_LE, "utf-32"), (codecs.BOM_UTF32_BE, "utf-32"),   # before UTF-16 LE: same start
+             (codecs.BOM_UTF16_LE, "utf-16"), (codecs.BOM_UTF16_BE, "utf-16"))
+
+
+def wide_encoding(head: bytes) -> str | None:
+    """utf-16 or utf-32 for bytes that start with that byte-order mark."""
+    return next((enc for bom, enc in WIDE_BOMS if head.startswith(bom)), None)
+
+
+def decode(data: bytes) -> str:
+    return data.decode(wide_encoding(data) or "utf-8", errors="replace")
+
+
+def read_decoded(rel: str) -> str:
+    """The file as text, with newlines translated like Path.read_text does."""
+    return decode((ROOT / rel).read_bytes()).replace("\r\n", "\n").replace("\r", "\n")
 
 
 def is_text(rel: str) -> bool:
@@ -48,8 +69,15 @@ def is_text(rel: str) -> bool:
         return True
     try:
         with open(ROOT / rel, "rb") as fh:
-            return b"\0" not in fh.read(8192)
+            head = fh.read(8192)
     except OSError:  # deleted since REF, or unreadable
+        return False
+    if b"\0" not in head or head.startswith(b"#!") or wide_encoding(head):
+        return True
+    try:  # final=False: a character cut at the 8 KB mark is not an error
+        codecs.getincrementaldecoder("utf-8")().decode(head.replace(b"\0", b""))
+        return True
+    except UnicodeDecodeError:
         return False
 
 # (regex, label, severity). "high" = a human must look before this reaches main;
@@ -105,8 +133,11 @@ COMPILED = [(re.compile(p, re.I | re.S), label, sev) for p, label, sev in SUSPIC
 # ${CLAUDE_PLUGIN_ROOT}/... are reviewed files too: each needs its own entry, and an edit of one fails --diff
 # the same way. Filled in just before the injection scan.
 REVIEWED_HOOKS: dict[str, str] = {}
-# Hook config files in the working tree (hook_configs); the hook pattern of SUSPICIOUS skips them.
+# Hook config files in the working tree (hook_configs); the hook pattern of SUSPICIOUS skips them. For a
+# markdown file with frontmatter hooks it skips only the frontmatter (up to the line given here): the body is
+# text like any other, e.g. a skill that tells the model to add a hook to settings.json.
 HOOK_FILES: set[str] = set()
+HOOK_FRONTMATTER: dict[str, int] = {}
 
 
 def content_sha256(rel: str) -> str:
@@ -120,11 +151,20 @@ def scan(rel: str, text: str, line_numbers: list[int] | None, fail_high: bool) -
     """Report each pattern once per file: its most severe hit (the first one of that severity) with a
     count of the others. line_numbers maps 0-based line index of `text` to a display line number
     (None = identity, for whole-file scans)."""
+    text = text.replace("\0", "")  # see TEXT_EXT
+
+    def line_of(pos: int) -> int:
+        idx = text.count("\n", 0, pos)
+        return line_numbers[idx] if line_numbers and idx < len(line_numbers) else idx + 1
+
     for rx, label, sev in COMPILED:
-        if label == "hook event registration" and rel in HOOK_FILES:
+        hook_label = label == "hook event registration"
+        if hook_label and rel in HOOK_FILES:
             continue  # read structurally, see hook_configs
         m, msev, n = None, "", 0
         for hit in rx.finditer(text):
+            if hook_label and rel in HOOK_FRONTMATTER and line_of(hit.start()) <= HOOK_FRONTMATTER[rel]:
+                continue  # frontmatter hooks are read structurally, see hook_configs
             n += 1
             hsev = sev
             # A quoted phrase ("ignore previous instructions") is nearly always a skill *describing*
@@ -140,8 +180,7 @@ def scan(rel: str, text: str, line_numbers: list[int] | None, fail_high: bool) -
         if sev == "high" and label == "hook event registration" and rel in REVIEWED_HOOKS \
                 and REVIEWED_HOOKS[rel] == content_sha256(rel):
             sev = "reviewed"
-        idx = text.count("\n", 0, m.start())
-        ln = line_numbers[idx] if line_numbers and idx < len(line_numbers) else idx + 1
+        ln = line_of(m.start())
         more = f" (+{n - 1} more)" if n > 1 else ""
         msg = f"{rel}:{ln}: [{sev}] {label}{more}"
         if sev == "high" and fail_high:
@@ -154,6 +193,10 @@ def git(*args: str) -> str:
     # errors="replace": diffs of UTF-16 or Latin-1 files (--text shows them) must not crash the scan
     return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
                           errors="replace", check=True).stdout
+
+
+def git_bytes(*args: str) -> bytes:
+    return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, check=True).stdout
 
 
 def added_lines(ref: str) -> dict[str, tuple[list[int], list[str]]]:
@@ -169,6 +212,24 @@ def added_lines(ref: str) -> dict[str, tuple[list[int], list[str]]]:
     for path in changed:
         # same file-type filter as the untracked-file loop below and the full scan
         if not path or not is_text(path):
+            continue
+        try:
+            with open(ROOT / path, "rb") as fh:
+                wide = wide_encoding(fh.read(4))
+        except OSError:  # deleted: only removed lines
+            wide = None
+        if wide:
+            # git diffs UTF-16/32 byte by byte (a NUL between the letters): diff the decoded texts instead
+            try:
+                old = decode(git_bytes("show", f"{ref}:{path}")).splitlines()
+            except subprocess.CalledProcessError:  # new since REF
+                old = []
+            new = read_decoded(path).splitlines()
+            for op, _i1, _i2, j1, j2 in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
+                if op in ("replace", "insert"):
+                    nums, lines = out.setdefault(path, ([], []))
+                    nums.extend(range(j1 + 1, j2 + 1))
+                    lines.extend(new[j1:j2])
             continue
         ln, in_hunk = 0, False
         # --text etc.: a NUL byte or a `-diff` .gitattributes entry must not turn the added lines into
@@ -186,7 +247,7 @@ def added_lines(ref: str) -> dict[str, tuple[list[int], list[str]]]:
             # removed lines ("-") do not advance the new-file line counter
     for path in git("ls-files", "-z", "--others", "--exclude-standard", "--", "plugins/").split("\0"):
         if path and is_text(path):
-            lines = (ROOT / path).read_text(encoding="utf-8", errors="replace").splitlines()
+            lines = read_decoded(path).splitlines()
             out[path] = (list(range(1, len(lines) + 1)), lines)
     return out
 
@@ -329,6 +390,23 @@ def changed_since_ref(rel: str) -> bool:
 # --diff, each registration that is new or changed since REF is a high-severity hit.
 MARKETPLACE = ".claude-plugin/marketplace.json"
 HOOK_META_KEYS = {"hooks", "description", "version", "$schema", "$comment"}
+# A `hooks` key of a markdown frontmatter in any spelling YAML allows: block or flow style, any indentation, blank
+# or comment lines below it, a space before the colon, quoted, tagged (!!str hooks), an explicit key (? ...) or a
+# double-quoted key with an escape sequence (which can spell "hooks"). Anywhere in the frontmatter, even nested:
+# a match makes the whole frontmatter the registration, so no YAML form (anchors, flow style) hides an edit.
+FM_HOOKS_KEY = re.compile(r"""(?:^|[{,])[ \t]*(?:![^\s,{}]*[ \t]+)?"""
+                          r"""(?:(["']?)hooks\1[ \t]*:|"[^"\n]*\\[^"\n]*"[ \t]*:|\?(?:[ \t]|$))""", re.M)
+
+
+def frontmatter_hooks(text: str) -> tuple[str, int, int] | None:
+    """(frontmatter, line of its hooks key, line of its closing ---) of a markdown file whose frontmatter has hooks."""
+    text = text.lstrip("\ufeff")
+    fm = FRONTMATTER_RX.match(text)
+    km = FM_HOOKS_KEY.search(fm.group(1)) if fm else None
+    if not km:
+        return None
+    return (fm.group(1).replace("\r\n", "\n"), text.count("\n", 0, fm.start(1) + km.start()) + 1,
+            text.count("\n", 0, fm.end()) + 1)
 
 
 def canonical(value) -> str:
@@ -361,8 +439,9 @@ def hook_candidates(paths) -> set[str]:
             or (p.startswith("plugins/") and posixpath.basename(p) in ("hooks.json", "plugin.json"))}
 
 
-def hook_configs(paths: set[str], read) -> dict[str, tuple[str, list]]:
-    """{file: (text, registrations)} of the hook configs among `paths`, read with read(rel) -> text or None."""
+def hook_configs(paths: set[str], read, notes: list[str] | None = None) -> dict[str, tuple[str, list]]:
+    """{file: (text, registrations)} of the hook configs among `paths`, read with read(rel) -> text or None.
+    A hooks file a manifest names that is not here to read is reported to `notes`."""
     out: dict[str, tuple[str, list]] = {}
     refs: set[str] = set()
 
@@ -377,9 +456,9 @@ def hook_configs(paths: set[str], read) -> dict[str, tuple[str, list]]:
         if text is None:
             continue
         if rel.endswith(".md"):
-            hooks = parse_frontmatter(text).get("hooks", "")
-            if hooks:
-                out[rel] = (text, [("hooks", "", hooks)])
+            found = frontmatter_hooks(text)
+            if found:
+                out[rel] = (text, [("hooks", "", found[0])])
         elif posixpath.basename(rel) == "hooks.json":
             hooks_file(rel, text)
         else:
@@ -390,20 +469,29 @@ def hook_configs(paths: set[str], read) -> dict[str, tuple[str, list]]:
             if not isinstance(data, dict):
                 continue
             if rel == MARKETPLACE:
-                owners = [(posixpath.normpath(p["source"]), p) for p in data.get("plugins") or []
-                          if isinstance(p, dict) and isinstance(p.get("source"), str)]
+                # every entry, whatever its source; a registration names its entry (plugin name and source), so
+                # a hook moved to another entry, or an entry pointed at other code, is a new registration
+                owners = [(posixpath.normpath(p["source"]) if isinstance(p.get("source"), str) else None, p,
+                           f"{p.get('name')}@{canonical(p.get('source'))} ")
+                          for p in data.get("plugins") or [] if isinstance(p, dict)]
             else:
                 base = posixpath.dirname(rel)
-                owners = [(posixpath.dirname(base) if posixpath.basename(base) == ".claude-plugin" else base, data)]
-            for base, obj in owners:
+                owners = [(posixpath.dirname(base) if posixpath.basename(base) == ".claude-plugin" else base, data, "")]
+            for base, obj, tag in owners:
                 value = obj.get("hooks")
                 for item in value if isinstance(value, list) else [] if value is None else [value]:
                     if isinstance(item, str):  # a path to more hooks, relative to the plugin root
-                        ref = posixpath.normpath(posixpath.join(base, item))
+                        ref = posixpath.normpath(posixpath.join(base, item)) if base is not None else ""
                         if ref.startswith("plugins/"):  # an installed plugin cannot reach anything else
                             refs.add(ref)
+                        elif notes is not None:
+                            notes.append(f"{rel}: hooks file {item!r}" + (f" of plugin {obj.get('name')!r}" if tag else "")
+                                         + " is not in this repo (external source, or outside plugins/): only the "
+                                           "reference is checked, not the hooks it registers")
+                        if tag or not ref.startswith("plugins/"):  # the reference itself is a registration
+                            out.setdefault(rel, (text, []))[1].append(("hooks", tag, item))
                     else:
-                        out.setdefault(rel, (text, []))[1].extend(registrations(item))
+                        out.setdefault(rel, (text, []))[1].extend((e, tag + m, h) for e, m, h in registrations(item))
     for rel in sorted(refs - set(out)):
         text = read(rel)
         if text is not None:
@@ -422,8 +510,12 @@ def hook_registration_hits(fail_high: bool) -> None:
     """One line per hook config file with registrations (with --diff: registrations new or changed since REF):
     [reviewed] while the file is listed unchanged in scripts/reviewed-hooks.json, [high] otherwise."""
     paths = {f.relative_to(ROOT).as_posix() for f in ROOT.glob("plugins/**/*") if f.is_file()} | {MARKETPLACE}
-    current = hook_configs(paths, read_worktree)
-    HOOK_FILES.update(current)
+    current = hook_configs(paths, read_worktree, warnings)
+    for rel, (text, _regs) in current.items():
+        if rel.endswith(".md"):
+            HOOK_FRONTMATTER[rel] = frontmatter_hooks(text)[2]
+        else:
+            HOOK_FILES.add(rel)
     old: dict[str, tuple[str, list]] = {}
     if args.diff:
         where = ("--", "plugins/", MARKETPLACE)
@@ -448,9 +540,14 @@ def hook_registration_hits(fail_high: bool) -> None:
                 new.append(r)
         if not new:
             continue
-        key = re.compile(r"^hooks\s*:", re.M) if rel.endswith(".md") else re.compile(rf'"{re.escape(new[0][0])}"\s*:')
-        m = key.search(text)
-        ln = text.count("\n", 0, m.start()) + 1 if m else 1
+        if rel.endswith(".md"):
+            ln = frontmatter_hooks(text)[1]
+        else:
+            # in marketplace.json: the event key within the entry the registration belongs to
+            entry = re.search(rf'"name"\s*:\s*{re.escape(json.dumps(new[0][1].split("@", 1)[0]))}', text) \
+                if rel == MARKETPLACE else None
+            m = re.compile(rf'"{re.escape(new[0][0])}"\s*:').search(text, entry.start() if entry else 0)
+            ln = text.count("\n", 0, m.start()) + 1 if m else 1
         sev = "reviewed" if rel in REVIEWED_HOOKS else "high"
         msg = f"{rel}:{ln}: [{sev}] hook event registration" + (f" (+{len(new) - 1} more)" if len(new) > 1 else "")
         (injections if sev == "high" and fail_high else warnings).append(msg)
@@ -462,24 +559,57 @@ def plugin_root(rel: str) -> str:
     return max((r for r in roots if rel.startswith(r + "/")), key=len, default="/".join(rel.split("/")[:2]))
 
 
-def scripts_run_by(rel: str) -> list[str]:
-    """Files under plugins/ that the commands of hook file rel run through ${CLAUDE_PLUGIN_ROOT}/..."""
-    def strings(v):
-        if isinstance(v, str):
-            yield v
-        elif isinstance(v, dict):
-            for x in v.values():
-                yield from strings(x)
-        elif isinstance(v, list):
-            for x in v:
-                yield from strings(x)
-    try:
-        data = json.loads((ROOT / rel).read_text(encoding="utf-8", errors="replace"))
-    except (OSError, ValueError):
-        return []
-    found = {posixpath.normpath(posixpath.join(plugin_root(rel), m))
-             for s in strings(data) for m in re.findall(r"\$\{?CLAUDE_PLUGIN_ROOT\}?/([^\s\"'`;|&<>()$\\]+)", s)}
-    return sorted(p for p in found if p.startswith("plugins/") and p != rel)
+# How a hook command reaches a file of its own plugin: ${CLAUDE_PLUGIN_ROOT} (Claude Code substitutes it and also
+# sets it in the hook's environment), $CLAUDE_PLUGIN_ROOT, ${CLAUDE_PLUGIN_ROOT:-...}, and on Windows
+# %CLAUDE_PLUGIN_ROOT% or $env:CLAUDE_PLUGIN_ROOT; quoted or not, then / or \ and the path.
+PLUGIN_ROOT_RX = re.compile(r"\$\{CLAUDE_PLUGIN_ROOT(?:[^A-Za-z0-9_}][^}]*)?\}|\$CLAUDE_PLUGIN_ROOT(?![A-Za-z0-9_])"
+                            r"|(?i:%CLAUDE_PLUGIN_ROOT%|\$\{env:CLAUDE_PLUGIN_ROOT\}|\$env:CLAUDE_PLUGIN_ROOT(?![A-Za-z0-9_]))")
+
+
+def strings(v):
+    if isinstance(v, str):
+        yield v
+    elif isinstance(v, dict):
+        for x in v.values():
+            yield from strings(x)
+    elif isinstance(v, list):
+        for x in v:
+            yield from strings(x)
+
+
+def scripts_run_by(rel: str) -> tuple[list[str], list[str]]:
+    """(files of its plugin that hook file rel runs through CLAUDE_PLUGIN_ROOT, the strings of rel that use
+    CLAUDE_PLUGIN_ROOT in a way no such file can be read from: `cd "$CLAUDE_PLUGIN_ROOT" && sh x.sh`, a glob, a
+    variable, a path out of the plugin). Reads the string values of a JSON hook file, the frontmatter of a
+    markdown one and the lines of anything else; of a plugin.json, only its `hooks` count as unresolved."""
+    text, data = read_worktree(rel) or "", None
+    if rel.endswith(".md"):
+        found = frontmatter_hooks(text)
+        commands = found[0].splitlines() if found else []
+    else:
+        try:
+            data = json.loads(text)
+            commands = list(strings(data))
+        except ValueError:
+            data, commands = None, text.splitlines()
+    hook_commands = list(strings(data.get("hooks"))) \
+        if posixpath.basename(rel) == "plugin.json" and isinstance(data, dict) else commands
+    root = plugin_root(rel)
+    scripts, unresolved = set(), []
+    for command in commands:
+        # quotes go (sh "${CLAUDE_PLUGIN_ROOT}"/x.sh), \ is a separator, // is /
+        s = PLUGIN_ROOT_RX.sub("\0", re.sub(r"[\"']", "", command).replace("\\", "/"))
+        bad = False
+        for tail in s.split("\0")[1:]:
+            m = re.match(r"/+([^\s;|&<>()`]+)", tail)
+            path = posixpath.normpath(posixpath.join(root, m.group(1))) if m else ""
+            if not m or re.search(r"[$*?\[{}]", m.group(1)) or not path.startswith(root + "/"):
+                bad = True
+            elif path != rel:
+                scripts.add(path)
+        if bad and command in hook_commands:
+            unresolved.append(command)
+    return sorted(scripts), unresolved
 
 
 reviewed_file = ROOT / "scripts/reviewed-hooks.json"
@@ -508,9 +638,19 @@ if reviewed_file.exists():
         else:
             REVIEWED_HOOKS[rel] = digest
     # the code a reviewed hook runs is reviewed with it: a script it names through ${CLAUDE_PLUGIN_ROOT} needs
-    # its own entry, and an edit of it fails --diff like an edit of the hook file
+    # its own entry, and an edit of it fails --diff like an edit of the hook file. A use of the plugin root that
+    # names no script this can pin is reported, and fails --diff when the hook file changed.
     for hook in present:
-        for script in scripts_run_by(hook):
+        scripts, unresolved = scripts_run_by(hook)
+        if unresolved:
+            msg = (f"scripts/reviewed-hooks.json: {hook} uses ${{CLAUDE_PLUGIN_ROOT}} without a script path that can "
+                   f"be pinned ({unresolved[0][:100]!r}); name each script as ${{CLAUDE_PLUGIN_ROOT}}/path/to/script "
+                   f"so it can be listed")
+            if args.diff and not args.warn_only and changed_since_ref(hook):
+                injections.append(f"{hook}: [high] reviewed hook file runs code that cannot be pinned; {msg}")
+            else:
+                warnings.append(msg)
+        for script in scripts:
             current = content_sha256(script)
             changed = bool(args.diff) and changed_since_ref(script)
             if not current:
@@ -536,7 +676,7 @@ else:
     for f in ROOT.glob("plugins/**/*"):
         rel = f.relative_to(ROOT).as_posix()
         if f.is_file() and f.stat().st_size <= 5_000_000 and is_text(rel):
-            scan(rel, f.read_text(encoding="utf-8", errors="replace"), None, fail_high=False)
+            scan(rel, read_decoded(rel), None, fail_high=False)
 
 # --- skill description routing (warnings only) ---------------------------------------------------
 # In --diff mode only SKILL.md files changed since REF (and overlap pairs involving one), because the
