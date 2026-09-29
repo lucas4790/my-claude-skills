@@ -43,16 +43,16 @@ jobs:
           persist-credentials: false
       - run: python3 scripts/validate.py --diff "origin/${{ github.base_ref }}"
       - name: Install test tools
-        # bats 1.10, pytest 7.4, yamllint and git-filter-repo (for tests/bats/clean-history.bats) from
-        # Ubuntu; shellcheck, pwsh, git, rsync and jq are preinstalled. The pytest suite of the
-        # skill-example checker never installs Pester, so it comes first.
+        # bats 1.10, pytest 7.4, PyYAML (tests/evals), yamllint and git-filter-repo (for
+        # tests/bats/clean-history.bats) from Ubuntu; shellcheck, pwsh, git, rsync and jq are preinstalled.
+        # The pytest suite of the skill-example checker never installs Pester, so it comes first.
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends bats python3-pytest yamllint git-filter-repo
+          sudo apt-get install -y -qq --no-install-recommends bats python3-pytest python3-yaml yamllint git-filter-repo
           pwsh -NoProfile -Command 'Install-Module Pester -MinimumVersion 6.0.0 -Scope CurrentUser -Force -SkipPublisherCheck'
-      - name: Script tests (bats + pytest)
+      - name: Script tests (bats, pytest, shellcheck of the attribution guard)
         env:
-          SKILL_EXAMPLES_REQUIRE_TOOLS: "1"  # a missing pwsh, Pester, shellcheck or yamllint fails, never skips
+          SKILL_EXAMPLES_REQUIRE_TOOLS: "1"  # a missing optional tool fails the checks that need it, never skips them
         run: scripts/run-tests.sh
       - name: Skill examples
         # The code blocks of every skill in tests/skill-examples.json, per fence language.
@@ -105,7 +105,7 @@ jobs:
       - name: Install test tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends bats python3-pytest yamllint git-filter-repo
+          sudo apt-get install -y -qq --no-install-recommends bats python3-pytest python3-yaml yamllint git-filter-repo
       # The same tests as validate-pr, on the synced tree. That tree is upstream content nobody has
       # reviewed yet, which the tests read and the skill examples partly run, so they run as a
       # throwaway user with an empty environment on a copy of the tree: they cannot read the runner
@@ -150,7 +150,8 @@ jobs:
             exit 0
           fi
           shas=$(jq -r 'to_entries | map(select(.value.trust=="${{ matrix.trust }}") | "\(.key)@\(.value.sha[0:7])") | join(", ")' UPSTREAM.lock.json)
-          changed=$(git status --porcelain | wc -l)
+          # every file: without --untracked-files=all a new directory counts as one line
+          changed=$(git status --porcelain --untracked-files=all | wc -l)
           # validator lines quote upstream text (file names, skill names): drop backticks so it cannot close the fence
           hits=$(grep -E '^(‼|⚠|✗)' "$RUNNER_TEMP/validate.log" | tr '\140' "'" || true)
           [ -n "$hits" ] || hits='validator: no hits in added lines'

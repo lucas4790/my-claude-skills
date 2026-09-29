@@ -46,7 +46,8 @@ run_hook() {
   return "$rc"
 }
 
-# check_silent NAME / check_report NAME TEXT: $out must be empty / valid hook JSON containing TEXT
+# check_silent NAME / check_report NAME TEXT [PREFIX]: $out must be empty / valid hook JSON containing
+# TEXT, whose additionalContext starts with PREFIX (default "yamllint: ")
 check_silent() {
   if [ -z "$out" ]; then ok "$1"; else not_ok "$1: expected no output" "$out"; fi
 }
@@ -59,7 +60,7 @@ check_report() {
   if [ "$have_python" = yes ] && ! printf '%s' "$out" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)["hookSpecificOutput"]
-assert d["hookEventName"] == "PostToolUse" and d["additionalContext"].startswith("yamllint: ")' 2>/dev/null; then
+assert d["hookEventName"] == "PostToolUse" and d["additionalContext"].startswith(sys.argv[1])' "${3:-yamllint: }" 2>/dev/null; then
     not_ok "$1: output is not valid PostToolUse hook JSON" "$out"
     return
   fi
@@ -78,6 +79,19 @@ expect_report() {
   shift 4
   payload "$t" "$f" >"$tmp/in"
   run_hook "$n" "$@" && check_report "$n" "$x"
+}
+
+# expect_inactive NAME TEXT FILE [VAR=value ...]: exit 0 and a single line of context saying the hook is
+# inactive, containing TEXT
+expect_inactive() {
+  n=$1 x=$2 f=$3
+  shift 3
+  payload Write "$f" >"$tmp/in"
+  run_hook "$n" "$@" || return
+  case $out in
+    *'\n'*'\n'*) not_ok "$n: expected a single line" "$out" ;;
+    *) check_report "$n" "$x" "yaml-hooks: YAML lint hook inactive: " ;;
+  esac
 }
 
 # raw TEXT: writes TEXT as the hook input
@@ -154,6 +168,34 @@ for t in cat tr grep head sed dirname wc; do
 done
 payload Write "$w/bad.yaml" >"$tmp/in"
 run_hook "yamllint missing" PATH="$nobin" && check_silent "yamllint missing: exit 0, no output"
+
+# fake yamllints that cannot lint: 1.26.3 (Ubuntu 22.04) has no --list-files and no anchors rule, and a
+# current one stops on a config it rejects
+mkdir -p "$tmp/old" "$tmp/broken"
+cat >"$tmp/old/yamllint" <<'EOF'
+#!/bin/sh
+case $1 in
+  --version) echo 'yamllint 1.26.3' ;;
+  --list-files) printf 'usage: yamllint [-h] ...\nyamllint: error: unrecognized arguments: --list-files\n' >&2; exit 2 ;;
+  *) echo 'invalid config: no such rule: "anchors"' >&2; exit 255 ;;
+esac
+EOF
+cat >"$tmp/broken/yamllint" <<'EOF'
+#!/bin/sh
+case $1 in
+  --version) echo 'yamllint 1.37.1' ;;
+  *) printf 'a notice\ninvalid config: no such rule: "bogus"\n' >&2; exit 255 ;;
+esac
+EOF
+chmod +x "$tmp/old/yamllint" "$tmp/broken/yamllint"
+expect_inactive "yamllint 1.26.3 with the plugin default config: inactive, says why" \
+  "yamllint 1.26.3 is older than 1.30" "$w/bad.yaml" PATH="$tmp/old:$PATH"
+expect_inactive "yamllint 1.26.3 with a project .yamllint (no --list-files): inactive, says why" \
+  "yamllint 1.26.3 is older than 1.30" "$w/proj/k8s/no-doc-start.yaml" PATH="$tmp/old:$PATH"
+expect_inactive "yamllint rejects the config: inactive, with its message and the config" \
+  'no such rule: \"bogus\" (config: plugin default (relaxed))' "$w/bad.yaml" PATH="$tmp/broken:$PATH"
+expect_inactive "yamllint rejects the project .yamllint: inactive, with its message and the config" \
+  "no such rule: \\\"bogus\\\" (config: $w/proj/.yamllint)" "$w/proj/k8s/no-doc-start.yaml" PATH="$tmp/broken:$PATH"
 
 # --- lint cases -------------------------------------------------------------------------------
 if needs_yamllint "lint cases"; then

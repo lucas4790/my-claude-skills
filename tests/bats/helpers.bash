@@ -16,10 +16,12 @@
 REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 export REPO_ROOT
 
-# Fixture commits get a neutral identity from the environment (the user's git config is not read
-# for it and never written).
+# Fixture commits get a neutral identity from the environment. The user's global and system git config
+# are neither read nor written: commit.gpgsign, hook.* or init.templateDir there would change or break
+# every fixture commit.
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid
 export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 # A test started from inside a git hook would otherwise operate on the outer repository.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX
 
@@ -77,6 +79,25 @@ assert_eq() {
 # correct behaviour; RUN_KNOWN_BUGS=1 runs it anyway to show the failure. Delete the call with the fix.
 known_bug() {
   [ -n "${RUN_KNOWN_BUGS:-}" ] || skip "KNOWN BUG: $*"
+}
+
+# tool_missing REASON: a check cannot run for lack of an optional tool. Skips the test, or fails it when
+# SKILL_EXAMPLES_REQUIRE_TOOLS is set to anything but 0 (CI: every check must run), the rule of
+# scripts/test-skill-examples.sh, its pytest suite and scripts/run-tests.sh.
+tool_missing() {
+  case ${SKILL_EXAMPLES_REQUIRE_TOOLS:-} in
+    '' | 0) skip "$*" ;;
+  esac
+  echo "$* (SKILL_EXAMPLES_REQUIRE_TOOLS is set)"
+  return 1
+}
+
+# need_tool TOOL...: tool_missing unless every TOOL is on PATH
+need_tool() {
+  local t
+  for t in "$@"; do
+    command -v "$t" >/dev/null 2>&1 || tool_missing "$t not installed" || return 1
+  done
 }
 
 # --- fake upstream repositories ---------------------------------------------------------------------

@@ -5,7 +5,9 @@
 #   {"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"..."}}
 # and exits 0: Claude Code adds that text next to the tool result without treating the edit as failed.
 # The hook never blocks and never fails: no yamllint, not a YAML file, file gone, Helm or Jinja
-# template, unexpected input or any internal error all end in a silent exit 0.
+# template, unexpected input or any internal error all end in a silent exit 0. A yamllint that stops
+# with a usage or config error instead of linting (older than 1.30, or a broken config) gets one line
+# of additionalContext saying the hook is inactive and why, also with exit 0.
 #
 # Config, in yamllint's own order of preference:
 #   1. .yamllint / .yamllint.yaml / .yamllint.yml in the file's directory or above (up to $HOME or /);
@@ -52,6 +54,22 @@ to_slashes() {
 json_escape() {
   tr -d '\000-\010\013-\037' |
     sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e "s/$TAB/\\\\t/g" -e 's/$/\\n/' | tr -d '\n'
+}
+
+# cannot_lint ARGS...: `yamllint ARGS` stopped with a usage or config error instead of linting: yamllint
+# is older than 1.30 (--list-files is new in 1.29, the default config's anchors rule in 1.30), or the
+# config is broken (the last line yamllint writes to stderr says how). One line of context; exit 0.
+cannot_lint() {
+  [ -f "$file" ] || exit 0
+  ver=$(yamllint --version 2>/dev/null)
+  ver=${ver##* }
+  case $ver in
+    0.* | 1.[0-9].* | 1.[12][0-9].*) why="yamllint $ver is older than 1.30" ;;
+    *) why="$(cd -- "$workdir" 2>/dev/null && yamllint "$@" 2>&1 >/dev/null | tail -n 1) (config: $label)" ;;
+  esac
+  ctx=$(printf 'yaml-hooks: YAML lint hook inactive: %s\n' "$why" | json_escape)
+  printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$ctx"
+  exit 0
 }
 
 case $(json_string tool_name) in
@@ -120,7 +138,8 @@ if [ -n "$confdir" ]; then
   workdir=$confdir
   if [ "$confdir" = / ]; then rel=${file#/}; else rel=${file#"$confdir"/}; fi
   # --list-files prints nothing for a file the project config ignores
-  listed=$(cd -- "$workdir" 2>/dev/null && yamllint --list-files -- "$rel" 2>/dev/null)
+  listed=$(cd -- "$workdir" 2>/dev/null && yamllint --list-files -- "$rel" 2>/dev/null) ||
+    cannot_lint --list-files -- "$rel"
   [ -n "$listed" ] || exit 0
   set --
 else
@@ -138,6 +157,7 @@ else
 fi
 
 out=$(cd -- "$workdir" 2>/dev/null && yamllint -f parsable "$@" -- "$rel" 2>/dev/null)
+case $? in 0 | 1) ;; *) cannot_lint -f parsable "$@" -- "$rel" ;; esac # 1: problems found
 [ -n "$out" ] || exit 0
 
 nerr=$(printf '%s\n' "$out" | grep -c ': \[error\] ')
