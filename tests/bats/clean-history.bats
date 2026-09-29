@@ -85,6 +85,15 @@ clean() { run bash "$REPO_ROOT/scripts/clean-history.sh" --owner 'Owner <owner@e
   assert_eq "$(git -C "$B" for-each-ref --format='%(refname)' refs/heads | tr '\n' ' ')" "refs/heads/feature refs/heads/main " "branches"
 }
 
+@test "clean-history: relative --replace-text and --mailmap paths work (filter-repo runs inside the repo)" {
+  printf 'Owner <owner@example.com> <fixture@example.invalid>\n' >"$BATS_TEST_TMPDIR/mailmap.txt"
+  cd "$BATS_TEST_TMPDIR"
+  run bash "$REPO_ROOT/scripts/clean-history.sh" --owner 'Owner <owner@example.com>' --report-dir report \
+    --replace-text replace.txt --mailmap mailmap.txt repo.git
+  assert_status 0
+  assert_eq "$(git -C "$B" show main:tests/fixture.txt)" "author: me@example.com" "file content"
+}
+
 @test "clean-history: --forbid fails the verification when the text survives" {
   clean --forbid old-me@old.example
   assert_status 1
