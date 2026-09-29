@@ -3,19 +3,22 @@
 # added to the marketplace since the last run, so plugins left out of a subset install or uninstalled
 # stay out. The names it has seen are in plugins/my-claude-skills-known-plugins of the Claude config
 # dir, one list per config (install.sh writes the first). Runs from a Claude Code SessionStart hook
-# (in the background) and throttles itself to once per interval; changes apply to the next session.
+# (in the background) and throttles itself to once per interval per config dir (the stamp
+# plugins/my-claude-skills-last-run sits next to that list); changes apply to the next session.
 #   update-plugins.sh            throttled run (default every 6 h; MY_CLAUDE_SKILLS_INTERVAL=seconds)
 #   update-plugins.sh --force    run now
 set -uo pipefail
 
 NAME="my-claude-skills"
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/$NAME"
-STAMP="$CACHE/last-run"
 LOG="$CACHE/update.log"
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 KNOWN="$CLAUDE_DIR/plugins/$NAME-known-plugins"   # per config dir: each has its own plugins
+# Per config dir too: with one shared stamp, a config that always starts within the interval after
+# another one would never update.
+STAMP="$CLAUDE_DIR/plugins/$NAME-last-run"
 INTERVAL="${MY_CLAUDE_SKILLS_INTERVAL:-21600}"
-mkdir -p "$CACHE"
+mkdir -p "$CACHE" "$CLAUDE_DIR/plugins"
 
 if [ "${1:-}" != "--force" ] && [ -f "$STAMP" ]; then
   age=$(( $(date +%s) - $(stat -c %Y "$STAMP" 2>/dev/null || stat -f %m "$STAMP") ))

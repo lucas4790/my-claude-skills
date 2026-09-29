@@ -16,9 +16,9 @@ setup() {
   unset FAKE_CLAUDE_MP_RC FAKE_CLAUDE_LIST_RC FAKE_CLAUDE_INSTALL_FAIL
   mkdir -p "$HOME"
   CACHE="$XDG_CACHE_HOME/my-claude-skills"
-  STAMP="$CACHE/last-run"
   LOG="$CACHE/update.log"
   KNOWN="$CLAUDE_CONFIG_DIR/plugins/my-claude-skills-known-plugins"
+  STAMP="$CLAUDE_CONFIG_DIR/plugins/my-claude-skills-last-run"   # per config dir, next to KNOWN
   MP_DIR="$CLAUDE_CONFIG_DIR/plugins/marketplaces/my-claude-skills"
   export FAKE_CALLS="$T/calls.log" FAKE_STATE="$T/state"
   mkdir -p "$FAKE_STATE" "$MP_DIR/.claude-plugin"
@@ -238,7 +238,7 @@ claude plugin update gamma@my-claude-skills" "claude calls"
 }
 
 @test "update-plugins: a stamp younger than the interval exits 0 without doing anything" {
-  mkdir -p "$CACHE"
+  mkdir -p "$(dirname "$STAMP")"
   touch "$STAMP"
   age "$STAMP" 60
   before=$(mtime "$STAMP")
@@ -251,7 +251,7 @@ claude plugin update gamma@my-claude-skills" "claude calls"
 }
 
 @test "update-plugins: a stamp older than MY_CLAUDE_SKILLS_INTERVAL runs and refreshes the stamp" {
-  mkdir -p "$CACHE"
+  mkdir -p "$(dirname "$STAMP")"
   touch "$STAMP"
   age "$STAMP" 120
   before=$(mtime "$STAMP")
@@ -261,8 +261,34 @@ claude plugin update gamma@my-claude-skills" "claude calls"
   [ "$(mtime "$STAMP")" -gt "$before" ]
 }
 
+@test "update-plugins: every Claude config dir has its own throttle stamp, so a second config still runs right after the first" {
+  local cfg
+  for cfg in work personal; do
+    offers "$T/$cfg/plugins/marketplaces/my-claude-skills" alpha beta gamma
+  done
+  CLAUDE_CONFIG_DIR="$T/work" run_update "$T/fake-claude-only:$T/sys"
+  assert_status 0
+  # a session in the other config dir, seconds later: not throttled by the first one's run
+  : > "$FAKE_CALLS"
+  CLAUDE_CONFIG_DIR="$T/personal" run_update "$T/fake-claude-only:$T/sys"
+  assert_status 0
+  grep -qxF "claude plugin marketplace update my-claude-skills" "$FAKE_CALLS"
+  assert_eq "$(grep -c '^done$' "$LOG")" 2 "finished runs"
+  # the stamps sit next to each config's known-plugins list, not in the shared cache dir
+  assert_exists "$T/work/plugins/my-claude-skills-last-run"
+  assert_exists "$T/personal/plugins/my-claude-skills-last-run"
+  # each one is still throttled by its own stamp
+  : > "$FAKE_CALLS"
+  for cfg in work personal; do
+    CLAUDE_CONFIG_DIR="$T/$cfg" run_update "$T/fake-claude-only:$T/sys"
+    assert_status 0
+  done
+  assert_eq "$(calls)" "" "claude calls of the throttled runs"
+  assert_not_exists "$CACHE/last-run"
+}
+
 @test "update-plugins: the same stamp is still fresh under the default interval (6 h)" {
-  mkdir -p "$CACHE"
+  mkdir -p "$(dirname "$STAMP")"
   touch "$STAMP"
   age "$STAMP" 120
   run_update "$T/fake-claude-only:$T/sys"
@@ -271,7 +297,7 @@ claude plugin update gamma@my-claude-skills" "claude calls"
 }
 
 @test "update-plugins: --force ignores a fresh stamp" {
-  mkdir -p "$CACHE"
+  mkdir -p "$(dirname "$STAMP")"
   touch "$STAMP"
   run_update "$T/fake-claude-only:$T/sys" --force
   assert_status 0
@@ -471,6 +497,39 @@ claude plugin update gamma@my-claude-skills" "claude calls"
   assert_eq "$(grep '^claude plugin install' "$FAKE_CALLS")" "claude plugin install delta@my-claude-skills
 claude plugin install delta@my-claude-skills" "installs"
   assert_not_exists "$T/local/my-claude-skills/known-plugins"
+}
+
+@test "update-plugins.ps1: every Claude config dir has its own throttle stamp (pwsh, or \$PWSH)" {
+  local pwsh="${PWSH:-}"
+  [ -n "$pwsh" ] || pwsh=$(command -v pwsh) || tool_missing "pwsh not installed (set PWSH=/path/to/pwsh to run this)"
+  local cfg
+  for cfg in work personal; do
+    offers "$T/$cfg/plugins/marketplaces/my-claude-skills" alpha beta gamma
+  done
+  # throttled runs (no -Force), as the SessionStart hook starts them
+  run_ps1() {
+    run env PATH="$T/fake-claude-only:$T/sys" LOCALAPPDATA="$T/local" CLAUDE_CONFIG_DIR="$T/$1" \
+      "$pwsh" -NoLogo -NoProfile -NonInteractive -File "$REPO_ROOT/scripts/update-plugins.ps1"
+  }
+
+  run_ps1 work
+  assert_status 0
+  # a session in the other config dir, seconds later: not throttled by the first one's run
+  : > "$FAKE_CALLS"
+  run_ps1 personal
+  assert_status 0
+  grep -qxF "claude plugin marketplace update my-claude-skills" "$FAKE_CALLS"
+  # the stamps sit next to each config's known-plugins list, not in the shared cache dir
+  assert_exists "$T/work/plugins/my-claude-skills-last-run"
+  assert_exists "$T/personal/plugins/my-claude-skills-last-run"
+  # each one is still throttled by its own stamp
+  : > "$FAKE_CALLS"
+  run_ps1 work
+  assert_status 0
+  run_ps1 personal
+  assert_status 0
+  assert_eq "$(calls)" "" "claude calls of the throttled runs"
+  assert_not_exists "$T/local/my-claude-skills/last-run"
 }
 
 @test "update-plugins: runs under bash 3.2, macOS's /bin/bash (set BASH32=/path/to/bash-3.2)" {
