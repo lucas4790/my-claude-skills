@@ -48,9 +48,13 @@ het drukt de push-commando's af. `tests/bats/clean-history.bats` test het op een
 
 ```bash
 R=lucas4790/my-claude-skills
-gh pr list -R "$R" --state open                    # moet leeg zijn
+gh pr list -R "$R" --state open                    # leeg, op een sync-PR (sync/high-trust, sync/low-trust) na
 gh workflow disable sync-upstream.yml -R "$R"      # de dagelijkse sync mag nu geen branches pushen
 ```
+
+Merge een open sync-PR nu **niet**: dat verplaatst `main`, en dan weigert `--force-with-lease` in stap 7.
+Laat hem staan; stap 7 verwijdert de sync-branches en sluit hem daarmee, en na stap 8 opent de
+dagelijkse sync een nieuwe op de schone historie.
 
 ## 3. Kopieën maken
 
