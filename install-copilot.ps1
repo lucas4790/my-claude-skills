@@ -27,17 +27,28 @@ function Install-MyClaudeSkillsForCopilot([string[]] $Profiles, [string[]] $Plug
     function Initialize-Path {
         $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
     }
+    # Runs $Command, a native call with 2>$null. Under Stop, Windows PowerShell 5.1 turns redirected stderr
+    # into a terminating error, so the preference is Continue for this call only.
+    function Invoke-Quiet([scriptblock] $Command) { $ErrorActionPreference = 'Continue'; & $Command }
+    # settings.json with comments or trailing commas (JSONC): rewriting it with ConvertTo-Json would drop the
+    # comments. Such a file is left alone, as install-copilot.sh does.
+    function Test-PlainJson([string] $raw) {
+        $noStrings = [regex]::Replace($raw, '"(?:[^"\\]|\\.)*"', '""')
+        return -not ($noStrings -match '//|/\*|,\s*[}\]]')
+    }
+    # Native commands below write to Out-Host: uncaptured, their output would become part of this function's
+    # return value, hidden from the user and turning a failed run into a truthy result.
 
     # --- Copilot CLI ------------------------------------------------------------------
     if (-not (Test-Cmd copilot)) {
         if (Test-Cmd winget) {
             Write-Host '==> installing GitHub Copilot CLI via winget'
-            & winget install --id GitHub.Copilot -e --accept-source-agreements --accept-package-agreements --silent
+            & winget install --id GitHub.Copilot -e --accept-source-agreements --accept-package-agreements --silent | Out-Host
             Initialize-Path
         }
         if (-not (Test-Cmd copilot) -and (Test-Cmd npm.cmd)) {
             Write-Host '==> installing GitHub Copilot CLI (npm -g @github/copilot)'
-            & npm.cmd install -g '@github/copilot'   # npm.cmd, not npm.ps1: works under the Restricted execution policy
+            & npm.cmd install -g '@github/copilot' | Out-Host   # npm.cmd, not npm.ps1: works under the Restricted execution policy
             Initialize-Path
         }
         if (-not (Test-Cmd copilot)) {
@@ -45,7 +56,7 @@ function Install-MyClaudeSkillsForCopilot([string[]] $Profiles, [string[]] $Plug
             return $false
         }
     }
-    $verText = (& copilot --version 2>$null | Select-Object -First 1)
+    $verText = (Invoke-Quiet { & copilot --version 2>$null } | Select-Object -First 1)
     Write-Host "==> $verText"
     if ($verText -match '(\d+\.\d+\.\d+)' -and [version] $Matches[1] -lt $minCopilot) {
         Write-Warning "Copilot CLI $($Matches[1]) is older than $minCopilot (sha-pinned sources such as caveman need it); run: copilot update"
@@ -75,20 +86,20 @@ function Install-MyClaudeSkillsForCopilot([string[]] $Profiles, [string[]] $Plug
     if (-not $Plugin) { Write-Warning 'no plugins selected'; return $false }
 
     # --- marketplace + plugins ------------------------------------------------------------
-    $existing = & copilot plugin marketplace list 2>$null
+    $existing = Invoke-Quiet { & copilot plugin marketplace list 2>$null }
     if ($existing -match $name) {
         Write-Host "==> updating marketplace $name"
-        & copilot plugin marketplace update $name
+        & copilot plugin marketplace update $name | Out-Host
     } else {
         Write-Host "==> adding marketplace $name"
-        & copilot plugin marketplace add $repo
+        & copilot plugin marketplace add $repo | Out-Host
         if ($LASTEXITCODE -ne 0) { Write-Warning 'could not add the marketplace'; return $false }
     }
 
     $failed = @()
     foreach ($p in $Plugin) {
         Write-Host "==> installing $p"
-        & copilot plugin install "$p@$name"
+        & copilot plugin install "$p@$name" | Out-Host
         if ($LASTEXITCODE -ne 0) { $failed += $p }
     }
     Write-Host "Installed $($Plugin.Count) plugin(s) from $name into Copilot CLI."
@@ -99,7 +110,12 @@ function Install-MyClaudeSkillsForCopilot([string[]] $Profiles, [string[]] $Plug
     $home_ = if ($env:COPILOT_HOME) { $env:COPILOT_HOME } else { Join-Path $HOME '.copilot' }
     $cfg = Join-Path $home_ 'settings.json'
     try {
-        $settings = Get-Content $cfg -Raw | ConvertFrom-Json
+        # A missing, empty or blank settings.json starts as {}: includeCoAuthoredBy is set either way.
+        New-Item -ItemType Directory -Path $home_ -Force | Out-Null
+        $text = if (Test-Path $cfg) { Get-Content $cfg -Raw -Encoding UTF8 } else { '' }
+        if (-not "$text".Trim()) { $text = '{}' }
+        if (-not (Test-PlainJson $text)) { throw 'not plain JSON (comments or trailing commas)' }
+        $settings = $text | ConvertFrom-Json
         if (-not $settings.PSObject.Properties['extraKnownMarketplaces']) {
             $settings | Add-Member -NotePropertyName extraKnownMarketplaces -NotePropertyValue ([pscustomobject]@{})
         }
@@ -115,7 +131,7 @@ function Install-MyClaudeSkillsForCopilot([string[]] $Profiles, [string[]] $Plug
         [IO.File]::WriteAllText($cfg, ($settings | ConvertTo-Json -Depth 20), (New-Object Text.UTF8Encoding $false))
         Write-Host "==> enabled autoUpdate for $name and turned off AI co-author trailers (includeCoAuthoredBy) in $cfg"
     } catch {
-        Write-Warning "could not update $cfg ($($_.Exception.Message)); set extraKnownMarketplaces.$name.autoUpdate = true by hand"
+        Write-Warning "could not update $cfg ($($_.Exception.Message)); set extraKnownMarketplaces.$name.autoUpdate = true and includeCoAuthoredBy = false by hand"
     }
 
     Write-Host @"

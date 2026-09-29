@@ -45,11 +45,13 @@ jobs:
       - name: Install test tools
         # bats 1.10, pytest 7.4, PyYAML (tests/evals), yamllint and git-filter-repo (for
         # tests/bats/clean-history.bats) from Ubuntu; shellcheck, pwsh, git, rsync and jq are preinstalled.
-        # The pytest suite of the skill-example checker never installs Pester, so it comes first.
+        # The pytest suite of the skill-example checker never installs Pester, so it comes first;
+        # PSScriptAnalyzer is for tests/bats/installers-windows.bats.
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends bats python3-pytest python3-yaml yamllint git-filter-repo
-          pwsh -NoProfile -Command 'Install-Module Pester -MinimumVersion 6.0.0 -Scope CurrentUser -Force -SkipPublisherCheck'
+          pwsh -NoProfile -Command 'Install-Module Pester -MinimumVersion 6.0.0 -Scope CurrentUser -Force -SkipPublisherCheck
+            if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) { Install-Module PSScriptAnalyzer -Scope CurrentUser -Force }'
       - name: Script tests (bats, pytest, shellcheck of the attribution guard)
         env:
           SKILL_EXAMPLES_REQUIRE_TOOLS: "1"  # a missing optional tool fails the checks that need it, never skips them
@@ -120,8 +122,9 @@ jobs:
           sandboxed() {
             sudo -u sandbox env -i HOME=/home/sandbox PATH=/usr/local/bin:/usr/bin:/bin SKILL_EXAMPLES_REQUIRE_TOOLS=1 "$@"
           }
-          # Pester 6 for the sandbox user (the pytest suites never install it themselves)
-          sandboxed pwsh -NoProfile -Command 'Install-Module Pester -MinimumVersion 6.0.0 -Scope CurrentUser -Force -SkipPublisherCheck' \
+          # Pester 6 and PSScriptAnalyzer (tests/bats/installers-windows.bats) for the sandbox user
+          sandboxed pwsh -NoProfile -Command 'Install-Module Pester -MinimumVersion 6.0.0 -Scope CurrentUser -Force -SkipPublisherCheck
+            if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) { Install-Module PSScriptAnalyzer -Scope CurrentUser -Force }' \
             2>&1 | tee "$RUNNER_TEMP/tests.log" || echo "TESTS_FAILED=1" >> "$GITHUB_ENV"
           sandboxed bash "$work/scripts/run-tests.sh" 2>&1 | tee -a "$RUNNER_TEMP/tests.log" \
             || echo "TESTS_FAILED=1" >> "$GITHUB_ENV"
