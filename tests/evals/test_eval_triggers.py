@@ -30,6 +30,15 @@ et = _load_runner()
 from skill_descriptions import Skill  # noqa: E402
 
 
+def need_pyyaml() -> None:
+    """Skips without PyYAML, or fails when SKILL_EXAMPLES_REQUIRE_TOOLS is set to anything but 0 (CI: every
+    check must run), like need() in tests/skill_examples."""
+    if importlib.util.find_spec("yaml") is None:
+        if os.environ.get("SKILL_EXAMPLES_REQUIRE_TOOLS", "") not in ("", "0"):
+            pytest.fail("missing tool(s): pyyaml (SKILL_EXAMPLES_REQUIRE_TOOLS is set)")
+        pytest.skip("missing tool(s): pyyaml")
+
+
 def feed_all(parser, name, stop=True):
     """Feed a fixture; with stop=True, stop where the runner would stop."""
     for line in (FIXTURES / name).read_text(encoding="utf-8").splitlines():
@@ -438,7 +447,7 @@ def calls(log):
 
 @pytest.mark.skipif(os.name == "nt", reason="fake CLI is a shebang script")
 def test_end_to_end_with_fake_cli(fake_cli, monkeypatch, capsys):
-    pytest.importorskip("yaml")
+    need_pyyaml()
     exe, log, cases, tmp = fake_cli
     monkeypatch.setenv("ANTHROPIC_API_KEY", "dummy")
     out_json, out_md = tmp / "out.json", tmp / "summary.md"
@@ -469,7 +478,7 @@ def test_end_to_end_with_fake_cli(fake_cli, monkeypatch, capsys):
 
 @pytest.mark.skipif(os.name == "nt", reason="fake CLI is a shebang script")
 def test_skips_cleanly_without_credentials(fake_cli, monkeypatch, capsys):
-    pytest.importorskip("yaml")
+    need_pyyaml()
     exe, log, cases, tmp = fake_cli
     monkeypatch.setenv("FAKE_AUTH_RC", "1")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
@@ -483,7 +492,7 @@ def test_skips_cleanly_without_credentials(fake_cli, monkeypatch, capsys):
 
 @pytest.mark.skipif(os.name == "nt", reason="fake CLI is a shebang script")
 def test_dry_run_and_config_errors(fake_cli, capsys):
-    pytest.importorskip("yaml")
+    need_pyyaml()
     exe, log, cases, tmp = fake_cli
     assert et.main(["--cases", str(cases), "--claude", str(exe), "--dry-run", "--filter", "^pester"]) == 0
     out = capsys.readouterr().out

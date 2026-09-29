@@ -158,7 +158,9 @@ main() {
       warn "no snap/brew/dotnet; install PowerShell manually: https://learn.microsoft.com/powershell/scripting/install"
     fi
     if has pwsh; then
-      pwsh -NoProfile -Command 'foreach ($m in "PSScriptAnalyzer","Pester") { if (-not (Get-Module -ListAvailable $m)) { Install-Module $m -Scope CurrentUser -Force } }' \
+      # Pester 6 unless one is present (an older Pester does not count), as install.ps1 does;
+      # -SkipPublisherCheck: an older Pester may be signed with another certificate
+      pwsh -NoProfile -Command 'if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) { Install-Module PSScriptAnalyzer -Scope CurrentUser -Force }; if (-not (Get-Module -ListAvailable Pester | Where-Object Version -ge 6.0.0)) { Install-Module Pester -MinimumVersion 6.0.0 -Scope CurrentUser -Force -SkipPublisherCheck }' \
         || warn "PSScriptAnalyzer/Pester install failed; run Install-Module manually"
     fi
   fi

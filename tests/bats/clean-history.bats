@@ -4,7 +4,7 @@
 
 setup() {
   load helpers
-  git filter-repo --version >/dev/null 2>&1 || skip "git filter-repo not installed"
+  git filter-repo --version >/dev/null 2>&1 || tool_missing "git filter-repo not installed"
   export GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
   export GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid
   S="$BATS_TEST_TMPDIR/src"
