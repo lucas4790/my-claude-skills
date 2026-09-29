@@ -45,6 +45,8 @@ claude plugin install <plugin>@my-claude-skills
 
 The script also registers a `SessionStart` hook in `~/.claude/settings.json` (Windows: `%USERPROFILE%\.claude\settings.json`; `CLAUDE_CONFIG_DIR` if set) that runs its copy of `scripts/update-plugins.sh` / `.ps1` (the clone's when the installer runs from a clone, else `main`'s) in the background: it refreshes the marketplace, updates the installed plugins and installs only the plugins added to the marketplace since its previous run (it keeps their names in `known-plugins` next to its log), so a subset install stays a subset and an uninstalled plugin stays uninstalled. Its first run only records that list, and when `claude plugin list` fails it only updates. It also refreshes its own copy from the marketplace clone (used from the next run). Throttled to once per 6 h (`MY_CLAUDE_SKILLS_INTERVAL` seconds to change). The copy is in `~/.local/share/my-claude-skills/` and its log in `~/.cache/my-claude-skills/update.log`; on Windows both are in `%LOCALAPPDATA%\my-claude-skills\`. Changes apply to the next session. Run it by hand with `--force` (`-Force` for the `.ps1`).
 
+**Upgrading an older install**: the installer copies the updater once, so a machine installed before the updater learned to refresh itself runs a frozen copy of the old one (it has no `known-plugins` in it). That copy never refreshes and still installs every marketplace plugin that is missing, so a subset grows to the full set and an uninstalled plugin comes back. Re-run the installer once (with the same plugin names if you installed a subset; it overwrites the copy and does not register the hook twice), or copy the marketplace clone's updater over the installed copy: `~/.claude/plugins/marketplaces/my-claude-skills/scripts/update-plugins.sh` to `~/.local/share/my-claude-skills/update-plugins.sh`, on Windows `%USERPROFILE%\.claude\plugins\marketplaces\my-claude-skills\scripts\update-plugins.ps1` to `%LOCALAPPDATA%\my-claude-skills\update-plugins.ps1`. Then uninstall the plugins you do not want: the new updater's first run records the marketplace's plugins as known and does not bring them back.
+
 ### No AI attribution
 
 The installers also switch off AI attribution naming Claude or Anthropic: `attribution` in `~/.claude/settings.json`
@@ -116,34 +118,60 @@ Claude Code, Copilot CLI, the Copilot coding agent and VS Code then recommend th
 
 ### Permissions baseline (opt-in, manual)
 
-[`settings/permissions.json`](settings/permissions.json) is a curated list of **read-only** inspection commands — `git status`/`diff`/`log`, `gh pr view`, `az … show`/`list`, `kubectl get`/`describe`/`logs`, `helm list`/`status`/`template`, `terraform plan`/`validate`/`show`, `jq` — so Claude Code stops asking for those. Nothing in it mutates state, and there are no broad wildcards (`az *`, `kubectl *`, `git *`). An allow rule covers its command with every flag, so the file also has `permissions.ask` rules for the flags that would let one of these reads run a program or write a file, and an ask rule wins over an allow rule: `git diff`/`log`/`show`/`blame --output=FILE`, `git fetch --upload-pack=<command>`, `--kubeconfig` for kubectl and helm (a kubeconfig's `exec` credential plugin runs a program), `kubectl --cache-dir`/`--profile-output`, `helm --post-renderer`/`--output-dir`/`--repository-cache`/`--repository-config`/`--registry-config`/`--dependency-update`, and `terraform plan -out`/`-generate-config-out`. `terraform fmt` is allowed only with `-check` (without it, it rewrites files) and `terraform providers` only without a subcommand (`lock`/`mirror` write files). Edge cases in on purpose: `git fetch` talks to the network (it writes only `.git/`), `terraform plan` runs the configuration's providers and `external` data sources against the configured backend (it does not apply), and `terraform validate`/`show`/`state show` start the provider plugins that `terraform init` put in `.terraform/`. Shell redirection is a residual risk of every rule in the list, not just `jq *`: Claude Code matches the command prefix, so `jq . a > b` or `git log > file` can still write a file; `jq *` stays because `az … | jq` pipes need every segment allowed.
+[`settings/permissions.json`](settings/permissions.json) is a curated list of **read-only** inspection commands — `git status`, `git fetch`, `gh pr view`, `az … show`/`list`, `kubectl get`/`describe`/`logs`, `helm list`/`status`/`get`, `terraform plan`/`validate`/`show`, `jq` — so Claude Code stops asking for those. It has no broad wildcards (`az *`, `kubectl *`, `git *`) and no rule for `git diff`/`log`/`show`/`blame`: Claude Code's built-in read-only check already runs their plain forms without asking and asks for the rest (`--output=FILE`, also quoted or passed through `xargs`). Some commands are allowed only in exact forms: `git fetch` as `git fetch`, `git fetch origin`, `git fetch --prune`, `git fetch origin --prune` and `git fetch --all --prune` (`--upload-pack=<command>` runs a command), `terraform fmt` as `terraform fmt -check` with `-diff` and/or `-recursive` (a later `-check=false` makes it rewrite files), and `terraform providers` without a subcommand (`lock`/`mirror` write files).
 
-[`settings/permissions-trusted-repo.json`](settings/permissions-trusted-repo.json) is a second, separate list of build, test and lint runners (`dotnet build`/`test`/`format --verify-no-changes`, `python -m pytest`/`unittest`, `npm test`, `npm run lint`). Every one of them executes code from the clone (MSBuild targets, `conftest.py`, `package.json` scripts), which in an untrusted repository is arbitrary code running unprompted. Merge it only on machines where every clone Claude Code opens is one you trust.
+The other rules end in `*` and cover every flag of their command. For the flags that would let one of these reads run a program, send your cluster credentials elsewhere or write a file, the file has `permissions.ask` rules, and an ask rule wins over an allow rule: `--kubeconfig` for kubectl and helm (a kubeconfig's `exec` credential plugin runs a program), `kubectl --server`/`-s` and `helm --kube-apiserver` (send the kubeconfig's credentials, such as an exec plugin's token, to another API server), `helm --kube-token`, `kubectl --cache-dir`/`--profile` (`--profile` writes `./profile.pprof`; the rule also matches `--profile-output`), `helm --post-renderer`/`--output-dir`/`--repository-cache`/`--repository-config`/`--registry-config`/`--dependency-update`, and `terraform plan -out`/`-generate-config-out`. **These ask rules are a backstop, not a boundary.** Claude Code matches a rule against the command text as written (whitespace collapsed, quotes and backslashes kept), and an allow rule ending in `*` also matches its command run through `xargs`. A quoted or escaped flag (`--ser"ver"=…`, `--kube\config=…`), a combined short flag (`-As <server>`) or flags passed through `xargs` therefore get past the ask rules and run unprompted.
 
-The installer does **not** apply either file: widening what Claude may run without asking is a decision to make deliberately, per machine, after reading the list. To merge the read-only list (its allow and ask rules) into `~/.claude/settings.json` yourself (union, existing entries first, nothing else touched):
+Residual risks of the rules that stay, accepted on purpose:
+
+- A disguised `--kubeconfig` runs the `exec` plugin of any kubeconfig, for example one in the clone; a disguised `--server` or `--kube-apiserver` sends your cluster token to another server; a disguised write flag writes a file.
+- `terraform plan` runs the configuration's providers and `external` data sources against the configured backend (it does not apply), so in a clone you do not trust it runs that clone's code. `terraform validate`/`show`/`state show` start the provider plugins that `terraform init` put in `.terraform/`. Remove `Bash(terraform plan *)` from your settings if Claude Code opens Terraform code you would not run yourself.
+- Reads can print secrets into the session (`kubectl get secret -o yaml`, `helm get values`, `terraform show`/`output`), and `jq *` reads any file you can read; `jq *` stays because `az … | jq` pipes need every segment allowed.
+- `git fetch` talks to the network (it writes only `.git/`).
+- Shell redirection is checked apart from the rules: Claude Code 2.1.284 (tested) asks before `> file`, `>|` or `&>` writes a file after an allowed command, and in `acceptEdits` mode allows it inside the working directory like any edit. A Claude Code version without that check would let `jq . a > b` or `kubectl get pods > file` write a file after any rule here.
+
+The rule for changing the list: an allow wildcard belongs in `permissions.json` only if its residual risk is documented here and in the file's `$comment`, and a rule whose flags can run a program from the clone belongs in `permissions-trusted-repo.json`.
+
+[`settings/permissions-trusted-repo.json`](settings/permissions-trusted-repo.json) is a second, separate list of build, test, lint and render commands (`dotnet build`/`test`/`format --verify-no-changes`, `python -m pytest`/`unittest`, `npm test`, `npm run lint`, `helm template`). Every one of them can execute code from the clone (MSBuild targets, `conftest.py`, `package.json` scripts, the program a `helm template --post-renderer` names), which in an untrusted repository is arbitrary code running unprompted. Merge it only on machines where every clone Claude Code opens is one you trust.
+
+The installer does **not** apply either file: widening what Claude may run without asking is a decision to make deliberately, per machine, after reading the list. To merge the read-only list (its allow and ask rules) into `~/.claude/settings.json` (`$CLAUDE_CONFIG_DIR/settings.json` if set) yourself: a union, existing entries first, nothing else touched. A missing or empty file starts as `{}`, a symlinked one is written through, and a file that is not plain JSON (comments, a trailing comma) is left as it is with an error. On Windows, run the snippets from Git Bash, where `~/.claude` is `%USERPROFILE%\.claude`, or from WSL with the `f=` line changed to `f=/mnt/c/Users/<you>/.claude/settings.json`.
 
 ```bash
+f=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json
 src=$(mktemp) && out=$(mktemp) &&
   curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/settings/permissions.json -o "$src" &&
-  jq --slurpfile p "$src" 'reduce ("allow", "ask") as $k (.;
+  mkdir -p "$(dirname "$f")" && touch "$f" &&
+  jq -s --slurpfile p "$src" '(.[0] // {}) | reduce ("allow", "ask") as $k (.;
       (.permissions[$k] // []) as $a
       | .permissions[$k] = $a + (($p[0].permissions[$k] // []) | map(select(. as $x | $a | index($x) | not))))' \
-    ~/.claude/settings.json > "$out" && mv "$out" ~/.claude/settings.json
+    "$f" > "$out" && cat "$out" > "$f" || echo "error: $f not merged" >&2
 rm -f "$src" "$out"
 ```
 
 Same merge for the trusted-repo list, if you want it:
 
 ```bash
+f=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json
 src=$(mktemp) && out=$(mktemp) &&
   curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/settings/permissions-trusted-repo.json -o "$src" &&
-  jq --slurpfile p "$src" '(.permissions.allow // []) as $a
+  mkdir -p "$(dirname "$f")" && touch "$f" &&
+  jq -s --slurpfile p "$src" '(.[0] // {}) | (.permissions.allow // []) as $a
     | .permissions.allow = $a + ($p[0].permissions.allow | map(select(. as $x | $a | index($x) | not)))' \
-    ~/.claude/settings.json > "$out" && mv "$out" ~/.claude/settings.json
+    "$f" > "$out" && cat "$out" > "$f" || echo "error: $f not merged" >&2
 rm -f "$src" "$out"
 ```
 
-The merge only adds rules. If you merged an earlier version of the read-only list, delete the two rules it no longer has from `~/.claude/settings.json`: `Bash(terraform fmt -diff *)` and `Bash(terraform providers *)`, and merge it again for the new ask rules.
+The merge only adds rules. If you merged an earlier version of the read-only list, remove the rules it no longer has, then merge it again for the exact and ask rules (and the trusted-repo list too if you use it, since this also removes `Bash(helm template *)`, which moved there):
+
+```bash
+f=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json
+out=$(mktemp) &&
+  jq -s '(.[0] // {}) | if .permissions.allow then .permissions.allow -= ["Bash(git diff *)", "Bash(git log *)",
+      "Bash(git show *)", "Bash(git blame *)", "Bash(git fetch *)", "Bash(helm template *)",
+      "Bash(terraform fmt -check *)", "Bash(terraform fmt -diff *)", "Bash(terraform providers *)"] else . end' \
+    "$f" > "$out" && cat "$out" > "$f" || echo "error: $f not changed" >&2
+rm -f "$out"
+```
 
 Changes to either list are part of reviewing this repo: a PR that adds a rule here is a PR that changes what runs unprompted on every machine that merged it.
 
@@ -161,16 +189,18 @@ effect: `/commit-push-pr` now asks before pushing. It also switches off AI attri
 [`docs/ATTRIBUTION.md`](docs/ATTRIBUTION.md)). Merge (union for `ask`, existing `env` values win, `attribution` is set):
 
 ```bash
+f=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json
 src=$(mktemp) && out=$(mktemp) &&
   curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/settings/claude-guardrails.json -o "$src" &&
-  jq --slurpfile g "$src" '(.permissions.ask // []) as $a
+  mkdir -p "$(dirname "$f")" && touch "$f" &&
+  jq -s --slurpfile g "$src" '(.[0] // {}) | (.permissions.ask // []) as $a
     | .permissions.ask = $a + ($g[0].permissions.ask | map(select(. as $x | $a | index($x) | not)))
     | .env = ($g[0].env + (.env // {}))
-    | .attribution = $g[0].attribution' ~/.claude/settings.json > "$out" && mv "$out" ~/.claude/settings.json
+    | .attribution = $g[0].attribution' "$f" > "$out" && cat "$out" > "$f" || echo "error: $f not merged" >&2
 rm -f "$src" "$out"
 ```
 
-On Windows the file is `%USERPROFILE%\.claude\settings.json`; run the same `jq` from Git Bash or WSL against it.
+Like the snippets under [Permissions baseline](#permissions-baseline-opt-in-manual), it starts a missing or empty file as `{}`, writes through a symlink and leaves a file that is not plain JSON alone with an error. On Windows the file is `%USERPROFILE%\.claude\settings.json`; run it from Git Bash, or from WSL with the `f=` line changed to `f=/mnt/c/Users/<you>/.claude/settings.json`.
 
 ## Plugins
 
