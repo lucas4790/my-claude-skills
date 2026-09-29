@@ -8,11 +8,12 @@
 #   sync.sh --only NAME     one source by name
 #
 # A copy entry may name a "patch" (a repo-relative unified diff); a source's patches are applied,
-# in copy order, once all of its copies are written (see README). A run without --only and --trust
-# also drops lock entries of sources no longer in sources.json.
+# in copy order, once all of its copies are written (see README). Every run also drops the lock
+# entries of sources no longer in sources.json; those of sources that --only or --trust skip stay.
 # Exit status: 0 all selected sources synced, 1 a source failed (its paths and lock entry stay as
 # committed; the others are still synced) or a required tool is missing, 2 usage error (unknown
-# option or --trust value, or no source matches --only).
+# option, a missing or empty --only/--trust value, a --trust other than high or low, or no source
+# matches --only).
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -25,9 +26,9 @@ usage_error() { echo "$*" >&2; exit 2; }
 trust_filter="" locked=0 only=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --trust)  [ "$#" -ge 2 ] || usage_error "error: --trust needs a value"; trust_filter="$2"; shift 2 ;;
+    --trust)  [ "$#" -ge 2 ] && [ -n "$2" ] || usage_error "error: --trust needs a value"; trust_filter="$2"; shift 2 ;;
     --locked) locked=1; shift ;;
-    --only)   [ "$#" -ge 2 ] || usage_error "error: --only needs a value"; only="$2"; shift 2 ;;
+    --only)   [ "$#" -ge 2 ] && [ -n "$2" ] || usage_error "error: --only needs a value"; only="$2"; shift 2 ;;
     *) usage_error "unknown option: $1" ;;
   esac
 done
@@ -69,6 +70,9 @@ apply_patch() {
     && git checkout-index -f -a && git clean -fq -- "$@" \
     && echo "    patch $patch (3-way merge)"
 }
+
+# below_root PATH: PATH (a copy's "to") names something below the repo root: no empty, . or .. part
+below_root() { case "/$1/" in *//* | */./* | */../*) return 1 ;; esac; }
 
 sync_source() {
   local i="$1" name repo ref trust clone sha n j from to src p
@@ -118,7 +122,10 @@ sync_source() {
       mapfile -t excludes < <(jq -r ".sources[$i].copy[$j].exclude // [] | .[] | \"--exclude=/\" + ." "$SOURCES")
       mkdir -p "$ROOT/$to" && rsync -a --delete --exclude '.git' "${excludes[@]}" "$src/" "$ROOT/$to/"
     else
-      mkdir -p "$(dirname "$ROOT/$to")" && cp "$src" "$ROOT/$to"
+      # A folder where upstream now has a file (upstream turned it into one) gives way to the file;
+      # cp alone would put the file inside it. Only below the root: never for "", "a/", "a/./b" etc.
+      { [ ! -d "$ROOT/$to" ] || { below_root "$to" && rm -rf "${ROOT:?}/$to"; }; } \
+        && mkdir -p "$(dirname "$ROOT/$to")" && cp "$src" "$ROOT/$to"
     fi || { echo "error: $name: copying $from to $to failed" >&2; return 1; }
     echo "    $from -> $to"
   done
@@ -150,12 +157,11 @@ for i in $(seq 0 $((count - 1))); do
   restore_paths "${tos[@]}"
 done
 
-# A run over every source also drops the lock entries of sources no longer in sources.json.
-if [ -z "$only$trust_filter" ]; then
-  names=$(jq -c '[.sources[].name]' "$SOURCES")
-  jq -r --argjson names "$names" 'keys - $names | .[] | "==> dropped \(.) from the lockfile (not in sources.json)"' <<<"$lock"
-  lock=$(jq --argjson names "$names" 'del(.[keys - $names | .[]])' <<<"$lock")
-fi
+# Drops the lock entries of sources no longer in sources.json, whatever the filter: --only and --trust
+# choose which sources sync, not which entries are valid (CI syncs per --trust tier only).
+names=$(jq -c '[.sources[].name]' "$SOURCES")
+jq -r --argjson names "$names" 'keys - $names | .[] | "==> dropped \(.) from the lockfile (not in sources.json)"' <<<"$lock"
+lock=$(jq --argjson names "$names" 'del(.[keys - $names | .[]])' <<<"$lock")
 
 jq -S . <<<"$lock" > "$LOCK"
 echo "==> wrote $(basename "$LOCK")"
