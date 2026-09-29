@@ -1,5 +1,5 @@
 {
-  "$comment": "Merged by hand into ~/.claude/settings.json (see README 'Guardrails'). ask rules win over allow rules and over a skill's allowed-tools, and match past any leading VAR=value assignment, so claude-security (which Claude may start on its own since 0.12.0 and which pre-approves Bash(git *)) still has to ask before these. Each rule is mirrored for the PowerShell tool (Claude's main shell on Windows); there, git -c is only asked for core.hooksPath and hook.* because PowerShell rules ignore case and would also catch git -C. They are prompts, not a sandbox: other spellings (e.g. git 'push', sh -c) are not matched. env: keep code-modernization's function-hook module off even if Anthropic's rollout flag turns it on, and turn off its usage counts. attribution: no AI co-author trailers, PR footers or session links in anything Claude writes (docs/ATTRIBUTION.md).",
+  "$comment": "Merged by hand into ~/.claude/settings.json (see README 'Guardrails'). ask rules win over allow rules and over a skill's allowed-tools, and match past any leading VAR=value assignment, so claude-security (which Claude may start on its own since 0.12.0 and which pre-approves Bash(git *)) still has to ask before these. Each rule is mirrored for the PowerShell tool (Claude's main shell on Windows); there, git -c (also after -C <dir>) is only asked for core.hooksPath and hook.* because PowerShell rules ignore case and would also catch git -C. git -C * -c * also asks for a later -c flag of the subcommand (git -C dir commit -c HEAD). They are prompts, not a sandbox: other spellings (e.g. git 'push', sh -c) are not matched. env: keep code-modernization's function-hook module off even if Anthropic's rollout flag turns it on, and turn off its usage counts. attribution: no AI co-author trailers, PR footers or session links in anything Claude writes (docs/ATTRIBUTION.md).",
   "attribution": {
     "commit": "",
     "pr": "",
@@ -16,6 +16,7 @@
       "Bash(git config *)",
       "Bash(git -C * config *)",
       "Bash(git -c *)",
+      "Bash(git -C * -c *)",
       "Bash(git remote add *)",
       "Bash(git remote set-url *)",
       "Bash(git -C * remote add *)",
@@ -33,7 +34,9 @@
       "PowerShell(git -C * remote add *)",
       "PowerShell(git -C * remote set-url *)",
       "PowerShell(git -c core.hooksPath*)",
-      "PowerShell(git -c hook.*)"
+      "PowerShell(git -C * -c core.hooksPath*)",
+      "PowerShell(git -c hook.*)",
+      "PowerShell(git -C * -c hook.*)"
     ]
   },
   "env": {
