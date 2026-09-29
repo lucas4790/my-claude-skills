@@ -183,14 +183,14 @@ Skills and agents for running, generating, analyzing, and improving .NET tests: 
 
 | Name | What it does |
 |---|---|
-| [`code-testing-builder`](plugins/dotnet-test/agents/code-testing-builder.agent.md) | Runs build/compile commands for any language and reports results. |
-| [`code-testing-fixer`](plugins/dotnet-test/agents/code-testing-fixer.agent.md) | Fixes compilation errors in source or test files. |
+| [`code-testing-builder`](plugins/dotnet-test/agents/code-testing-builder.agent.md) | Runs build/compile commands for any language and reports results. Use when: compiling code, running dotnet build, checking for compilation errors, verifying project builds successfully. |
+| [`code-testing-fixer`](plugins/dotnet-test/agents/code-testing-fixer.agent.md) | Fixes compilation errors in source or test files. Use when: resolving build errors, fixing CS/TS error codes, adding missing imports, correcting type mismatches, fixing compilation failures. |
 | [`code-testing-generator`](plugins/dotnet-test/agents/code-testing-generator.agent.md) | Required internal implementation agent for broad or comprehensive code-testing-agent requests spanning a project, package, or multiple modules. Orchestrates the Research-Plan-Implement pipeline after the public… |
-| [`code-testing-implementer`](plugins/dotnet-test/agents/code-testing-implementer.agent.md) | Implements a single phase from the test plan. Writes test files and verifies they compile and pass. |
-| [`code-testing-linter`](plugins/dotnet-test/agents/code-testing-linter.agent.md) | Runs code formatting and linting for any language. |
-| [`code-testing-planner`](plugins/dotnet-test/agents/code-testing-planner.agent.md) | Creates structured test implementation plans from research findings. |
-| [`code-testing-researcher`](plugins/dotnet-test/agents/code-testing-researcher.agent.md) | Analyzes codebases to understand structure, testing patterns, and testability. |
-| [`code-testing-tester`](plugins/dotnet-test/agents/code-testing-tester.agent.md) | Runs test commands for any language and reports pass/fail results. |
+| [`code-testing-implementer`](plugins/dotnet-test/agents/code-testing-implementer.agent.md) | Implements a single phase from the test plan. Writes test files and verifies they compile and pass. Use when: executing a plan phase, writing test files, running build-test-fix cycle for generated tests. |
+| [`code-testing-linter`](plugins/dotnet-test/agents/code-testing-linter.agent.md) | Runs code formatting and linting for any language. Use when: formatting code, running dotnet format, fixing style issues, applying lint fixes. |
+| [`code-testing-planner`](plugins/dotnet-test/agents/code-testing-planner.agent.md) | Creates structured test implementation plans from research findings. Use when: organizing tests into phases, prioritizing test generation, creating the pipeline plan document from research. |
+| [`code-testing-researcher`](plugins/dotnet-test/agents/code-testing-researcher.agent.md) | Analyzes codebases to understand structure, testing patterns, and testability. Use when: researching project structure, identifying source files to test, discovering test frameworks and build commands, producing the… |
+| [`code-testing-tester`](plugins/dotnet-test/agents/code-testing-tester.agent.md) | Runs test commands for any language and reports pass/fail results. Use when: running dotnet test, executing tests, verifying tests pass, checking test results and failures. |
 | [`test-quality-auditor`](plugins/dotnet-test/agents/test-quality-auditor.agent.md) | MUST USE for test-suite quality audits, from focused assertion, anti-pattern, smell, gap, coverage, mock, or tagging reviews through broad multi-dimensional health checks across a project/workspace. For a focused… |
 | [`testability-migration`](plugins/dotnet-test/agents/testability-migration.agent.md) | MUST USE for .NET testability migration requests, from static-dependency inventories and one named dependency migration through broad end-to-end work coordinating seam selection, call-site migration, production wiring,… |
 
