@@ -38,11 +38,9 @@ if [[ -z ${ATTRIB_RE:-} ]]; then
 fi
 [[ -n $ATTRIB_RE ]] || die "empty attribution pattern."
 IDENT_RE=${IDENT_RE:-'@anthropic\.com$'}   # matched against e-mail addresses only
-# Zero-width characters (U+200B-U+200D, U+2060, U+FEFF as UTF-8 bytes) are removed before matching.
-ATTRIB_ZW=$'\xe2\x80\x8b|\xe2\x80\x8c|\xe2\x80\x8d|\xe2\x81\xa0|\xef\xbb\xbf'
-export ATTRIB_RE IDENT_RE ATTRIB_ZW
+export ATTRIB_RE IDENT_RE
 
-API=${API_VERSION:-7.1}
+API=7.1
 PR_URL="${COLLECTION_URI}${PROJECT_ID}/_apis/git/repositories/${REPO_ID}/pullRequests/${PR_ID}"
 REPO_URL="${COLLECTION_URI}${PROJECT_ID}/_apis/git/repositories/${REPO_ID}"
 T=$(mktemp -d)
@@ -56,30 +54,13 @@ api() {
     -X "$m" "$@" "$u"
 }
 
-# Same matcher as .github/workflows/attribution-guard.yml. mode=report prints the line number of
-# each hit; mode=strip prints the text without hit lines.
-# shellcheck disable=SC2016 # awk program, not shell
-ATTRIB_AWK='
-BEGIN { re = tolower(ENVIRON["ATTRIB_RE"]); zw = ENVIRON["ATTRIB_ZW"] }
-{
-  sub(/\r$/, "")
-  s = $0
-  if (zw != "") gsub(zw, "", s)
-  hit = tolower(s) ~ re
-  if (mode == "report") { if (hit) print NR; next }
-  if (!hit) out[++n] = $0
-}
-END {
-  if (mode != "strip") exit
-  while (n > 0 && (out[n] ~ /^[[:space:]]*$/ || out[n] ~ /^[[:space:]]*---+[[:space:]]*$/)) n--
-  for (i = 1; i <= n; i++) print out[i]
-}'
-
+# The matcher of the GitHub workflows too (tools/attribution-guard/match.awk, one directory up;
+# gen.py embeds it in the generated pipeline). mode=report prints the line number of each hit;
+# mode=strip prints the text without hit lines. Every mode fails (exit 2) when the pattern does not
+# compile or fails its self-test (ATTRIB_CANARY replaces the known trailer it must match).
+ATTRIB_AWK=$(cat "$(dirname "${BASH_SOURCE[0]}")/../match.awk") || die "tools/attribution-guard/match.awk is missing."
 # A pattern that does not compile would make every check pass: refuse instead (fail closed).
-# Also a self-test, because some awks treat a pattern that does not compile as one that never matches.
-canary=${ATTRIB_CANARY:-"Co-Authored-By: Claude <noreply@anthropic.com>"}
-[[ -n $(printf '%s\n' "$canary" | awk -v mode=report "$ATTRIB_AWK" 2>/dev/null) \
-   && -z $(printf 'x\n' | awk -v mode=report "$ATTRIB_AWK" 2>/dev/null) ]] \
+awk -v mode=selftest "$ATTRIB_AWK" </dev/null 2>/dev/null \
   || die "the attribution pattern does not compile or fails its self-test."
 
 fail=0
@@ -116,7 +97,9 @@ if [[ ${GUARD_STATUS:-0} == 1 ]]; then
   trap on_exit EXIT
 fi
 
-# Everything the verdict depends on, for the "changed while checking" test at the end.
+# Everything the verdict depends on, for the "changed while checking" test at the end. Called as
+# `fingerprint now`: without an argument, Azure Pipelines would expand the command substitution
+# as a macro in the generated pipeline (gen.py refuses to generate one).
 fingerprint() {
   { api GET "$PR_URL?api-version=$API" \
       | jq -S '{title, description, m: .completionOptions.mergeCommitMessage, h: .lastMergeSourceCommit.commitId}'

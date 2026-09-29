@@ -12,7 +12,9 @@ S=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 W=$(mktemp -d)
 trap 'rm -rf "$W"' EXIT
 export HOME="$W/home" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$W/home/.gitconfig"
-unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL CLAUDE_ENV_FILE CLAUDE_PROJECT_DIR ATTRIB_RE
+# install.sh writes to ${XDG_CONFIG_HOME:-$HOME/.config} and ${CLAUDE_CONFIG_DIR:-$HOME/.claude}.
+unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL CLAUDE_ENV_FILE CLAUDE_PROJECT_DIR ATTRIB_RE \
+    XDG_CONFIG_HOME CLAUDE_CONFIG_DIR GIT_SSH GIT_SSH_COMMAND ATTRIB_CANARY
 mkdir -p "$HOME"
 git() { command "$GIT" "$@"; }
 pass=0 fail=0
@@ -105,6 +107,9 @@ commit_with() { # message in $W/msg; prints resulting message or FAILED
     n=$((n + 1)); echo "$n" >>f; git add f
     if git commit -q -F "$W/msg" 2>"$W/err"; then git log -1 --format=%B; else echo FAILED; fi
 }
+landed() { # $1 = subject: HEAD is that commit (it was not aborted) and its message is clean
+    [ "$(git log -1 --format=%s 2>/dev/null)" = "$1" ] && git log -1 --format=%B | sh "$G" check >/dev/null
+}
 
 # ---- legit messages must pass unchanged (both modes); the word "claude" alone never matches
 for mode in strip reject; do
@@ -181,6 +186,53 @@ rc=$(printf 'Fix\n' | sh "$W/broken/attribution-guard.sh" check >/dev/null 2>&1;
 # the pattern always comes from the file: an environment value must not switch the guard off
 out=$(printf 'Fix\n\nClaude-Session: x\n' | ATTRIB_RE=zzz sh "$G" check 2>/dev/null); rc=$?
 [ "$rc" = 1 ] && [ -n "$out" ] && ok "ATTRIB_RE in the environment is ignored" || ko "ATTRIB_RE env override works (rc=$rc)"
+# check <file>: a file that cannot be read fails closed; a readable one is checked
+printf 'Fix\n\nClaude-Session: x\n' >"$W/hit.txt"; printf 'Fix\n' >"$W/clean.txt"
+rc=$(for f in "$W/missing.txt" "$W" "$W/hit.txt" "$W/clean.txt"; do sh "$G" check "$f" >/dev/null 2>&1; printf '%s' $?; done)
+[ "$rc" = 1110 ] && ok "check <file>: unreadable fails closed, readable is checked" || ko "check <file>: rc=$rc (want 1110)"
+
+# ---- the matcher of the CI checks (match.awk): every awk available here, the same results as the hooks
+M="$S/match.awk"
+RE=$(sed -n '1p' "$S/patterns.ere")
+# Zero-width and invisible characters: U+00AD, U+034F, U+180E, U+200B-U+200D, U+2060-U+2064, U+FEFF.
+ZW='\302\255 \315\217 \341\240\216 \342\200\213 \342\200\214 \342\200\215 \342\201\240 \342\201\241 \342\201\242 \342\201\243 \342\201\244 \357\273\277'
+for a in awk mawk gawk original-awk busybox; do
+    command -v "$a" >/dev/null 2>&1 || continue
+    m() { # $1 = pattern, $2 = mode; the awk under test runs match.awk on stdin
+        if [ "$a" = busybox ]; then ATTRIB_RE=$1 busybox awk -v mode="$2" -f "$M"; else ATTRIB_RE=$1 "$a" -v mode="$2" -f "$M"; fi
+    }
+    [ "$a" != busybox ] || busybox awk 'BEGIN { exit 0 }' </dev/null 2>/dev/null || continue
+    got=$(m "$RE" selftest </dev/null 2>&1; echo "rc=$?")
+    bad=$(for r in '(' '' '.'; do m "$r" selftest </dev/null >/dev/null 2>&1; printf '%s' "$(($? != 0))"; done)
+    [ "$got" = rc=0 ] && [ "$bad" = 111 ] && ok "match.awk [$a]: self-test passes, and fails on a broken, empty or match-all pattern" \
+        || ko "match.awk [$a] self-test: $got $bad"
+    got=$(printf 'Fix\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nok\r\nClaude-Session: x\r\n' | m "$RE" report | tr '\n' ' ')
+    [ "$got" = '3 5 ' ] && ok "match.awk [$a]: report prints the lines with a hit (CRLF too)" || ko "match.awk [$a] report: [$got]"
+    got=$(printf 'Summary\n\n---\nGenerated with [Claude Code](https://claude.com/claude-code)\n' | m "$RE" strip)
+    [ "$got" = Summary ] && ok "match.awk [$a]: strip drops hit lines and the separators they leave" || ko "match.awk [$a] strip: [$got]"
+    rc=$(printf 'x\n' | m '(' report >/dev/null 2>&1; echo $?)
+    [ "$rc" != 0 ] && ok "match.awk [$a]: report fails closed on a broken pattern" || ko "match.awk [$a]: broken pattern reported clean"
+    # shellcheck disable=SC2059 # $z is an octal escape for printf
+    got=$(for z in $ZW; do printf "Co-Authored-By: Cl${z}aude <bot@example.com>\n" | m "$RE" report; done | tr -d '\n')
+    [ "$got" = 111111111111 ] && ok "match.awk [$a]: removes every zero-width character" || ko "match.awk [$a] zero-width: [$got]"
+    got=$(ATTRIB_CANARY=MARKER; export ATTRIB_CANARY; printf 'MARKER here\n' | m marker report)
+    [ "$got" = 1 ] && ok "match.awk [$a]: ATTRIB_CANARY replaces the known trailer" || ko "match.awk [$a] canary: [$got]"
+done
+# shellcheck disable=SC2059 # $z is an octal escape for printf
+got=$(for z in $ZW; do printf "Fix\n\nCo-Authored-By: Cl${z}aude <bot@example.com>\n" | sh "$G" check >/dev/null 2>&1; printf '%s' $?; done)
+[ "$got" = 111111111111 ] && ok "check removes the same zero-width characters as match.awk" || ko "check zero-width: [$got]"
+# One matcher: the workflows load match.awk and self-test it in every step before they use it; no copies.
+R="$S/../.."
+bad=$(awk '
+    /^ *- (name|uses): / { loaded = tested = 0; step = $0 }
+    /ATTRIB_AWK=\$\(cat [^)]*match\.awk"?\)$/ { loaded = 1 }
+    /awk -v mode=selftest "\$ATTRIB_AWK" <\/dev\/null \|\|/ { tested = loaded; next }
+    /"\$ATTRIB_AWK"/ && !tested { print FILENAME ":" FNR ": " step }' \
+    "$R/.github/workflows/attribution-guard.yml" "$R/.github/workflows/attribution-audit.yml")
+[ -z "$bad" ] && ok "workflows load and self-test match.awk before each use" || ko "workflow steps use a matcher they did not load or test: $bad"
+copies=$(cat "$R/.github/workflows/attribution-guard.yml" "$R/.github/workflows/attribution-audit.yml" \
+    "$S/azure-devops/ado-pr-guard.sh" "$S/azure-devops/gen.py" | grep -c -e 'ATTRIB_ZW' -e 'ATTRIB_AWK:' -e "ATTRIB_AWK='")
+[ "$copies" = 0 ] && ok "no inline copy of the matcher in the workflows or the Azure DevOps guard" || ko "$copies inline matcher line(s) found"
 git config attributionguard.mode strip
 while IFS= read -r m; do
   printf '%s\n' "$m" | sed 's/\\n/\n/g' >"$W/msg"
@@ -222,16 +274,16 @@ git reset -q --hard HEAD
 # ---- git commit -m, --amend, merge, commit -v with a diff that contains patterns
 echo x >>f; git add f
 git commit -q -m 'Use -m' -m 'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>' 2>/dev/null
-git log -1 --format=%B | sh "$G" check >/dev/null && ok "commit -m stripped" || ko "commit -m kept trailer"
+landed 'Use -m' && ok "commit -m stripped" || ko "commit -m kept trailer or failed"
 git commit -q --amend -m 'Amended' -m 'Claude-Session: https://claude.ai/code/session_x' 2>/dev/null
-git log -1 --format=%B | sh "$G" check >/dev/null && ok "commit --amend stripped" || ko "amend kept trailer"
+landed 'Amended' && ok "commit --amend stripped" || ko "amend kept trailer or failed"
 printf 'Co-Authored-By: Claude <noreply@anthropic.com>\n' >pattern-doc.txt; git add pattern-doc.txt
 GIT_EDITOR='sh -c "printf \"Add pattern doc\\n\" | cat - \"\$1\" > \"\$1.t\" && mv \"\$1.t\" \"\$1\"" --' git commit -q -v 2>"$W/err" \
   && [ "$(git log -1 --format=%s)" = 'Add pattern doc' ] && ok "commit -v: diff below scissors ignored" || ko "commit -v blocked: $(cat "$W/err")"
 git checkout -q -b feature; echo feat >g; git add g; git commit -q -m 'Feature'
 git checkout -q main; echo m >>f; git add f; git commit -q -m 'Main change'
 git merge -q --no-ff feature -m 'Merge feature' -m 'Co-Authored-By: Claude <noreply@anthropic.com>' 2>/dev/null
-git log -1 --format=%B | sh "$G" check >/dev/null && ok "git merge message stripped" || ko "merge kept trailer"
+landed 'Merge feature' && ok "git merge message stripped" || ko "merge kept trailer or failed"
 
 # ---- pre-push blocks what commit-msg missed (--no-verify)
 git checkout -q -b sneaky; echo s >h; git add h
@@ -308,6 +360,13 @@ git tag -a d0 -m 'Deep' -m 'Co-Authored-By: Claude <noreply@anthropic.com>' 2>/d
 i=0; prev=d0; while [ $i -lt 11 ]; do i=$((i + 1)); git tag -a "d$i" -m "Wrap $i" "$prev" 2>/dev/null; prev="d$i"; done
 git push -q origin refs/tags/d11 2>/dev/null && ko "pre-push allowed a bad tag under 11 clean ones" || ok "pre-push fails closed on deeply nested tags"
 git checkout -q main
+# over SSH the listing gets connect and keep-alive timeouts, so a stalled connection cannot hang the push
+mkdir -p "$W/fakessh"
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s/fakessh/log"\ncase " $* " in *" -G "*) exit 0 ;; esac\nfor a; do last=$a; done\nPATH="$(git --exec-path):$PATH" exec sh -c "$last"\n' "$W" >"$W/fakessh/ssh"
+chmod +x "$W/fakessh/ssh"
+GIT_SSH_COMMAND="$W/fakessh/ssh" git push -q "ssh://fakehost$W/remote.git" HEAD:refs/heads/over-ssh 2>"$W/err"; rc=$?
+[ "$rc" = 0 ] && grep 'git-upload-pack' "$W/fakessh/log" | grep -q 'ConnectTimeout=30 -o ServerAliveInterval=15' \
+    && ok "pre-push lists an SSH remote with timeouts" || ko "pre-push SSH listing (rc=$rc): $(cat "$W/err" "$W/fakessh/log" 2>/dev/null)"
 # a literal scissors line in -F/-m text is not the end of the message (no diff follows it)
 printf 'Fix\n\n# ------------------------ >8 ------------------------\nCo-Authored-By: Claude <noreply@anthropic.com>\n' >"$W/msg"
 out=$(commit_with); printf '%s\n' "$out" | sh "$G" check >/dev/null && ok "commit-msg scans past a literal scissors line" || ko "trailer kept below a literal scissors line: $out"
@@ -341,7 +400,7 @@ cp "$S/../../.githooks/commit-msg" "$S/../../.githooks/pre-push" "$W/r2/.githook
 cd "$W/r2" && git init -q && git config core.hooksPath .githooks && git config --global --unset core.hooksPath 2>/dev/null
 for k in $(git config --global --name-only --get-regexp '^hook\.' 2>/dev/null); do git config --global --unset "$k"; done
 echo a >a; git add a; git commit -q -m 'Repo hook' -m 'Claude-Session: https://claude.ai/code/session_y' 2>/dev/null
-git log -1 --format=%B | sh "$G" check >/dev/null && ok ".githooks/commit-msg strips" || ko ".githooks/commit-msg did not strip"
+landed 'Repo hook' && ok ".githooks/commit-msg strips" || ko ".githooks/commit-msg did not strip, or failed the commit"
 cd "$W/repo" || exit 1
 
 # ---- Claude Code PreToolUse hook
@@ -448,7 +507,97 @@ done <<'EOF'
 0 plain {"tool_name":"mcp__github__search_pull_requests","tool_input":{"query":"claude.ai/code/session_ in:body"}}
 0 plain {"tool_name":"mcp__github__list_commits","tool_input":{"author":"noreply@anthropic.com"}}
 0 plain {"tool_name":"mcp__ado__repo_list_pull_request_threads","tool_input":{"note":"Claude-Session: x"}}
+# MCP: a trailer that starts a string value is still at the start of a line
+2 plain {"tool_name":"mcp__ado__repo_create_pull_request","tool_input":{"title":"Fix","description":"Co-Authored-By: Claude Opus 4"}}
+2 plain {"tool_name":"mcp__github__add_issue_comment","tool_input":{"body":"Claude-Session: 01ABCDEF"}}
+2 plain {"tool_name":"mcp__github__create_pull_request","tool_input":{"title":"x","body":"Co-Authored-By: Cl­aude <bot@example.com>"}}
+# chmod with options before the mode disables hook files too
+2 strict {"tool_name":"Bash","tool_input":{"command":"chmod -R a-x .git/attribution-guard/hooks"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"chmod -R 644 .git/attribution-guard/hooks"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"chmod --recursive 600 .git/attribution-guard"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"sudo chmod -v a=r .githooks/pre-push"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"chmod -R 755 .githooks"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"chmod -R +x .git/attribution-guard/hooks"}}
+# env -i / env - / unsetting HOME next to a git write: git then skips the user-level guard
+2 plain {"tool_name":"Bash","tool_input":{"command":"env -i PATH=/usr/bin git commit -m x"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env - PATH=/usr/bin git push origin HEAD"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"/usr/bin/env --ignore-environment git tag -a v1 -m x"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env -u LANG -i git rebase main"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env -iu LANG git cherry-pick abc123"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env -i git am 0001.patch"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env -i git merge feature"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env -i git commit-tree 4b825dc -m x"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env -u HOME git commit -m x"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env --unset=HOME git commit -m x"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"HOME=/tmp/empty git push origin HEAD"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env XDG_CONFIG_HOME=/tmp/x git commit -m x"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"env -i PATH=/usr/bin git status"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"env LC_ALL=C git commit -m x"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"env -u LANG git commit -m x"}}
+# --strict: gh api field flags with an attached value; write verbs of the other gh command groups
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh api -fbody=hi repos/o/r/issues/1/comments"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh api repos/o/r/issues/1/comments -Fbody=@/tmp/x.md"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh api graphql -Fquery=@/tmp/m.graphql"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh api -X PUT repos/o/r/rulesets/1 --input /tmp/r.json"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh variable set ATTRIBUTION_ALLOW_CLOUD_COMMITTER --body true"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh variable delete X"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh secret set TOKEN < /tmp/t"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh secret remove TOKEN"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh repo edit --enable-auto-merge"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh repo rename other"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh repo archive -y"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh -R o/r repo delete --yes"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh repo deploy-key add key.pub"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh workflow run attribution-audit.yml -f delete_runs=true"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh workflow disable attribution-guard.yml"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh workflow enable sync-upstream.yml"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh run rerun 123 --failed"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh run delete 123"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh run cancel 123"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh release create v9 --notes x"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh release edit v9 --draft=false"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh release delete v9 -y"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh release upload v9 dist.zip"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh label create bug --color f00"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh label delete bug --yes"}}
+2 strict {"tool_name":"Bash","tool_input":{"command":"gh pr update-branch 5"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"gh api -X GET repos/o/r/pulls -fstate=open"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"gh variable list"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"gh secret list"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"gh repo view o/r --json name"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"gh repo clone o/r /tmp/r"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"gh workflow list"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"gh run view 123 --log-failed"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"gh run list --workflow attribution-guard.yml"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"gh release view v1"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"gh label list"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"gh ruleset list"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"gh api repos/o/r/pulls --jq .[].title | cut -f1 | sort -fu"}}
+# what agent sessions in this repository do all the time must keep passing (strict)
+0 strict {"tool_name":"Bash","tool_input":{"command":"GIT_AUTHOR_NAME='x' GIT_AUTHOR_EMAIL='x@users.noreply.github.com' GIT_COMMITTER_NAME='x' GIT_COMMITTER_EMAIL='x@users.noreply.github.com' git commit -q -F - <<'MSG'\nFix the guard tests\n\nCheck that each commit landed.\nMSG"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"git push -u origin some-branch"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"git -C /some/dir log --oneline -5"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"git -C /some/dir diff --stat main...HEAD"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"git -C /some/dir status --short"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"git -C /some/dir rev-parse HEAD"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"git -C /some/dir fetch origin"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"git -C /some/dir ls-remote --heads origin"}}
+0 strict {"tool_name":"Bash","tool_input":{"command":"git fetch origin some-branch"}}
+0 strict {"tool_name":"mcp__github__get_file_contents","tool_input":{"owner":"o","repo":"r","path":"README.md"}}
+0 strict {"tool_name":"mcp__github__pull_request_read","tool_input":{"method":"get","owner":"o","repo":"r","pullNumber":1}}
+0 strict {"tool_name":"mcp__github__issue_read","tool_input":{"method":"get_comments","owner":"o","repo":"r","issue_number":1}}
+0 strict {"tool_name":"mcp__github__list_commits","tool_input":{"owner":"o","repo":"r","author":"noreply@anthropic.com"}}
+0 strict {"tool_name":"mcp__github__search_pull_requests","tool_input":{"query":"repo:o/r claude.ai/code/session_ in:body"}}
+0 strict {"tool_name":"mcp__github__get_job_logs","tool_input":{"owner":"o","repo":"r","job_id":1}}
+0 strict {"tool_name":"mcp__github__actions_get","tool_input":{"method":"get_workflow_run","owner":"o","repo":"r","resource_id":"1"}}
+0 strict {"tool_name":"mcp__github__actions_list","tool_input":{"method":"list_workflow_runs","owner":"o","repo":"r"}}
 EOF
+# JSON escapes of every zero-width character are removed before matching
+for u in 00ad 034f 180e 200b 200c 200d 2060 2061 2062 2063 2064 feff; do
+    printf '{"tool_name":"mcp__github__create_pull_request","tool_input":{"title":"x","body":"Fix\\n\\nCo-Authored-By: Cl\\u%saude <bot@example.com>"}}' "$u"
+    echo
+done | { r=; while IFS= read -r json; do r="$r$(pt "$json")"; done; [ "$r" = 222222222222 ]; } \
+    && ok "pretooluse removes JSON-escaped zero-width characters" || ko "pretooluse JSON zero-width escapes not all blocked"
 # speed: a long script of git lines must not make every tool call slow
 i=0; : >"$W/long"; while [ $i -lt 300 ]; do i=$((i + 1)); printf 'git log --oneline -n %s > /tmp/out%s.txt\\n' "$i" "$i" >>"$W/long"; done
 printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$(cat "$W/long")" >"$W/long.json"
@@ -480,12 +629,12 @@ CLAUDE_PROJECT_DIR="$W/r3" CLAUDE_ENV_FILE="$W/envfile" sh tools/attribution-gua
 # The copy in .git keeps guarding on a branch from before the guard and with --work-tree.
 git checkout -q pre-guard && [ ! -d tools ] && echo p >p && git add p
 git commit -q -m 'Old branch' -m 'Co-Authored-By: Claude <noreply@anthropic.com>' 2>/dev/null
-git log -1 --format=%B | sh "$G" check >/dev/null && ok "guard still strips on a branch without tools/" || ko "guard gone on a pre-guard branch"
+landed 'Old branch' && ok "guard still strips on a branch without tools/" || ko "guard gone (or commit failed) on a pre-guard branch"
 mkdir -p "$W/wt"
 git --work-tree="$W/wt" commit -q --allow-empty -m 'Work tree' -m 'Claude-Session: https://claude.ai/code/session_0123456789abcdefghijklmn' 2>/dev/null
-git log -1 --format=%B | sh "$G" check >/dev/null && ok "guard still strips with --work-tree" || ko "guard skipped with --work-tree"
+landed 'Work tree' && ok "guard still strips with --work-tree" || ko "guard skipped (or commit failed) with --work-tree"
 (cd "$W/r3" && mkdir -p sub && cd sub && git --git-dir=../.git commit -q --allow-empty -m 'Git dir' -m 'Claude-Session: x' 2>/dev/null)
-git log -1 --format=%B | sh "$G" check >/dev/null && ok "guard still strips with --git-dir from a subdirectory" || ko "guard skipped with --git-dir"
+landed 'Git dir' && ok "guard still strips with --git-dir from a subdirectory" || ko "guard skipped (or commit failed) with --git-dir"
 git checkout -q -
 # a repository's own hooks path (husky and the like) keeps running through the guard's dispatcher
 mkdir -p .husky && printf '#!/bin/sh\necho ran >"%s/husky-ran"\n' "$W" >.husky/post-commit && chmod +x .husky/post-commit
@@ -493,13 +642,39 @@ git config core.hooksPath .husky
 CLAUDE_PROJECT_DIR="$W/r3" sh tools/attribution-guard/session-start.sh 2>/dev/null
 git commit -q --allow-empty -m 'Husky' -m 'Claude-Session: x' 2>/dev/null
 [ "$(git config --get attributionguard.previousHooksPath)" = .husky ] && [ -f "$W/husky-ran" ] \
-    && git log -1 --format=%B | sh "$G" check >/dev/null && ok "session-start keeps an earlier hooks path running" || ko "earlier hooks path lost"
+    && landed 'Husky' && ok "session-start keeps an earlier hooks path running" || ko "earlier hooks path lost"
 # the settings.json command finds the copy in .git, also on a branch without tools/
 cmd=$(sed -n 's/.*"command": "\(c=.*--strict\)".*/\1/p' "$S/../../.claude/settings.json" | sed 's/\\"/"/g')
 git checkout -q pre-guard
 rc=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit --no-verify -m x"}}' | CLAUDE_PROJECT_DIR="$W/r3" sh -c "$cmd" >/dev/null 2>&1; echo $?)
 [ -n "$cmd" ] && [ "$rc" = 2 ] && ok "settings.json hook command works on a branch without tools/" || ko "settings.json hook command on an old branch: rc=$rc"
 git checkout -q -
+# A moved or copied clone: core.hooksPath still names the old guard hooks directory, which is never
+# the repository's own hooks path. Its .git/hooks keep running, and a copy does not recurse.
+commit_to() { # like git commit, bounded: a dispatcher that calls itself would never return
+    if command -v timeout >/dev/null 2>&1; then timeout 60 "$GIT" commit "$@"; else git commit "$@"; fi
+}
+mkdir -p "$W/m1/tools/attribution-guard" && cd "$W/m1" && git init -q || exit 1
+cp "$S/session-start.sh" "$S/attribution-guard.sh" "$S/patterns.ere" "$S/claude-pretooluse.sh" "$S/dispatch" tools/attribution-guard/
+printf '#!/bin/sh\necho ran >>"$(git rev-parse --git-dir)/post-commit-ran"\n' >.git/hooks/post-commit && chmod +x .git/hooks/post-commit
+git add -A && git commit -q -m 'Add the guard'
+CLAUDE_PROJECT_DIR="$W/m1" sh tools/attribution-guard/session-start.sh 2>/dev/null
+cd "$W" && mv m1 m2 && cd m2 || exit 1
+CLAUDE_PROJECT_DIR="$W/m2" sh tools/attribution-guard/session-start.sh 2>"$W/err"
+rm -f .git/post-commit-ran; commit_to -q --allow-empty -m 'Moved' -m 'Claude-Session: x' 2>/dev/null
+[ -z "$(git config --get attributionguard.previousHooksPath)" ] && [ "$(git config --get core.hooksPath)" = "$W/m2/.git/attribution-guard/hooks" ] \
+    && [ -s .git/post-commit-ran ] && landed 'Moved' && ok "moved clone: session-start takes the hooks path over; .git/hooks still run" \
+    || ko "moved clone: prev=$(git config --get attributionguard.previousHooksPath) $(cat "$W/err")"
+cp -R "$W/m2" "$W/m3" && cd "$W/m3" || exit 1
+CLAUDE_PROJECT_DIR="$W/m3" sh tools/attribution-guard/session-start.sh 2>/dev/null
+rm -f .git/post-commit-ran; commit_to -q --allow-empty -m 'Copied' -m 'Claude-Session: x' 2>/dev/null; rc=$?
+[ "$rc" = 0 ] && [ -s .git/post-commit-ran ] && landed 'Copied' && ok "copied clone: commits finish and .git/hooks still run" || ko "copied clone: commit rc=$rc"
+# a guard hooks directory saved by an older session-start is ignored by the dispatcher, then removed
+git config attributionguard.previousHooksPath "$W/m2/.git/attribution-guard/hooks"
+rm -f .git/post-commit-ran; commit_to -q --allow-empty -m 'Stale' -m 'Claude-Session: x' 2>/dev/null; rc=$?
+CLAUDE_PROJECT_DIR="$W/m3" sh tools/attribution-guard/session-start.sh 2>/dev/null
+[ "$rc" = 0 ] && [ -s .git/post-commit-ran ] && landed 'Stale' && [ -z "$(git config --get attributionguard.previousHooksPath)" ] \
+    && ok "a saved guard hooks path is ignored by the dispatcher and removed by session-start" || ko "stale guard hooks path: commit rc=$rc"
 cd "$W/repo" || exit 1
 
 printf '\n%s passed, %s failed (git %s, sh=%s)\n' "$pass" "$fail" "$(git version | cut -d' ' -f3)" "$(readlink -f /bin/sh 2>/dev/null || echo sh)"

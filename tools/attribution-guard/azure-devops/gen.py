@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Generate the Azure Pipelines YAML files from ado-pr-guard.sh and ../patterns.ere (single source).
+"""Generate the Azure Pipelines YAML files from ado-pr-guard.sh, ../patterns.ere and ../match.awk
+(single source).
 
   python3 gen.py                 write pipelines/*.yml
   python3 gen.py --check         exit 1 when pipelines/*.yml differ from what would be generated
@@ -17,9 +18,19 @@ import textwrap
 here = pathlib.Path(__file__).resolve().parent
 guard = (here / "ado-pr-guard.sh").read_text()
 pattern = (here.parent / "patterns.ere").read_text().splitlines()[0]
-body = "\n".join(guard.splitlines()[1:]) + "\n"  # drop the shebang
+matcher = (here.parent / "match.awk").read_text()
 GUARD = "tools/attribution-guard/azure-devops/ado-pr-guard.sh"
 PATTERNS = "tools/attribution-guard/patterns.ere"
+# The matcher shared with the GitHub workflows, inline: the build validation and audit pipelines
+# run in the WORK repository, which has no tools/attribution-guard/match.awk.
+if not matcher.endswith("\n") or "\nAWK\n" in "\n" + matcher:
+    sys.exit("gen.py: match.awk must end with a newline and have no line 'AWK'")
+EMBED = "IFS= read -r -d '' ATTRIB_AWK <<'AWK' || true  # tools/attribution-guard/match.awk\n" + matcher + "AWK\n"
+# ado-pr-guard.sh reads match.awk from its parent directory; the generated copy carries it inline.
+LOAD = 'ATTRIB_AWK=$(cat "$(dirname "${BASH_SOURCE[0]}")/../match.awk") || die "tools/attribution-guard/match.awk is missing."\n'
+if guard.count(LOAD) != 1:
+    sys.exit("gen.py: ado-pr-guard.sh no longer loads match.awk with the line gen.py replaces (LOAD)")
+body = "\n".join(guard.splitlines()[1:]).replace(LOAD.rstrip("\n"), EMBED.rstrip("\n")) + "\n"  # drop the shebang
 
 
 def ind(s, n):
@@ -117,14 +128,11 @@ else
 ERE
 )
 fi
-ATTRIB_ZW=$'\\xe2\\x80\\x8b|\\xe2\\x80\\x8c|\\xe2\\x80\\x8d|\\xe2\\x81\\xa0|\\xef\\xbb\\xbf'
-export ATTRIB_RE ATTRIB_ZW
-# Self-test: some awks treat a pattern that does not compile as one that never matches.
-canary=${{ATTRIB_CANARY:-"Co-Authored-By: Claude <noreply@anthropic.com>"}}
-probe() {{ printf '%s\\n' "$1" | awk 'BEGIN {{ re = tolower(ENVIRON["ATTRIB_RE"]) }} {{ if (tolower($0) ~ re) hit = 1 }} END {{ exit !hit }}'; }}
-if ! {{ [[ -n $ATTRIB_RE ]] && probe "$canary" && ! probe x; }} 2>/dev/null; then
-  err "the attribution pattern does not compile or fails its self-test."
-fi
+export ATTRIB_RE
+# The matcher; its self-test fails on a pattern that does not compile (some awks treat one as never
+# matching), misses a known trailer (ATTRIB_CANARY replaces it) or matches a plain word.
+{EMBED}awk -v mode=selftest "$ATTRIB_AWK" </dev/null 2>/dev/null \\
+  || err "the attribution pattern does not compile or fails its self-test."
 
 # A range that reaches the shallow boundary would silently skip older side-branch commits.
 shallow=$(git rev-parse --git-path shallow)
@@ -134,8 +142,7 @@ fi
 fail=0 n=0
 while IFS= read -r c; do
   n=$((n + 1))
-  lines=$(git log -1 --format=%B "$c" | awk 'BEGIN {{ re = tolower(ENVIRON["ATTRIB_RE"]); zw = ENVIRON["ATTRIB_ZW"] }}
-    {{ s = $0; gsub(zw, "", s); if (tolower(s) ~ re) printf "%d ", NR }}')
+  lines=$(git log -1 --format=%B "$c" | awk -v mode=report "$ATTRIB_AWK" | tr '\\n' ' ')
   if [[ -n $lines ]]; then
     echo "##vso[task.logissue type=error]AI attribution landed on $BUILD_SOURCEBRANCHNAME in commit ${{c:0:8}}, line(s) $lines"; fail=1
   fi

@@ -10,14 +10,19 @@
 #   1. always: block commands that skip or switch off the git hooks: --no-verify, commit -n,
 #      writing core.hooksPath / hook.* / include.path / attributionguard.* config, -c or
 #      --config-env overrides, --git-dir/--work-tree on a git write, GIT_CONFIG_* / GIT_DIR / HOME
-#      assignments next to a git write, writing .git/config, deleting or disabling hook files;
+#      assignments or unsets and `env -i` next to a git write, writing .git/config, deleting or
+#      disabling hook files (rm, mv, chmod -x, chmod -R 644, ...);
 #   2. --strict: block GitHub writes that this repository leaves to its owner: gh pr/issue
-#      create/new/edit/merge/comment/review/..., gh api writes and GraphQL mutations, REST writes
-#      to api.github.com;
+#      create/new/edit/merge/comment/review/..., gh variable/secret set/delete, gh repo
+#      create/edit/delete/rename/archive/fork/sync, gh workflow run/enable/disable, gh run
+#      delete/rerun/cancel, gh release create/edit/delete/upload, gh label create/edit/delete/clone,
+#      gh api writes (-X POST/PATCH/PUT/DELETE, -f/-F/--input fields; rulesets and branch protection
+#      only change this way) and GraphQL mutations, REST writes to api.github.com;
 #   3. always: block git, gh and az commands and GitHub / Azure DevOps REST calls whose text
 #      carries AI attribution or a chat/session link (also after \n, `n and quotes start new lines).
 # File tools (Write, Edit, MultiEdit, NotebookEdit): block writes to git config and hook locations.
-# MCP tools: read-only tools (get/list/search/read) pass; every string of the other tools is scanned.
+# MCP tools: read-only tools (get/list/search/read) pass; every string of the other tools is scanned
+# (also after quotes start new lines).
 # Exit 2 blocks the call and stderr goes back to the agent. Internal errors fail open with a warning;
 # the commit-msg/pre-push hooks and the CI checks still stand behind this hook.
 # Limits: text passed through files (git commit -F, gh --body-file) is not visible here, and a
@@ -25,7 +30,7 @@
 set -u
 here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 guard="$here/attribution-guard.sh"
-strict=${ATTRIBUTION_GUARD_STRICT:-0}
+strict=0
 [ "${1:-}" = --strict ] && strict=1
 
 block() {
@@ -54,7 +59,7 @@ json_text() {
         gsub(/\\t/, "\t", s)
         gsub(/\\[rbf]/, "", s)
         gsub(/\\\//, "/", s)
-        gsub(/\\u(200[bBcCdD]|2060|[fF][eE][fF][fF])/, "", s)   # zero-width characters
+        gsub(/\\u(00[aA][dD]|034[fF]|180[eE]|200[bBcCdD]|206[0-4]|[fF][eE][fF][fF])/, "", s)   # zero-width and invisible characters
         gsub(/\\u[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]/, "?", s)
         gsub(/\002/, "\"", s)
         # Not gsub: awks disagree on how many backslashes a "\\\\" replacement yields.
@@ -107,7 +112,11 @@ GIT_WORD="${B}git(\\.exe)?([^[:alnum:]_.-]|\$)"
 GIT_WRITE="${GIT}(commit|commit-tree|mktag|merge|push|am|rebase|cherry-pick|revert|pull|tag|notes|replace|update-ref)([[:space:]]|\$)"
 HOOK_KEYS='hookspath|(^|[^[:alnum:]_])hook\.[^[:space:]=]+\.(command|enabled|event)|\[hook[[:space:]]|(^|[^[:alnum:]_])include\.path|includeif\.|attributionguard\.|(^|[^[:alnum:]_])url\.[^[:space:]]*\.(push)?insteadof|extensions\.worktreeconfig|(remove|rename)-section[[:space:]]+(hook|core|include|attributionguard|url)'
 ENV_VARS='home|xdg_config_home|userprofile|git_config[a-z0-9_]*|git_dir|git_work_tree|git_common_dir|git_exec_path|git_template_dir'
-ENV_SET="^[[:space:]]*((export|env|set)[[:space:]]+(-[^[:space:]]+[[:space:]]+)*|\\\$env:)?([a-z_][a-z0-9_]*=[^[:space:]]*[[:space:]]+)*($ENV_VARS)[[:space:]]*=|^[[:space:]]*(unset[[:space:]]+([a-z_0-9]+[[:space:]]+)*|remove-item[[:space:]]+env:|env[[:space:]]+(-[^[:space:]]+[[:space:]]+)*-u[[:space:]]*)($ENV_VARS)([[:space:]]|\$)"
+# env with its options (-u NAME, -C DIR and -S STRING take a value) and assignments.
+ENV_CMD='^[[:space:]]*([^[:space:]]*/)?env[[:space:]]+(-[ucs][[:space:]]+[^[:space:]]+[[:space:]]+|-[^[:space:]]+[[:space:]]+|[a-z_][a-z0-9_]*=[^[:space:]]*[[:space:]]+)*'
+# Setting or unsetting one of ENV_VARS, or `env -i` / `env -` (git then reads no user-level config,
+# so the user-level hooks do not run). Other assignments (GIT_AUTHOR_NAME=... git commit) pass.
+ENV_SET="^[[:space:]]*((export|([^[:space:]]*/)?env|set)[[:space:]]+(-[^[:space:]]+[[:space:]]+)*|\\\$env:)?([a-z_][a-z0-9_]*=[^[:space:]]*[[:space:]]+)*($ENV_VARS)[[:space:]]*=|^[[:space:]]*(unset[[:space:]]+([a-z_0-9]+[[:space:]]+)*|remove-item[[:space:]]+env:)($ENV_VARS)([[:space:]]|\$)|$ENV_CMD(-u[[:space:]]*|--unset[=[:space:]]*)($ENV_VARS)([[:space:]]|\$)|$ENV_CMD(-[0v]*i[^[:space:]]*|--ignore-environment|-)([[:space:]]|\$)"
 HOOK_FILES='\.githooks|\.git/hooks|git/attribution-guard'
 REST_GH='api\.github\.com|uploads\.github\.com|github\.com/[^[:space:]"]+/(pulls|issues|commits|releases|comments)'
 REST_ADO='dev\.azure\.com|visualstudio\.com'
@@ -158,7 +167,7 @@ Bash | PowerShell | Monitor)
         || block 'writing .git/config directly could switch off the attribution hooks.'
     if pick "$HOOK_FILES" | grep -Eiq \
         -e '^[[:space:]]*(sudo[[:space:]]+)?(rm|rmdir|mv|cp|ln|install|tee|dd|rsync|unlink|truncate|sed|perl|copy|remove-item|rename-item|move-item|copy-item|clear-content|set-content|add-content|out-file|ri|del|erase)([[:space:]]|$)' \
-        -e '^[[:space:]]*(sudo[[:space:]]+)?chmod[[:space:]]+([^[:space:]]*-[rwx]*x|0*[0-7]?[0246][0246][0246])([[:space:]]|$)' \
+        -e '^[[:space:]]*(sudo[[:space:]]+)?chmod[[:space:]]+(-[^[:space:]]+[[:space:]]+)*([^[:space:]]*-[rwx]*x|([^[:space:]]*,)?[ugoa]*=[rwst]*|0*[0-7]?[0246][0-7][0-7]|[0-7]{1,2})([,[:space:]]|$)' \
         -e ">[[:space:]]*[^[:space:]]*($HOOK_FILES)"; then
         block 'deleting, replacing or disabling hook files would switch off the attribution hooks.'
     fi
@@ -168,8 +177,11 @@ Bash | PowerShell | Monitor)
 
     # 2. --strict: GitHub writes are the owner's (this repository: agents push a branch, nothing more).
     if [ "$strict" = 1 ]; then
-        if has "$segs" "${GH}(pr|issue)[[:space:]]+(create|new|edit|merge|comment|review|close|reopen|ready|lock|unlock|transfer|delete|develop|pin|unpin)([[:space:]]|\$)"; then
+        if has "$segs" "${GH}(pr|issue)[[:space:]]+(create|new|edit|merge|comment|review|close|reopen|ready|lock|unlock|transfer|delete|develop|pin|unpin|update-branch|revert)([[:space:]]|\$)"; then
             block 'agents do not create, edit, comment on or merge pull requests or issues in this repository. Push the branch and give the owner the compare link.'
+        fi
+        if has "$segs" "${GH}((variable|secret)[[:space:]]+(set|delete|remove)|repo[[:space:]]+(create|new|edit|delete|rename|archive|unarchive|fork|sync|deploy-key[[:space:]]+(add|delete))|workflow[[:space:]]+(run|enable|disable)|run[[:space:]]+(delete|rerun|cancel)|release[[:space:]]+(create|new|edit|delete|delete-asset|upload)|label[[:space:]]+(create|edit|delete|clone))([[:space:]]|\$)"; then
+            block 'agents do not change repository settings, variables, secrets, workflows, runs, releases or labels in this repository; the owner does.'
         fi
         if has "$segs" "${GH}api([[:space:]]|\$)"; then
             if has "$segs" 'graphql'; then
@@ -178,7 +190,7 @@ Bash | PowerShell | Monitor)
                 fi
             elif has "$segs" '(^|[[:space:]])(-X|--method)[[:space:]=]*get([[:space:]]|$)'; then
                 :
-            elif has "$segs" "$WRITE_METHOD|(^|[[:space:]])(-[fF]|--field|--raw-field|--input)([[:space:]=]|\$)"; then
+            elif has "$segs" "$WRITE_METHOD|(^|[[:space:]])(-[fF]|--field|--raw-field|--input)([[:space:]=]|\$)|(^|[[:space:]])-[fF][^[:space:]=]+="; then
                 block 'gh api writes are left to the owner in this repository.'
             fi
         fi
@@ -208,7 +220,11 @@ mcp__*)
     case $op in
         get_* | list_* | search_* | read_* | *_get | *_list | *_read | *_search | *_get_* | *_list_* | *_search_*) exit 0 ;;
     esac
-    scan "$(printf '%s' "$input" | json_text)"
+    # Also with quotes starting new lines, so a trailer at the start of a string value is at the
+    # start of a line for the line-anchored patterns.
+    text=$(printf '%s' "$input" | json_text)
+    scan "$text
+$(printf '%s\n' "$text" | tr '"' '\n')"
     ;;
 esac
 exit 0
