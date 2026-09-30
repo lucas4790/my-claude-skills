@@ -20,3 +20,14 @@ setup() {
   run shellcheck "$REPO_ROOT"/plugins/yaml-hooks/scripts/*.sh "$REPO_ROOT"/plugins/yaml-hooks/tests/*.sh
   assert_status 0
 }
+
+@test "yaml-hooks: the hook passes its test script under bash as sh (macOS and Git Bash sh)" {
+  # bash started as sh runs in POSIX mode, which changes what command -v returns
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  ln -s "$(command -v bash)" "$BATS_TEST_TMPDIR/bin/sh"
+  TMPDIR="$BATS_TEST_TMPDIR" HOOK_SHELL="$BATS_TEST_TMPDIR/bin/sh" run sh "$REPO_ROOT/plugins/yaml-hooks/tests/test-hook.sh"
+  assert_status 0
+  local skipped
+  skipped=$(grep -m 1 '^skip - ' <<<"$output" || true)
+  [ -z "$skipped" ] || tool_missing "test-hook.sh skipped: ${skipped#skip - }"
+}
