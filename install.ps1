@@ -1,9 +1,15 @@
 #Requires -Version 5.1
+
 <#
 .SYNOPSIS
     Installs Claude Code if missing, adds the my-claude-skills marketplace, installs its plugins,
     and installs the tools some plugins depend on (git, Node.js, agent-browser, uv, PowerShell 7, .NET 10 SDK,
     pyright, yaml-language-server, yamllint).
+.DESCRIPTION
+    Parameter (it belongs to the script block inside, which keeps irm | iex out of the caller's session,
+    so Get-Help shows only the common parameters under PARAMETERS):
+      -Plugin NAME, ...    install only these plugins; also positional (.\install.ps1 dotnet, powershell).
+                           Default: every plugin in the marketplace.
 .EXAMPLE
     .\install.ps1                      # every plugin in the marketplace
     .\install.ps1 dotnet, powershell   # only these

@@ -1,9 +1,18 @@
 #Requires -Version 5.1
+
 <#
 .SYNOPSIS
     Installs the my-claude-skills marketplace for GitHub Copilot: Copilot CLI, and through it VS Code
     (VS Code discovers plugins installed by Copilot CLI in %USERPROFILE%\.copilot\installed-plugins).
     Claude Code keeps using install.ps1; both read the same .claude-plugin/marketplace.json.
+.DESCRIPTION
+    Parameters (they belong to the script block inside, which keeps irm | iex out of the caller's session,
+    so Get-Help shows only the common parameters under PARAMETERS):
+      -Profile NAME, ...   install the plugins of these profiles in profiles.json; also -Profiles, "a,b" in one
+                           string, or positional (.\install-copilot.ps1 cloud, dotnet). Default: the profiles in
+                           $env:MY_CLAUDE_SKILLS_PROFILE (comma-separated), else "copilotDefault". Profile
+                           claude-only, and caveman on Windows, are skipped: name those plugins with -Plugin.
+      -Plugin NAME, ...    install exactly these plugins; -Profile is then ignored.
 .EXAMPLE
     .\install-copilot.ps1                              # profiles in profiles.json "copilotDefault" (cloud)
     .\install-copilot.ps1 -Profile cloud, dotnet

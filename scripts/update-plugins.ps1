@@ -1,4 +1,5 @@
 #Requires -Version 5.1
+
 <#
 .SYNOPSIS
     Refreshes the my-claude-skills marketplace, updates installed plugins, and installs the ones added to
@@ -34,7 +35,7 @@ New-Item -ItemType File -Path $stamp -Force | Out-Null
 
 if (-not (Get-Command claude -ErrorAction SilentlyContinue)) { exit 0 }
 Start-Transcript -Path $log -Append | Out-Null
-Write-Host "=== $((Get-Date).ToUniversalTime().ToString('s'))Z"
+Write-Host "=== $((Get-Date).ToUniversalTime().ToString('s'))Z $claudeDir"   # the log is shared by every config dir
 
 # Copilot CLI copies (install-copilot.ps1; VS Code reads the same ones): update only what is
 # installed there. New plugins are never added, so a Copilot profile stays a profile.
@@ -53,16 +54,18 @@ if ($LASTEXITCODE -ne 0) { Write-Host 'marketplace update failed'; Stop-Transcri
 # install.ps1 copied this script once: refresh that copy from the marketplace clone so updater fixes
 # reach this machine. PowerShell has already read the whole script, so the new copy runs next time.
 # Not in a checkout of the repo (.claude-plugin\ next to scripts\): that would overwrite its working tree.
+# The temp name is this process's own: runs of other config dirs refresh the same copy.
 $selfNew = Join-Path $claudeDir "plugins\marketplaces\$name\scripts\update-plugins.ps1"
 if ($PSCommandPath -and (Test-Path $selfNew) -and
     -not (Test-Path (Join-Path (Split-Path $PSCommandPath) '..\.claude-plugin\marketplace.json')) -and
     (Get-FileHash $selfNew).Hash -ne (Get-FileHash $PSCommandPath).Hash) {
+    $selfTmp = "$PSCommandPath.$PID"
     try {
-        Copy-Item $selfNew "$PSCommandPath.new" -Force -ErrorAction Stop
-        Move-Item "$PSCommandPath.new" $PSCommandPath -Force -ErrorAction Stop
+        Copy-Item $selfNew $selfTmp -Force -ErrorAction Stop
+        Move-Item $selfTmp $PSCommandPath -Force -ErrorAction Stop
         Write-Host "refreshed $PSCommandPath from the marketplace (applies next run)"
     } catch {
-        Remove-Item "$PSCommandPath.new" -Force -ErrorAction SilentlyContinue
+        Remove-Item $selfTmp -Force -ErrorAction SilentlyContinue
         Write-Host "could not refresh $PSCommandPath"
     }
 }
