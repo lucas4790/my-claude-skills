@@ -29,7 +29,7 @@ touch "$STAMP"
 command -v claude >/dev/null || exit 0
 command -v jq >/dev/null || exit 0
 exec >>"$LOG" 2>&1
-echo "=== $(date -u +%FT%TZ)"
+echo "=== $(date -u +%FT%TZ) $CLAUDE_DIR"   # the log is shared by every config dir
 
 # Copilot CLI copies (install-copilot.sh; VS Code reads the same ones): update only what is
 # installed there. New plugins are never added, so a Copilot profile stays a profile.

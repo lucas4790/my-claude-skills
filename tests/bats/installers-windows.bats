@@ -1,8 +1,8 @@
 #!/usr/bin/env bats
 # shellcheck disable=SC2016  # $* and $FAKE_* in single quotes belong to the generated fakes and PowerShell
-# The Windows scripts under pwsh: a Windows PowerShell 5.1 compatibility check (PSScriptAnalyzer) of
-# install.ps1, install-copilot.ps1 and scripts/update-plugins.ps1, and behaviour tests of the installers'
-# control flow and settings edits.
+# The Windows scripts under pwsh: a Windows PowerShell 5.1 compatibility check (PSScriptAnalyzer) and a
+# Get-Help check of install.ps1, install-copilot.ps1 and scripts/update-plugins.ps1, and behaviour tests of
+# the installers' control flow and settings edits.
 #
 # The behaviour tests run the real installers with fake claude/copilot/git/node/winget/npm.cmd/uv/yamllint
 # on PATH and HOME, USERPROFILE, LOCALAPPDATA, COPILOT_HOME, XDG_CONFIG_HOME and TMPDIR in the test's temp
@@ -193,6 +193,59 @@ PS1
   run "$PWSH_BIN" -NoLogo -NoProfile -NonInteractive -File "$T/compat.ps1" \
     "$REPO_ROOT/install.ps1" "$REPO_ROOT/install-copilot.ps1" "$REPO_ROOT/scripts/update-plugins.ps1"
   assert_status 0
+}
+
+@test "static: Get-Help finds the help of the Windows scripts and describes every parameter, also the installers' inner ones" {
+  need_pwsh
+  # Two ways the help got lost: a #Requires line right above <# ... #> hides the whole block from Get-Help (a
+  # blank line must separate them), and the installers' parameters belong to the script block they run as
+  # & { param(...) ... } @args, since irm | iex would bind a top-level param() in the caller's session. Get-Help
+  # drops .PARAMETER entries of parameters that are not in the top-level param(), so .DESCRIPTION names those,
+  # one per line starting with -Name: each one by its name or an alias, and nothing that is not a parameter.
+  cat > "$T/help.ps1" <<'PS1'
+using namespace System.Management.Automation.Language
+foreach ($script in $args) {
+    $leaf = Split-Path -Leaf $script
+    $ast = [Parser]::ParseFile($script, [ref] $null, [ref] $null)
+    $help = Get-Help $script
+    $call = @($ast.EndBlock.Statements | ForEach-Object { $_.PipelineElements } | Where-Object {
+        $_ -is [CommandAst] -and $_.InvocationOperator -eq 'Ampersand' -and $_.CommandElements[0] -is [ScriptBlockExpressionAst] })
+    if (-not $call) {
+        # an ordinary script: Get-Help lists its parameters, with their .PARAMETER text
+        $state = @($ast.ParamBlock.Parameters | ForEach-Object {
+            $n = $_.Name.VariablePath.UserPath
+            $d = @($help.parameters.parameter | Where-Object { $_.name -eq $n } | ForEach-Object { $_.description.Text }) -join ' '
+            if ("$d".Trim()) { "$n described" } else { "$n not described" }
+        })
+        "${leaf}: $($state -join ', ')"
+        continue
+    }
+    $inner = $call[0].CommandElements[0].ScriptBlock.ParamBlock.Parameters
+    $names = @{}   # name or alias -> parameter
+    foreach ($p in $inner) {
+        $names[$p.Name.VariablePath.UserPath] = $p.Name.VariablePath.UserPath
+        foreach ($a in @($p.Attributes | Where-Object { $_.TypeName.Name -eq 'Alias' })) {
+            foreach ($v in $a.PositionalArguments) { $names[$v.Value] = $p.Name.VariablePath.UserPath }
+        }
+    }
+    $text = @($help.description | ForEach-Object { $_.Text }) -join "`n"
+    $described = @($text -split "`n" | ForEach-Object { if ($_ -match '^\s*-(\w+)\s') { $Matches[1] } })
+    foreach ($d in $described) { if (-not $names.ContainsKey($d)) { "${leaf}: -$d is not a parameter" } }
+    $covered = @($described | Where-Object { $names.ContainsKey($_) } | ForEach-Object { $names[$_] })
+    $state = @($inner | ForEach-Object {
+        $n = $_.Name.VariablePath.UserPath
+        if ($covered -contains $n) { "$n described" } else { "$n not described" }
+    })
+    "${leaf}: $($state -join ', ')"
+}
+PS1
+  run "$PWSH_BIN" -NoLogo -NoProfile -NonInteractive -File "$T/help.ps1" \
+    "$REPO_ROOT/install.ps1" "$REPO_ROOT/install-copilot.ps1" "$REPO_ROOT/scripts/update-plugins.ps1"
+  assert_status 0
+  assert_line "install.ps1: Plugin described"
+  assert_line "install-copilot.ps1: Profiles described, Plugin described"
+  assert_line "update-plugins.ps1: Force described"
+  refute_output_contains "is not a parameter"
 }
 
 # --- install.ps1 --------------------------------------------------------------------------------------

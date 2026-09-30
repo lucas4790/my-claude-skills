@@ -287,6 +287,23 @@ claude plugin update gamma@my-claude-skills" "claude calls"
   assert_not_exists "$CACHE/last-run"
 }
 
+@test "update-plugins: each run's log header names its config dir, so runs of different config dirs can be told apart in the shared log" {
+  local cfg
+  for cfg in work personal; do
+    offers "$T/$cfg/plugins/marketplaces/my-claude-skills" alpha beta gamma
+    CLAUDE_CONFIG_DIR="$T/$cfg" run_update "$T/fake-claude-only:$T/sys" --force
+    assert_status 0
+  done
+  # no CLAUDE_CONFIG_DIR: ~/.claude
+  offers "$HOME/.claude/plugins/marketplaces/my-claude-skills" alpha beta gamma
+  CLAUDE_CONFIG_DIR='' run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  assert_eq "$(grep '^=== ' "$LOG" | sed -E 's/^=== [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z //')" \
+    "$T/work
+$T/personal
+$HOME/.claude" "config dirs in the run headers"
+}
+
 @test "update-plugins: the same stamp is still fresh under the default interval (6 h)" {
   mkdir -p "$(dirname "$STAMP")"
   touch "$STAMP"
@@ -530,6 +547,49 @@ claude plugin install delta@my-claude-skills" "installs"
   assert_status 0
   assert_eq "$(calls)" "" "claude calls of the throttled runs"
   assert_not_exists "$T/local/my-claude-skills/last-run"
+}
+
+@test "update-plugins.ps1: each run's log header names its config dir (pwsh, or \$PWSH)" {
+  local pwsh="${PWSH:-}"
+  [ -n "$pwsh" ] || pwsh=$(command -v pwsh) || tool_missing "pwsh not installed (set PWSH=/path/to/pwsh to run this)"
+  local cfg
+  offers "$HOME/.claude/plugins/marketplaces/my-claude-skills" alpha beta gamma
+  for cfg in work personal ''; do   # '': no CLAUDE_CONFIG_DIR, so ~/.claude
+    [ -z "$cfg" ] || offers "$T/$cfg/plugins/marketplaces/my-claude-skills" alpha beta gamma
+    run env PATH="$T/fake-claude-only:$T/sys" LOCALAPPDATA="$T/local" CLAUDE_CONFIG_DIR="${cfg:+$T/$cfg}" \
+      "$pwsh" -NoLogo -NoProfile -NonInteractive -File "$REPO_ROOT/scripts/update-plugins.ps1" -Force
+    assert_status 0
+  done
+  assert_eq "$(grep '^=== ' "$T/local/my-claude-skills/update.log" | sed -E 's/^=== [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z //')" \
+    "$T/work
+$T/personal
+$HOME/.claude" "config dirs in the run headers"
+}
+
+@test "update-plugins.ps1: the self-refresh copies to a temp file of its own and leaves another run's alone (pwsh, or \$PWSH)" {
+  local pwsh="${PWSH:-}"
+  [ -n "$pwsh" ] || pwsh=$(command -v pwsh) || tool_missing "pwsh not installed (set PWSH=/path/to/pwsh to run this)"
+  local ps1="$T/data/update-plugins.ps1"
+  mkdir -p "$T/data" "$MP_DIR/scripts"
+  cp "$REPO_ROOT/scripts/update-plugins.ps1" "$ps1"
+  { cat "$REPO_ROOT/scripts/update-plugins.ps1"; echo "# a newer version"; } > "$MP_DIR/scripts/update-plugins.ps1"
+  # runs of other config dirs refresh the same copy: their temp files, half written (the fixed name an older
+  # version used, and the name of another process)
+  echo "half of another run's copy" > "$ps1.new"
+  echo "half of another run's copy" > "$ps1.1"
+  run env PATH="$T/fake-claude-only:$T/sys" LOCALAPPDATA="$T/local" \
+    "$pwsh" -NoLogo -NoProfile -NonInteractive -File "$ps1" -Force
+  assert_status 0
+  cmp "$MP_DIR/scripts/update-plugins.ps1" "$ps1"
+  grep -qF "refreshed $ps1 from the marketplace (applies next run)" "$T/local/my-claude-skills/update.log"
+  assert_file_content "$ps1.new" "half of another run's copy
+"
+  assert_file_content "$ps1.1" "half of another run's copy
+"
+  # and its own temp file is gone
+  assert_eq "$(ls "$T/data")" "update-plugins.ps1
+update-plugins.ps1.1
+update-plugins.ps1.new" "files next to the copy"
 }
 
 @test "update-plugins: runs under bash 3.2, macOS's /bin/bash (set BASH32=/path/to/bash-3.2)" {
