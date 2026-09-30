@@ -44,7 +44,7 @@ here=$(dirname -- "$0")
 case $here in /* | [A-Za-z]:*) ;; *) here=$(pwd)/$here ;; esac
 default_config=$here/yamllint-default.yaml
 
-input=$(cat 2>/dev/null) || exit 0
+{ input=$(cat); } 2>/dev/null || exit 0 # (bash warns about NUL bytes)
 [ -n "$input" ] || exit 0
 
 # json_string KEY: the first string value of "KEY" in $input, with \\ \" \/ unescaped. A key inside a
@@ -155,8 +155,8 @@ shown_file=$file # the path as the tool call gave it, for the report
 dir=$(dirname -- "$file")
 # ., .. and // segments (a relative path such as ../x.yaml): the walks below go by the path's text, so resolve
 # them in the file system
-case /$dir/ in
-  */./* | */../* | *//*)
+case $file in
+  *//* | */./* | */../* | ./* | ../*)
     dir=$(cd -P -- "$dir" 2>/dev/null && pwd -P) || exit 0
     if command -v cygpath >/dev/null 2>&1; then dir=$(cygpath -m "$dir" 2>/dev/null || printf '%s' "$dir"); fi
     file=${dir%/}/${file##*/}
@@ -199,7 +199,7 @@ if [ -n "$confdir" ]; then
   workdir=$confdir
   if [ "$confdir" = / ]; then rel=${file#/}; else rel=${file#"$confdir"/}; fi
   # --list-files prints nothing for a file the project config ignores
-  listed=$(run_yl "$QUICK_SECS" --list-files -- "$rel") || cannot_lint "$?" "$QUICK_SECS" "$listed"
+  { listed=$(run_yl "$QUICK_SECS" --list-files -- "$rel"); } 2>/dev/null || cannot_lint "$?" "$QUICK_SECS" "$listed"
   [ -n "$listed" ] || exit 0
   set --
 else
