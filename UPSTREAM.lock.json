@@ -8,13 +8,13 @@
   "anthropics-skills": {
     "ref": "main",
     "repo": "https://github.com/anthropics/skills.git",
-    "sha": "33375500bcea98d610eb30ce10ac4e59b89c390d",
+    "sha": "8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4",
     "trust": "high"
   },
   "claude-plugins-official": {
     "ref": "main",
     "repo": "https://github.com/anthropics/claude-plugins-official.git",
-    "sha": "fa59bc9037741ecfa131aa27938272605710d7b2",
+    "sha": "2a8ad9f74633d10e3d9bb0660a03bfc6e50584b1",
     "trust": "high"
   },
   "codebase-onboarding": {
@@ -26,7 +26,7 @@
   "dotnet-skills": {
     "ref": "main",
     "repo": "https://github.com/dotnet/skills.git",
-    "sha": "b649b55a32cbd5ba32964e818bb0799ed3bcbbcd",
+    "sha": "ff66f963fb82944910814f91e4aead62ff5c69eb",
     "trust": "high"
   },
   "mattpocock-skills": {
