@@ -378,6 +378,23 @@
           "to": "plugins/codebase-onboarding/LICENSE"
         }
       ]
+    },
+    {
+      "name": "awesome-copilot",
+      "repo": "https://github.com/github/awesome-copilot.git",
+      "ref": "main",
+      "trust": "low",
+      "copy": [
+        {
+          "from": "instructions/powershell-pester-6.instructions.md",
+          "to": "plugins/powershell/skills/pester/SKILL.md",
+          "patch": "patches/pester.patch"
+        },
+        {
+          "from": "LICENSE",
+          "to": "plugins/powershell/LICENSE.awesome-copilot"
+        }
+      ]
     }
   ]
 }

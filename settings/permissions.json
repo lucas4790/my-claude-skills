@@ -1,20 +1,20 @@
 {
-  "$comment": "Read-only inspection commands, merged by hand into ~/.claude/settings.json permissions.allow (the installer does not apply this file). Nothing here mutates state or runs code from the checked-out repository; anything that can (apply, delete, push, set, create, upgrade, build, test) stays out on purpose. Build and test runners live in permissions-trusted-repo.json.",
+  "$comment": "Read-only inspection commands, merged by hand into ~/.claude/settings.json (allow and ask; the installer does not apply this file; README 'Permissions baseline'). Claude Code matches a rule against the command text as written (whitespace collapsed, quotes and backslashes kept), and an allow rule ending in * covers every flag of its command, also when the command runs through xargs. The ask rules below (ask wins over allow) therefore catch only the plain spelling of a flag: a quoted or escaped flag (--kube\"config\"), a combined short flag (-As) or flags passed through xargs get past them. They are a backstop, not a boundary. The rule for this file: an allow wildcard belongs here only if its residual risk is listed below and in the README; a rule whose flags can run a program from the clone belongs in permissions-trusted-repo.json (so helm template, whose --post-renderer runs one, is there). git diff/log/show/blame have no rule: Claude Code's built-in read-only check allows their safe forms and asks for the rest (--output=FILE). git fetch and terraform fmt -check are allowed in exact forms only (git fetch --upload-pack runs a command, and a later -check=false makes fmt rewrite files). Ask rules: kubectl/helm --kubeconfig (a kubeconfig's exec credential plugin runs a program), kubectl --server/-s and helm --kube-apiserver (send the kubeconfig's credentials, such as an exec plugin's token, to another API server), helm --kube-token, kubectl --cache-dir and --profile (writes ./profile.pprof; the rule also matches --profile-output), helm --post-renderer/--output-dir/--repository-cache/--repository-config/--registry-config/--dependency-update, terraform plan -out/-generate-config-out. Residual risks, accepted on purpose: a disguised --kubeconfig runs a kubeconfig's exec plugin, a disguised --server or --kube-apiserver sends the cluster token elsewhere, and a disguised write flag writes a file; terraform plan runs the configuration's providers and external data sources (code from the clone) against the configured backend (it does not apply), and terraform validate/show/state show start the provider plugins in .terraform/; kubectl get, helm get and terraform show/output can print secrets into the session; jq reads any file (it stays because az ... | jq pipes need every segment allowed); git fetch talks to the network (it writes only .git/); shell redirection is checked apart from the rules: Claude Code 2.1.284 asks before > file writes a file (acceptEdits allows it inside the working directory, like any edit), and a version without that check would let > file write after any rule. Left out: terraform providers lock/mirror (write files). Build and test runners live in permissions-trusted-repo.json.",
   "permissions": {
     "allow": [
       "Bash(git status)",
       "Bash(git status *)",
-      "Bash(git diff *)",
-      "Bash(git log *)",
-      "Bash(git show *)",
       "Bash(git branch)",
       "Bash(git branch -a)",
       "Bash(git branch --show-current)",
       "Bash(git remote -v)",
-      "Bash(git fetch *)",
+      "Bash(git fetch)",
+      "Bash(git fetch origin)",
+      "Bash(git fetch --prune)",
+      "Bash(git fetch origin --prune)",
+      "Bash(git fetch --all --prune)",
       "Bash(git ls-files *)",
       "Bash(git rev-parse *)",
-      "Bash(git blame *)",
       "Bash(git stash list)",
 
       "Bash(gh pr view *)",
@@ -78,20 +78,21 @@
       "Bash(helm history *)",
       "Bash(helm show *)",
       "Bash(helm search *)",
-      "Bash(helm template *)",
       "Bash(helm lint *)",
       "Bash(helm version)",
 
       "Bash(terraform version)",
       "Bash(terraform validate *)",
-      "Bash(terraform fmt -check *)",
-      "Bash(terraform fmt -diff *)",
+      "Bash(terraform fmt -check)",
+      "Bash(terraform fmt -check -diff)",
+      "Bash(terraform fmt -check -recursive)",
+      "Bash(terraform fmt -check -diff -recursive)",
       "Bash(terraform plan *)",
       "Bash(terraform show *)",
       "Bash(terraform output *)",
       "Bash(terraform state list *)",
       "Bash(terraform state show *)",
-      "Bash(terraform providers *)",
+      "Bash(terraform providers)",
 
       "Bash(docker ps *)",
       "Bash(docker images *)",
@@ -104,6 +105,23 @@
       "Bash(node --version)",
       "Bash(npm --version)",
       "Bash(jq *)"
+    ],
+    "ask": [
+      "Bash(kubectl *--kubeconfig*)",
+      "Bash(kubectl *--server*)",
+      "Bash(kubectl * -s*)",
+      "Bash(kubectl *--cache-dir*)",
+      "Bash(kubectl *--profile*)",
+      "Bash(helm *--kubeconfig*)",
+      "Bash(helm *--kube-apiserver*)",
+      "Bash(helm *--kube-token*)",
+      "Bash(helm *--post-renderer*)",
+      "Bash(helm *--output-dir*)",
+      "Bash(helm *--repository-cache*)",
+      "Bash(helm *--repository-config*)",
+      "Bash(helm *--registry-config*)",
+      "Bash(helm *--dependency-update*)",
+      "Bash(terraform plan *-out*)"
     ]
   }
 }

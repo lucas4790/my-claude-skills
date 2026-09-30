@@ -20,19 +20,34 @@ has()  { command -v "$1" >/dev/null 2>&1; }
 # version_ge A B: true when dotted version A >= B
 version_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -t. -k1,1n -k2,2n -k3,3n | head -1)" = "$2" ]; }
 
+# This script's path; empty under `curl | bash`. Read at top level: inside a function it would be
+# "main" when piped, and dirname "main" is the caller's directory.
+SRC="${BASH_SOURCE[0]:-}"
+
+# profiles.json of the checkout this script runs from, else of the repo's main branch. A checkout is
+# recognised by its marketplace manifest, so a stray profiles.json elsewhere is never used.
 profiles_json() {
   local here
-  here="$(dirname "${BASH_SOURCE[0]:-/nonexistent}")"
-  if [ -f "$here/profiles.json" ]; then cat "$here/profiles.json"; else curl -fsSL "$RAW/profiles.json"; fi
+  here="$(dirname "${SRC:-/nonexistent}")"
+  if [ -n "$SRC" ] && [ -f "$here/.claude-plugin/marketplace.json" ] && [ -f "$here/profiles.json" ]; then
+    cat "$here/profiles.json"
+  else
+    curl -fsSL "$RAW/profiles.json"
+  fi
+}
+
+usage() {
+  if [ -n "$SRC" ] && [ -f "$SRC" ]; then sed -n '2,8p' "$SRC"
+  else echo "Usage: install-copilot.sh [--profile NAME[,NAME...]] [plugin ...]  (profiles: $RAW/profiles.json)"; fi
 }
 
 main() {
   local profile="" explicit=() p
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --profile) profile="${2:-}"; shift 2 ;;
+      --profile) [ "$#" -ge 2 ] || die "--profile needs a value (e.g. --profile cloud,dotnet)"; profile="$2"; shift 2 ;;
       --profile=*) profile="${1#--profile=}"; shift ;;
-      -h|--help) sed -n '2,8p' "${BASH_SOURCE[0]}"; exit 0 ;;
+      -h|--help) usage; exit 0 ;;
       -*) die "unknown option $1" ;;
       *) explicit+=("$1"); shift ;;
     esac
@@ -100,15 +115,20 @@ main() {
   # --- auto-update ------------------------------------------------------------------
   # Copilot CLI refreshes a user-added marketplace at session start only with autoUpdate: true.
   local cfg="${COPILOT_HOME:-$HOME/.copilot}/settings.json" tmp
-  if [ -f "$cfg" ] && jq -e . "$cfg" >/dev/null 2>&1; then
-    tmp=$(mktemp)
-    jq --arg n "$NAME" --arg r "$REPO" \
-      '.extraKnownMarketplaces[$n] = ((.extraKnownMarketplaces[$n] // {source: {source: "github", repo: $r}}) + {autoUpdate: true})' \
-      "$cfg" > "$tmp" && cat "$tmp" > "$cfg" && rm -f "$tmp"   # cat keeps a symlinked settings.json intact
-    echo "==> enabled autoUpdate for $NAME in $cfg"
+  # No settings.json yet: start one, as install.sh does for Claude Code.
+  [ -s "$cfg" ] || { mkdir -p "$(dirname "$cfg")" && echo '{}' > "$cfg"; } || true
+  tmp=$(mktemp)
+  if jq -e 'type == "object"' "$cfg" >/dev/null 2>&1 \
+    && jq --arg n "$NAME" --arg r "$REPO" \
+      '.extraKnownMarketplaces[$n] = ((.extraKnownMarketplaces[$n] // {source: {source: "github", repo: $r}}) + {autoUpdate: true})
+       | .includeCoAuthoredBy = false' \
+      "$cfg" > "$tmp" && cat "$tmp" > "$cfg"; then   # cat keeps a symlinked settings.json intact
+    echo "==> enabled autoUpdate for $NAME and turned off AI co-author trailers (includeCoAuthoredBy) in $cfg"
   else
-    warn "$cfg missing or not plain JSON; set extraKnownMarketplaces.$NAME.autoUpdate = true by hand"
+    warn "could not update $cfg (not plain JSON, or not writable); set includeCoAuthoredBy = false and" \
+      "extraKnownMarketplaces.$NAME.autoUpdate = true in it by hand"
   fi
+  rm -f "$tmp"
 
   cat <<EOF
 

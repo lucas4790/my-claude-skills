@@ -1,0 +1,38 @@
+#!/bin/sh
+# Global hooks dispatcher for `git config --global core.hooksPath <dir>` (Git < 2.54 only).
+# Installed under every hook name. A global core.hooksPath makes git ignore .git/hooks, so after
+# the attribution guard this runs the repository's own hook of the same name.
+set -u
+name=$(basename "$0")
+here=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+stdin_copy=
+case $name in
+    pre-push | pre-receive | post-rewrite | post-receive)
+        # These hooks get data on stdin; keep a copy so the repo's hook can read it too.
+        stdin_copy=$(mktemp 2>/dev/null || echo "${TMPDIR:-/tmp}/githook.$$")
+        cat >"$stdin_copy"
+        trap 'rm -f "$stdin_copy"' EXIT ;;
+esac
+
+case $name in
+    commit-msg) sh "$here/attribution-guard.sh" commit-msg "$@" || exit $? ;;
+    pre-push) sh "$here/attribution-guard.sh" pre-push "$@" <"$stdin_copy" || exit $? ;;
+esac
+
+# The repository's own hooks: the hooks path it had before the guard took core.hooksPath over
+# (husky, lefthook; saved by session-start.sh), else .git/hooks. Never a guard hooks directory: a
+# moved or copied clone can still name the old one, and chaining to its dispatcher would skip
+# .git/hooks (or, for a copy, call this dispatcher again without end).
+prev=$(git config --get attributionguard.previousHooksPath 2>/dev/null || true)
+case $prev in *[/\\]attribution-guard[/\\]hooks | *[/\\]attribution-guard[/\\]hooks[/\\]) prev= ;; esac
+case $prev in
+    '') repo_hook="$(git rev-parse --git-common-dir 2>/dev/null)/hooks/$name" ;;
+    /* | [A-Za-z]:[/\\]*) repo_hook="$prev/$name" ;;
+    *) repo_hook="$(git rev-parse --show-toplevel 2>/dev/null)/$prev/$name" ;;
+esac
+if [ -f "$repo_hook" ] && [ -x "$repo_hook" ]; then
+    if [ -n "$stdin_copy" ]; then "$repo_hook" "$@" <"$stdin_copy"; else "$repo_hook" "$@"; fi
+    exit $?
+fi
+exit 0

@@ -15,7 +15,7 @@ permissions:
 # PR run when several PRs push at once (only one run may wait per group), which leaves the
 # required `validate-pr` check missing on that PR.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || 'sync' }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'sync' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -32,11 +32,41 @@ jobs:
   validate-pr:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # Runs code from the PR (validate.py, the test suites): read-only token, no stored credentials,
+    # so it cannot edit the PR after the attribution check passed.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+          persist-credentials: false
       - run: python3 scripts/validate.py --diff "origin/${{ github.base_ref }}"
+      - name: Install test tools
+        # bats 1.10, pytest 7.4, PyYAML (tests/evals), yamllint and git-filter-repo (for
+        # tests/bats/clean-history.bats) from Ubuntu; shellcheck, pwsh, git, rsync and jq are preinstalled.
+        # The pytest suite of the skill-example checker never installs Pester, so it comes first;
+        # PSScriptAnalyzer is for tests/bats/installers-windows.bats.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends bats python3-pytest python3-yaml yamllint git-filter-repo
+          pwsh -NoProfile -Command 'Install-Module Pester -MinimumVersion 6.0.0 -Scope CurrentUser -Force -SkipPublisherCheck
+            if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) { Install-Module PSScriptAnalyzer -Scope CurrentUser -Force }'
+      - name: Script tests (bats, pytest, shellcheck of the attribution guard)
+        env:
+          SKILL_EXAMPLES_REQUIRE_TOOLS: "1"  # a missing optional tool fails the checks that need it, never skips them
+        run: scripts/run-tests.sh
+      - name: Skill examples
+        # The code blocks of every skill in tests/skill-examples.json, per fence language.
+        env:
+          SKILL_EXAMPLES_REQUIRE_TOOLS: "1"
+        run: scripts/test-skill-examples.sh
+      - name: Attribution guard tests
+        run: |
+          sh tools/attribution-guard/tests/run-tests.sh
+          python3 tools/attribution-guard/azure-devops/gen.py --check
+          bash tools/attribution-guard/azure-devops/tests/run-tests.sh
+          bash tools/attribution-guard/azure-devops/tests/run-dispatch-tests.sh
       - name: Claude Code manifest validation
         # Gated inside the step rather than with a `paths:` trigger filter so the job still
         # reports on every PR (it is a required check on main).
@@ -60,13 +90,47 @@ jobs:
       matrix:
         trust: [high, low]
     env:
-      GH_TOKEN: ${{ github.token }}
       BRANCH: sync/${{ matrix.trust }}-trust
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: main
-      - run: scripts/sync.sh --trust ${{ matrix.trust }}
+          # No token in .git/config: the skill-examples step runs unreviewed upstream code. The token
+          # exists only in the PR step's environment (see there).
+          persist-credentials: false
+      # One source that fails (a patch that no longer applies, a vanished path) must not block the
+      # PR for all the others: record it and report it at the top of the PR instead.
+      - name: Sync
+        run: |
+          set -o pipefail
+          scripts/sync.sh --trust ${{ matrix.trust }} 2>&1 | tee "$RUNNER_TEMP/sync.log" || echo "SYNC_FAILED=1" >> "$GITHUB_ENV"
+      - name: Install test tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends bats python3-pytest python3-yaml yamllint git-filter-repo
+      # The same tests as validate-pr, on the synced tree. That tree is upstream content nobody has
+      # reviewed yet, which the tests read and the skill examples partly run, so they run as a
+      # throwaway user with an empty environment on a copy of the tree: they cannot read the runner
+      # user's processes or files, change what later steps run with the token, or write $GITHUB_ENV.
+      # Whatever they leave running is killed.
+      - name: Tests and skill examples (sandboxed)
+        run: |
+          set -o pipefail
+          sudo useradd --create-home --shell /bin/bash sandbox
+          work=$(sudo -u sandbox mktemp -d)
+          tar --exclude=.git -cf - . | sudo -u sandbox tar -xf - -C "$work"
+          sandboxed() {
+            sudo -u sandbox env -i HOME=/home/sandbox PATH=/usr/local/bin:/usr/bin:/bin SKILL_EXAMPLES_REQUIRE_TOOLS=1 "$@"
+          }
+          # Pester 6 and PSScriptAnalyzer (tests/bats/installers-windows.bats) for the sandbox user
+          sandboxed pwsh -NoProfile -Command 'Install-Module Pester -MinimumVersion 6.0.0 -Scope CurrentUser -Force -SkipPublisherCheck
+            if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) { Install-Module PSScriptAnalyzer -Scope CurrentUser -Force }' \
+            2>&1 | tee "$RUNNER_TEMP/tests.log" || echo "TESTS_FAILED=1" >> "$GITHUB_ENV"
+          sandboxed bash "$work/scripts/run-tests.sh" 2>&1 | tee -a "$RUNNER_TEMP/tests.log" \
+            || echo "TESTS_FAILED=1" >> "$GITHUB_ENV"
+          sandboxed bash "$work/scripts/test-skill-examples.sh" 2>&1 | tee "$RUNNER_TEMP/examples.log" \
+            || echo "EXAMPLES_FAILED=1" >> "$GITHUB_ENV"
+          sudo pkill -KILL -u sandbox || true
       - if: matrix.trust == 'low'
         run: scripts/bump-pinned.sh
       # The pipe deliberately masks validate's exit code (no pipefail): the PR must be opened even on
@@ -74,25 +138,63 @@ jobs:
       - name: Validate (injection hits surface in the PR body)
         run: python3 scripts/validate.py --diff HEAD --warn-only | tee "$RUNNER_TEMP/validate.log"
       - name: Open or update PR
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$(git status --porcelain)" ]; then
+            if [ "${SYNC_FAILED:-0}" = 1 ]; then
+              # Nothing to put in a PR, so fail the run: that is what sends the notification.
+              echo "::error::${{ matrix.trust }}-trust sync failed and nothing else changed:"
+              grep '^error:' "$RUNNER_TEMP/sync.log" || true
+              exit 1
+            fi
             echo "No ${{ matrix.trust }}-trust changes."
             gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' | xargs -r gh pr close --delete-branch || true
             exit 0
           fi
           shas=$(jq -r 'to_entries | map(select(.value.trust=="${{ matrix.trust }}") | "\(.key)@\(.value.sha[0:7])") | join(", ")' UPSTREAM.lock.json)
-          changed=$(git status --porcelain | wc -l)
-          hits=$(grep -E '^(‼|⚠|✗)' "$RUNNER_TEMP/validate.log" || echo 'validator: no hits in added lines')
+          # every file: without --untracked-files=all a new directory counts as one line
+          changed=$(git status --porcelain --untracked-files=all | wc -l)
+          # validator lines quote upstream text (file names, skill names): drop backticks so it cannot close the fence
+          hits=$(grep -E '^(‼|⚠|✗)' "$RUNNER_TEMP/validate.log" | tr '\140' "'" || true)
+          [ -n "$hits" ] || hits='validator: no hits in added lines'
           # grep -c prints 0 but exits 1 on no match, which `bash -e` would treat as failure;
           # only a real grep error (exit 2) aborts the step.
           high=$(grep -c '\[high\]' "$RUNNER_TEMP/validate.log" || [ $? -eq 1 ])
           git checkout -B "$BRANCH"
           git add -A
           git commit -m "chore: sync ${{ matrix.trust }}-trust upstream skills ($shas)"
+          gh auth setup-git  # git asks gh for GH_TOKEN at push time; the token never lands on disk
           git push --force -u origin "$BRANCH"
           title="chore: ${{ matrix.trust }}-trust upstream sync"
           [ "$high" -eq 0 ] || title="$title ($high high-severity hit(s))"
-          body=$(printf '## %s-trust upstream changes — review before merging\n\n%s files changed. Sources: %s\n\nThe validator scanned only the lines this sync adds. `[high]` = instruction-shaped text, exfiltration channel, credential access, remote code execution or a new hook: read that line in context before merging. `[low]` = worth a glance.\n\n```\n%s\n```\n\nSee SECURITY.md for the review checklist.\n' "${{ matrix.trust }}" "$changed" "$shas" "$hits")
+          # A failed source, failing tests or skill examples go on top of the PR, in the title and in the status.
+          # printf -v, not $(...): command substitution would strip the blank line after each section.
+          problems='' part=''
+          fence=$(printf '\140\140\140')
+          if [ "${SYNC_FAILED:-0}" = 1 ]; then
+            printf -v part '### Sync failure\n\nThese sources were not updated (see README, "How syncing works"):\n\n%s\n%s\n%s\n\n' \
+              "$fence" "$(grep '^error:' "$RUNNER_TEMP/sync.log" || echo 'see the sync step log')" "$fence"
+            problems+=$part
+          fi
+          if [ "${TESTS_FAILED:-0}" = 1 ]; then
+            # Test output quotes the synced content: drop its backticks so it cannot close the fence.
+            printf -v part '### Repo tests failed\n\n%s\n%s\n%s\n\n' \
+              "$fence" "$(tail -n 40 "$RUNNER_TEMP/tests.log" | tr '\140' "'")" "$fence"
+            problems+=$part
+          fi
+          if [ "${EXAMPLES_FAILED:-0}" = 1 ]; then
+            # The log is upstream output: drop its backticks so it cannot close the fence.
+            printf -v part '### Skill example tests failed\n\n%s\n%s\n%s\n\n' \
+              "$fence" "$(tail -n 40 "$RUNNER_TEMP/examples.log" | tr '\140' "'")" "$fence"
+            problems+=$part
+          fi
+          # validate.py always ends with a ✓/✗/‼ summary line; without it, it crashed (stderr is not in the log)
+          if ! tail -n 1 "$RUNNER_TEMP/validate.log" | grep -qE '^(✓|✗|‼)'; then
+            problems+=$'### Validator did not finish\n\n`scripts/validate.py` exited without its summary line; see the "Validate" step log.\n\n'
+          fi
+          [ -z "$problems" ] || title="$title (sync/test failure)"
+          body=$(printf '%s## %s-trust upstream changes — review before merging\n\n%s files changed. Sources: %s\n\nThe validator scanned only the lines this sync adds. `[high]` = instruction-shaped text, exfiltration channel, credential access, remote code execution or a new hook: read that line in context before merging. `[low]` = worth a glance.\n\n```\n%s\n```\n\nSee SECURITY.md for the review checklist.\n' "$problems" "${{ matrix.trust }}" "$changed" "$shas" "$hits")
           if gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' | grep -q .; then
             gh pr edit "$BRANCH" --title "$title" --body "$body"
           else
@@ -103,5 +205,13 @@ jobs:
           # hits only annotate the PR body — merging with hits is the reviewer's call. Posted only
           # after the PR exists so a failed create never leaves a green context on a PR-less branch.
           state=success; grep -q '^✗' "$RUNNER_TEMP/validate.log" && state=failure
+          [ -z "$problems" ] || state=failure
           gh api -X POST "repos/${{ github.repository }}/statuses/$(git rev-parse HEAD)" \
             -f state="$state" -f context=validate-pr -f description="validated by sync job ($high high-severity hit(s) in PR body)"
+          # GITHUB_TOKEN-created PRs start no pull_request_target run, so report `attribution-guard`
+          # here too, from the same patterns, over this commit's message, author and the PR text.
+          ag=success
+          { git log -1 --format='%B%nauthor: %ae'; printf '%s\n%s\n' "$title" "$body"; } \
+            | sh tools/attribution-guard/attribution-guard.sh check >/dev/null || ag=failure
+          gh api -X POST "repos/${{ github.repository }}/statuses/$(git rev-parse HEAD)" \
+            -f state="$ag" -f context=attribution-guard -f description="checked by sync job"

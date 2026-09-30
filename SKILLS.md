@@ -181,14 +181,14 @@ Skills and agents for running, generating, analyzing, and improving .NET tests: 
 
 | Name | What it does |
 |---|---|
-| [`code-testing-builder`](plugins/dotnet-test/agents/code-testing-builder.agent.md) | Runs build/compile commands for any language and reports results. |
-| [`code-testing-fixer`](plugins/dotnet-test/agents/code-testing-fixer.agent.md) | Fixes compilation errors in source or test files. |
+| [`code-testing-builder`](plugins/dotnet-test/agents/code-testing-builder.agent.md) | Runs build/compile commands for any language and reports results. Use when: compiling code, running dotnet build, checking for compilation errors, verifying project builds successfully. |
+| [`code-testing-fixer`](plugins/dotnet-test/agents/code-testing-fixer.agent.md) | Fixes compilation errors in source or test files. Use when: resolving build errors, fixing CS/TS error codes, adding missing imports, correcting type mismatches, fixing compilation failures. |
 | [`code-testing-generator`](plugins/dotnet-test/agents/code-testing-generator.agent.md) | Required internal implementation agent for broad or comprehensive code-testing-agent requests spanning a project, package, or multiple modules. Orchestrates the Research-Plan-Implement pipeline after the public… |
-| [`code-testing-implementer`](plugins/dotnet-test/agents/code-testing-implementer.agent.md) | Implements a single phase from the test plan. Writes test files and verifies they compile and pass. |
-| [`code-testing-linter`](plugins/dotnet-test/agents/code-testing-linter.agent.md) | Runs code formatting and linting for any language. |
-| [`code-testing-planner`](plugins/dotnet-test/agents/code-testing-planner.agent.md) | Creates structured test implementation plans from research findings. |
-| [`code-testing-researcher`](plugins/dotnet-test/agents/code-testing-researcher.agent.md) | Analyzes codebases to understand structure, testing patterns, and testability. |
-| [`code-testing-tester`](plugins/dotnet-test/agents/code-testing-tester.agent.md) | Runs test commands for any language and reports pass/fail results. |
+| [`code-testing-implementer`](plugins/dotnet-test/agents/code-testing-implementer.agent.md) | Implements a single phase from the test plan. Writes test files and verifies they compile and pass. Use when: executing a plan phase, writing test files, running build-test-fix cycle for generated tests. |
+| [`code-testing-linter`](plugins/dotnet-test/agents/code-testing-linter.agent.md) | Runs code formatting and linting for any language. Use when: formatting code, running dotnet format, fixing style issues, applying lint fixes. |
+| [`code-testing-planner`](plugins/dotnet-test/agents/code-testing-planner.agent.md) | Creates structured test implementation plans from research findings. Use when: organizing tests into phases, prioritizing test generation, creating the pipeline plan document from research. |
+| [`code-testing-researcher`](plugins/dotnet-test/agents/code-testing-researcher.agent.md) | Analyzes codebases to understand structure, testing patterns, and testability. Use when: researching project structure, identifying source files to test, discovering test frameworks and build commands, producing the… |
+| [`code-testing-tester`](plugins/dotnet-test/agents/code-testing-tester.agent.md) | Runs test commands for any language and reports pass/fail results. Use when: running dotnet test, executing tests, verifying tests pass, checking test results and failures. |
 | [`test-quality-auditor`](plugins/dotnet-test/agents/test-quality-auditor.agent.md) | MUST USE for test-suite quality audits, from focused assertion, anti-pattern, smell, gap, coverage, mock, or tagging reviews through broad multi-dimensional health checks across a project/workspace. For a focused… |
 | [`testability-migration`](plugins/dotnet-test/agents/testability-migration.agent.md) | MUST USE for .NET testability migration requests, from static-dependency inventories and one named dependency migration through broad end-to-end work coordinating seam selection, call-site migration, production wiring,… |
 
@@ -228,7 +228,7 @@ Advanced .NET and C# skills: file-based C# scripts, P/Invoke, vectorization, NuG
 
 ## `azure-agent-skills`
 
-32 of Microsoft's first-party Azure Agent Skills: Azure DevOps, Pipelines, Repos, Artifacts, Boards, Container Registry, AKS, Key Vault, RBAC, Monitor, Managed Grafana, Policy, Resource Manager, Cost Management, Logic Apps, Well-Architected, OpenTelemetry, Functions, and networking (VNet, DNS, Private Link, NAT, Load Balancer, App Gateway, WAF, Front Door, Firewall, Network Watcher, Bastion, VPN Gateway, DDoS). Each skill is a structured Microsoft Learn index; pair with the Learn MCP server
+32 of Microsoft's first-party Azure Agent Skills: Azure DevOps, Pipelines, Repos, Artifacts, Boards, Container Registry, AKS, Key Vault, RBAC, Monitor, Managed Grafana, Policy, Resource Manager, Cost Management, Logic Apps, Well-Architected, OpenTelemetry, Functions, and networking (VNet, DNS, Private Link, NAT, Load Balancer, App Gateway, WAF, Front Door, Firewall, Network Watcher, Bastion, VPN Gateway, DDoS). Each skill is a structured Microsoft Learn index; the plugin bundles the Microsoft Learn MCP server (read-only docs, no sign-in) the skills fetch from
 
 ### Skills
 
@@ -290,12 +290,13 @@ Curated C#/.NET design skills from Aaronontheweb/dotnet-skills: coding standards
 
 ## `powershell`
 
-PowerShell skill: safe native-command invocation, quoting, escaping, encoding and Start-Process rules (Misaka-Mikoto-Tech/agent-skills)
+PowerShell skills: safe native-command invocation, quoting, escaping, encoding and Start-Process rules (Misaka-Mikoto-Tech/agent-skills); Pester 6 testing guidelines (github/awesome-copilot)
 
 ### Skills
 
 | Name | What it does |
 |---|---|
+| [`pester`](plugins/powershell/skills/pester/SKILL.md) | Use when writing, fixing, reviewing or running Pester tests for PowerShell (Pester 6, v5 syntax still accepted) - *.Tests.ps1 files, Discovery vs Run phases, Describe/Context/It blocks, Should and Should-* assertions,… |
 | [`powershell-safe-invocation`](plugins/powershell/skills/powershell-safe-invocation/SKILL.md) | Use when writing or running PowerShell on Windows, especially native programs, quoted paths, escaping, pwsh, Start-Process, file operations, or shell troubleshooting. |
 
 ## `mattpocock-skills`
@@ -380,6 +381,14 @@ HashiCorp Terraform MCP server (runs via docker): registry, provider and module 
 ## `pyright-lsp`
 
 Python language server (Pyright) for type checking and code intelligence; requires `npm i -g pyright`
+
+## `yaml-lsp`
+
+YAML language server (Red Hat yaml-language-server): syntax errors plus SchemaStore validation (GitHub Actions, Azure Pipelines, GitLab CI, docker-compose, Kustomize, Helm Chart.yaml, ...) and per-file schemas via modelines; requires `npm i -g yaml-language-server`
+
+## `yaml-hooks`
+
+Claude Code PostToolUse hook: runs yamllint on .yaml/.yml files after Write/Edit and adds the errors to Claude's context (the project's yamllint config if present, else a relaxed default; Helm templates skipped); requires yamllint
 
 ## `caveman`
 

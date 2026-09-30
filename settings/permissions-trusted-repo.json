@@ -1,5 +1,5 @@
 {
-  "$comment": "Build, test and lint runners for repositories you trust. Every rule here executes code from the checked-out repository (MSBuild targets, conftest.py, package.json scripts), so an untrusted clone can run arbitrary code unprompted. Merge by hand into ~/.claude/settings.json only on machines where every clone Claude Code opens is one you would run these commands in yourself; the installer does not apply this file.",
+  "$comment": "Build, test, lint and render commands for repositories you trust. Every rule here can execute code from the checked-out repository (MSBuild targets, conftest.py, package.json scripts, the program a helm template --post-renderer names), so an untrusted clone can run arbitrary code unprompted. Merge by hand into ~/.claude/settings.json only on machines where every clone Claude Code opens is one you would run these commands in yourself; the installer does not apply this file. helm template is here, not in permissions.json, because its --post-renderer runs a program from the clone and --output-dir/--dependency-update write files, and ask rules, which match the command text as written, do not stop a quoted spelling of those flags.",
   "permissions": {
     "allow": [
       "Bash(dotnet build *)",
@@ -8,7 +8,8 @@
       "Bash(python -m pytest *)",
       "Bash(python -m unittest *)",
       "Bash(npm test)",
-      "Bash(npm run lint)"
+      "Bash(npm run lint)",
+      "Bash(helm template *)"
     ]
   }
 }

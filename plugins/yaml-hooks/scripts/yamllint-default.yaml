@@ -1,0 +1,51 @@
+# yamllint config the yaml-hooks plugin uses when the project has none of its own
+# (.yamllint / .yamllint.yaml / .yamllint.yml upwards from the file, $YAMLLINT_CONFIG_FILE,
+# or ~/.config/yamllint/config).
+# Errors, which the hook reports: YAML that does not parse (always on), duplicate keys (one value
+# silently wins) and undeclared aliases. Everything else is style: a warning, which the hook only
+# counts unless YAML_HOOKS_WARNINGS=1, or off.
+extends: default
+
+rules:
+  key-duplicates: enable
+  anchors: enable
+  document-start: disable
+  comments-indentation: disable
+  comments:
+    level: warning
+    min-spaces-from-content: 1
+  line-length:
+    level: warning
+    max: 160
+    allow-non-breakable-words: true
+    allow-non-breakable-inline-mappings: true
+  truthy:
+    # GitHub Actions `on:` is a key; yes/no/on/off values are common in Ansible and Helm values
+    level: warning
+    allowed-values: ['true', 'false', 'on', 'off', 'yes', 'no']
+    check-keys: false
+  braces:
+    level: warning
+    max-spaces-inside: 1
+  brackets:
+    level: warning
+    max-spaces-inside: 1
+  colons:
+    level: warning
+  commas:
+    level: warning
+  hyphens:
+    level: warning
+  indentation:
+    level: warning
+    spaces: consistent
+    indent-sequences: whatever
+  empty-lines:
+    level: warning
+  trailing-spaces:
+    level: warning
+  new-line-at-end-of-file:
+    level: warning
+  new-lines:
+    # CRLF checkouts on Windows would otherwise fail every file
+    level: warning

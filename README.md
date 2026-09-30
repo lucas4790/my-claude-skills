@@ -16,31 +16,52 @@ curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/ins
 irm https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/install.ps1 | iex
 ```
 
-The script installs Claude Code itself if missing, then the marketplace and plugins, then the tools the selected plugins need — only when absent:
+The script installs Claude Code itself if missing, then the marketplace and plugins, then the tools the selected plugins need — only when absent (yamllint also when it is older than 1.30):
 
 | Tool | Needed by | Linux | Windows |
 |---|---|---|---|
 | git, curl, jq, Node.js | marketplace clone, manifest parsing, caveman hooks | apt / dnf / brew | winget |
 | agent-browser + Chrome (+ system libs on Linux) | `agent-browser` | npm, `agent-browser install --with-deps` | npm |
 | uv | `spec-kit` | astral.sh installer | astral.sh installer |
-| PowerShell 7 + PSScriptAnalyzer + Pester | `powershell` | snap / brew / dotnet tool | winget |
+| PowerShell 7 + PSScriptAnalyzer + Pester 6 (on Windows next to its built-in Pester 3.4) | `powershell` | snap / brew / dotnet tool | winget |
 | .NET 10 SDK | `dotnet` (Roslyn C# LSP) | apt / brew / dotnet-install.sh | winget |
 | pyright | `pyright-lsp` | npm | npm |
+| yaml-language-server | `yaml-lsp` | npm | npm |
+| yamllint ≥ 1.30 | `yaml-hooks` | pipx / uv tool / apt / dnf / brew / pip --user; an older one is replaced through pipx or uv, else a warning | uv tool (no winget package; uv from winget if missing), which also upgrades an older one; a warning if an older one stays first on PATH |
 | docker (checked, not installed) | `terraform` MCP server | — | — |
 
 If the Claude desktop app (macOS/Windows) is also installed, the script says so and asks before
 proceeding, since installing plugins still needs the CLI even then — the desktop app has no
 plugin-install command of its own, but reads the same `~/.claude/plugins` the CLI writes to, so
-one install reaches both. Set `MY_CLAUDE_SKILLS_YES=1` to skip that prompt (e.g. for automation).
+one install reaches both. Set `MY_CLAUDE_SKILLS_YES=1` to skip that prompt (e.g. for automation); with no
+terminal to ask on (a piped run without a tty), `install.sh` stops and says so.
 
-Pass plugin names to install a subset (`./install.sh dotnet powershell`, `.\install.ps1 dotnet, powershell`); only that subset's tools are installed. Re-running is safe. Or do it by hand:
+Pass plugin names to install a subset (`./install.sh dotnet powershell`, `.\install.ps1 dotnet, powershell`); only that subset's tools are installed, and the auto-updater below keeps a subset a subset. Re-running is safe. `install.sh` and `.\install.ps1` exit 1 when a plugin failed to install; under `irm | iex` the script only warns and never closes the PowerShell window. Or do it by hand:
 
 ```bash
 claude plugin marketplace add lucas4790/my-claude-skills
 claude plugin install <plugin>@my-claude-skills
 ```
 
-The script also registers a `SessionStart` hook (`~/.claude/settings.json`, or `%LOCALAPPDATA%` on Windows) that runs `scripts/update-plugins.sh` / `.ps1` in the background: refreshes the marketplace, installs plugins added to it since last time, and updates installed ones. Throttled to once per 6 h (`MY_CLAUDE_SKILLS_INTERVAL` seconds to change); log in `~/.cache/my-claude-skills/update.log`. Changes apply to the next session. Run it by hand with `--force`.
+The script also registers a `SessionStart` hook in `~/.claude/settings.json` (Windows: `%USERPROFILE%\.claude\settings.json`; `CLAUDE_CONFIG_DIR` if set) that runs its copy of `scripts/update-plugins.sh` / `.ps1` (the clone's when the installer runs from a clone, else `main`'s) in the background: it refreshes the marketplace, updates the installed plugins and installs only the plugins added to the marketplace since its previous run (it keeps the names it has seen in `plugins/my-claude-skills-known-plugins` in the Claude config dir, one list per config dir; the list only grows, so a plugin that leaves the marketplace and comes back is not reinstalled), so a subset install stays a subset and an uninstalled plugin stays uninstalled. The installers write that list: the marketplace's plugins minus any whose install failed, so the next update retries those. Where there is no list yet (installed before this change), the first run only records it, and when `claude plugin list` fails it only updates. It also refreshes its own copy from the marketplace clone (used from the next run). Throttled to once per 6 h per Claude config dir (`MY_CLAUDE_SKILLS_INTERVAL` seconds to change): the stamp is `plugins/my-claude-skills-last-run` in that config dir, next to its list, so a run in one config dir does not hold back another. The copy is in `~/.local/share/my-claude-skills/` and its log in `~/.cache/my-claude-skills/update.log` (shared by every config dir: each run starts with a line `=== <UTC time> <config dir>`); on Windows both are in `%LOCALAPPDATA%\my-claude-skills\`. Changes apply to the next session. Run it by hand with `--force` (`-Force` for the `.ps1`).
+
+**Upgrading an older install**: the installer copies the updater once, so a machine installed before the updater learned to refresh itself runs a frozen copy of the old one (it has no `known-plugins` in it). That copy never refreshes and still installs every marketplace plugin that is missing, so a subset grows to the full set and an uninstalled plugin comes back. Re-run the installer once (with the same plugin names if you installed a subset; it overwrites the copy and does not register the hook twice), or copy the marketplace clone's updater over the installed copy: `~/.claude/plugins/marketplaces/my-claude-skills/scripts/update-plugins.sh` to `~/.local/share/my-claude-skills/update-plugins.sh`, on Windows `%USERPROFILE%\.claude\plugins\marketplaces\my-claude-skills\scripts\update-plugins.ps1` to `%LOCALAPPDATA%\my-claude-skills\update-plugins.ps1`. Then uninstall the plugins you do not want: the new updater's first run records the marketplace's plugins as known and does not bring them back.
+
+### No AI attribution
+
+The installers also switch off AI attribution naming Claude or Anthropic: `attribution` in `~/.claude/settings.json`
+(no co-author trailers, PR footers or session links), `includeCoAuthoredBy: false` for Copilot CLI, a git
+`commit-msg`/`pre-push` guard ([`tools/attribution-guard`](tools/attribution-guard)) that strips or blocks such
+lines, and a Claude Code PreToolUse hook that blocks tool calls publishing them (git, gh, az, GitHub and Azure DevOps
+MCP tools and REST calls) in every repository, work repos included (`MY_CLAUDE_SKILLS_ATTRIBUTION=keep` skips this;
+the session-start updater keeps the git guard current, and on Linux/macOS the hook registration too; on Windows
+re-run `install.ps1` after an update that changes the hook). With Git 2.54+ the git guard covers every repository; older Git covers
+new clones and repositories where you run `git init` once, not those with their own hooks. This repository adds agent
+deny rules, a required `attribution-guard` check and squash-only merges: after merging, run
+[`scripts/github-hardening.sh`](scripts/github-hardening.sh) once with an admin `gh` login. Azure DevOps work
+repositories get server-side policies and pipelines from `tools/attribution-guard/azure-devops/`. The one-time
+steps in order, what each layer guarantees, and the limits of cloud sessions are in
+[docs/ATTRIBUTION.md](docs/ATTRIBUTION.md).
 
 ### VS Code + GitHub Copilot
 
@@ -74,10 +95,10 @@ lists the other useful settings. With VS Code on Windows and Remote-WSL, run the
 
 | Profile | Plugins | Copilot default |
 |---|---|---|
-| `cloud` | terraform, azure-agent-skills, pyright-lsp, component-documentation, mattpocock-skills, powershell, feature-dev, spec-kit | yes |
+| `cloud` | terraform, azure-agent-skills, pyright-lsp, component-documentation, mattpocock-skills, powershell, feature-dev, spec-kit, yaml-lsp | yes |
 | `dotnet` | dotnet, dotnet-aspnetcore, dotnet-test, dotnet-data, dotnet-nuget, dotnet-advanced, csharp-patterns | no |
 | `extras` | anthropic-skills, codebase-onboarding, agent-browser, caveman (skipped on native Windows: POSIX-only hooks) | no |
-| `claude-only` | claude-security, commit-commands, code-modernization, pr-review-toolkit | never (name them explicitly to force) |
+| `claude-only` | claude-security, commit-commands, code-modernization, pr-review-toolkit, yaml-hooks | never (name them explicitly to force) |
 
 `claude-only` plugins depend on Claude Code features (Workflow engine, `` !`cmd` `` injection, `$ARGUMENTS`,
 Claude-only hook events). Use them from Claude Code, or from VS Code's **Claude** session target, which reads
@@ -97,24 +118,59 @@ Claude Code, Copilot CLI, the Copilot coding agent and VS Code then recommend th
 
 ### Permissions baseline (opt-in, manual)
 
-[`settings/permissions.json`](settings/permissions.json) is a curated `permissions.allow` list of **read-only** inspection commands — `git status`/`diff`/`log`, `gh pr view`, `az … show`/`list`, `kubectl get`/`describe`/`logs`, `helm list`/`status`, `terraform plan`/`validate`/`show`, `jq` — so Claude Code stops asking for those. Nothing that mutates state or runs code from the checked-out repository is in it, and there are no broad wildcards (`az *`, `kubectl *`, `git *`). Two edge cases are in on purpose: `git fetch` talks to the network (it writes only `.git/`), and `terraform plan` runs provider and data-source code against the configured backend (it does not apply). Shell redirection is a residual risk of every rule in the list, not just `jq *`: Claude Code matches the command prefix, so `jq . a > b` or `git log > file` can still write a file; `jq *` stays because `az … | jq` pipes need every segment allowed.
+[`settings/permissions.json`](settings/permissions.json) is a curated list of **read-only** inspection commands — `git status`, `git fetch`, `gh pr view`, `az … show`/`list`, `kubectl get`/`describe`/`logs`, `helm list`/`status`/`get`, `terraform plan`/`validate`/`show`, `jq` — so Claude Code stops asking for those. It has no broad wildcards (`az *`, `kubectl *`, `git *`) and no rule for `git diff`/`log`/`show`/`blame`: Claude Code's built-in read-only check already runs their plain forms without asking and asks for the rest (`--output=FILE`, also quoted or passed through `xargs`). Some commands are allowed only in exact forms: `git fetch` as `git fetch`, `git fetch origin`, `git fetch --prune`, `git fetch origin --prune` and `git fetch --all --prune` (`--upload-pack=<command>` runs a command), `terraform fmt` as `terraform fmt -check` with `-diff` and/or `-recursive` (a later `-check=false` makes it rewrite files), and `terraform providers` without a subcommand (`lock`/`mirror` write files).
 
-[`settings/permissions-trusted-repo.json`](settings/permissions-trusted-repo.json) is a second, separate list of build, test and lint runners (`dotnet build`/`test`/`format --verify-no-changes`, `python -m pytest`/`unittest`, `npm test`, `npm run lint`). Every one of them executes code from the clone (MSBuild targets, `conftest.py`, `package.json` scripts), which in an untrusted repository is arbitrary code running unprompted. Merge it only on machines where every clone Claude Code opens is one you trust.
+The other rules end in `*` and cover every flag of their command. For the flags that would let one of these reads run a program, send your cluster credentials elsewhere or write a file, the file has `permissions.ask` rules, and an ask rule wins over an allow rule: `--kubeconfig` for kubectl and helm (a kubeconfig's `exec` credential plugin runs a program), `kubectl --server`/`-s` and `helm --kube-apiserver` (send the kubeconfig's credentials, such as an exec plugin's token, to another API server), `helm --kube-token`, `kubectl --cache-dir`/`--profile` (`--profile` writes `./profile.pprof`; the rule also matches `--profile-output`), `helm --post-renderer`/`--output-dir`/`--repository-cache`/`--repository-config`/`--registry-config`/`--dependency-update`, and `terraform plan -out`/`-generate-config-out`. **These ask rules are a backstop, not a boundary.** Claude Code matches a rule against the command text as written (whitespace collapsed, quotes and backslashes kept), and an allow rule ending in `*` also matches its command run through `xargs`. A quoted or escaped flag (`--ser"ver"=…`, `--kube\config=…`), a combined short flag (`-As <server>`) or flags passed through `xargs` therefore get past the ask rules and run unprompted.
 
-The installer does **not** apply either file: widening what Claude may run without asking is a decision to make deliberately, per machine, after reading the list. To merge the read-only list into `~/.claude/settings.json` yourself (union, existing entries first, nothing else touched):
+Residual risks of the rules that stay, accepted on purpose:
+
+- A disguised `--kubeconfig` runs the `exec` plugin of any kubeconfig, for example one in the clone; a disguised `--server` or `--kube-apiserver` sends your cluster token to another server; a disguised write flag writes a file.
+- `terraform plan` runs the configuration's providers and `external` data sources against the configured backend (it does not apply), so in a clone you do not trust it runs that clone's code. `terraform validate`/`show`/`state show` start the provider plugins that `terraform init` put in `.terraform/`. Remove `Bash(terraform plan *)` from your settings if Claude Code opens Terraform code you would not run yourself.
+- Reads can print secrets into the session (`kubectl get secret -o yaml`, `helm get values`, `terraform show`/`output`), and `jq *` reads any file you can read; `jq *` stays because `az … | jq` pipes need every segment allowed.
+- `git fetch` talks to the network (it writes only `.git/`).
+- Shell redirection is checked apart from the rules: Claude Code 2.1.284 (tested) asks before `> file`, `>|` or `&>` writes a file after an allowed command, and in `acceptEdits` mode allows it inside the working directory like any edit. A Claude Code version without that check would let `jq . a > b` or `kubectl get pods > file` write a file after any rule here.
+
+The rule for changing the list: an allow wildcard belongs in `permissions.json` only if its residual risk is documented here and in the file's `$comment`, and a rule whose flags can run a program from the clone belongs in `permissions-trusted-repo.json`.
+
+[`settings/permissions-trusted-repo.json`](settings/permissions-trusted-repo.json) is a second, separate list of build, test, lint and render commands (`dotnet build`/`test`/`format --verify-no-changes`, `python -m pytest`/`unittest`, `npm test`, `npm run lint`, `helm template`). Every one of them can execute code from the clone (MSBuild targets, `conftest.py`, `package.json` scripts, the program a `helm template --post-renderer` names), which in an untrusted repository is arbitrary code running unprompted. Merge it only on machines where every clone Claude Code opens is one you trust.
+
+The installer does **not** apply either file: widening what Claude may run without asking is a decision to make deliberately, per machine, after reading the list. To merge the read-only list (its allow and ask rules) into `~/.claude/settings.json` (`$CLAUDE_CONFIG_DIR/settings.json` if set) yourself: a union, existing entries first, nothing else touched. A missing or empty file starts as `{}`, a symlinked one is written through, and a file that is not plain JSON (comments, a trailing comma) is left as it is with an error. On Windows, run the snippets from Git Bash, where `~/.claude` is `%USERPROFILE%\.claude`, or from WSL with the `f=` line changed to `f=/mnt/c/Users/<you>/.claude/settings.json`.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/settings/permissions.json -o /tmp/perms.json
-jq --slurpfile p /tmp/perms.json '(.permissions.allow // []) as $a
-  | .permissions.allow = $a + ($p[0].permissions.allow | map(select(. as $x | $a | index($x) | not)))'   ~/.claude/settings.json > /tmp/settings.json && mv /tmp/settings.json ~/.claude/settings.json
+f=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json
+src=$(mktemp) && out=$(mktemp) &&
+  curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/settings/permissions.json -o "$src" &&
+  mkdir -p "$(dirname "$f")" && touch "$f" &&
+  jq -s --slurpfile p "$src" '(.[0] // {}) | reduce ("allow", "ask") as $k (.;
+      (.permissions[$k] // []) as $a
+      | .permissions[$k] = $a + (($p[0].permissions[$k] // []) | map(select(. as $x | $a | index($x) | not))))' \
+    "$f" > "$out" && cat "$out" > "$f" || echo "error: $f not merged" >&2
+rm -f "$src" "$out"
 ```
 
 Same merge for the trusted-repo list, if you want it:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/settings/permissions-trusted-repo.json -o /tmp/perms.json
-jq --slurpfile p /tmp/perms.json '(.permissions.allow // []) as $a
-  | .permissions.allow = $a + ($p[0].permissions.allow | map(select(. as $x | $a | index($x) | not)))'   ~/.claude/settings.json > /tmp/settings.json && mv /tmp/settings.json ~/.claude/settings.json
+f=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json
+src=$(mktemp) && out=$(mktemp) &&
+  curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/settings/permissions-trusted-repo.json -o "$src" &&
+  mkdir -p "$(dirname "$f")" && touch "$f" &&
+  jq -s --slurpfile p "$src" '(.[0] // {}) | (.permissions.allow // []) as $a
+    | .permissions.allow = $a + ($p[0].permissions.allow | map(select(. as $x | $a | index($x) | not)))' \
+    "$f" > "$out" && cat "$out" > "$f" || echo "error: $f not merged" >&2
+rm -f "$src" "$out"
+```
+
+The merge only adds rules. If you merged an earlier version of the read-only list, remove the rules it no longer has, then merge it again for the exact and ask rules (and the trusted-repo list too if you use it, since this also removes `Bash(helm template *)`, which moved there):
+
+```bash
+f=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json
+out=$(mktemp) &&
+  jq -s '(.[0] // {}) | if .permissions.allow then .permissions.allow -= ["Bash(git diff *)", "Bash(git log *)",
+      "Bash(git show *)", "Bash(git blame *)", "Bash(git fetch *)", "Bash(helm template *)",
+      "Bash(terraform fmt -check *)", "Bash(terraform fmt -diff *)", "Bash(terraform providers *)"] else . end' \
+    "$f" > "$out" && cat "$out" > "$f" || echo "error: $f not changed" >&2
+rm -f "$out"
 ```
 
 Changes to either list are part of reviewing this repo: a PR that adds a rule here is a PR that changes what runs unprompted on every machine that merged it.
@@ -123,21 +179,28 @@ Changes to either list are part of reviewing this repo: a PR that adds a rule he
 
 [`settings/claude-guardrails.json`](settings/claude-guardrails.json) adds `permissions.ask` rules for git commands
 that change history, config or remotes (`git push`, `reset`, `clean`, `config`, `git -c …`, `remote add`/`set-url`,
-also in their `git -C <dir> …` form) plus two `env` pins. Ask rules win over allow rules **and over a skill's
+also in their `git -C <dir> …` form, and the same rules for the PowerShell tool, where `git -c` asks only for
+`core.hooksPath` and `hook.*` because PowerShell rules ignore case) plus two `env` pins. Ask rules win over allow rules **and over a skill's
 `allowed-tools`**, and match past a leading `VAR=value`, so Claude still asks before these even inside a skill that
 pre-approves `Bash(git *)`, as `claude-security` does. Since 0.12.0 Claude may start that skill on its own. The
 `env` pins keep `code-modernization`'s function-hook module off (`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=0`, even if
 Anthropic's rollout flag enables it) and turn off its usage counts (`CODE_MODERNIZATION_TELEMETRY=0`). Side
-effect: `/commit-push-pr` now asks before pushing. Merge (union for `ask`, existing `env` values win):
+effect: `/commit-push-pr` now asks before pushing. It also switches off AI attribution (`attribution`: no co-author trailers, PR footers or session links; see
+[`docs/ATTRIBUTION.md`](docs/ATTRIBUTION.md)). Merge (union for `ask`, existing `env` values win, `attribution` is set):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/settings/claude-guardrails.json -o /tmp/guard.json
-jq --slurpfile g /tmp/guard.json '(.permissions.ask // []) as $a
-  | .permissions.ask = $a + ($g[0].permissions.ask | map(select(. as $x | $a | index($x) | not)))
-  | .env = ($g[0].env + (.env // {}))' ~/.claude/settings.json > /tmp/settings.json && mv /tmp/settings.json ~/.claude/settings.json
+f=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json
+src=$(mktemp) && out=$(mktemp) &&
+  curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/settings/claude-guardrails.json -o "$src" &&
+  mkdir -p "$(dirname "$f")" && touch "$f" &&
+  jq -s --slurpfile g "$src" '(.[0] // {}) | (.permissions.ask // []) as $a
+    | .permissions.ask = $a + ($g[0].permissions.ask | map(select(. as $x | $a | index($x) | not)))
+    | .env = ($g[0].env + (.env // {}))
+    | .attribution = $g[0].attribution' "$f" > "$out" && cat "$out" > "$f" || echo "error: $f not merged" >&2
+rm -f "$src" "$out"
 ```
 
-On Windows the file is `%USERPROFILE%\.claude\settings.json`; run the same `jq` from Git Bash or WSL against it.
+Like the snippets under [Permissions baseline](#permissions-baseline-opt-in-manual), it starts a missing or empty file as `{}`, writes through a symlink and leaves a file that is not plain JSON alone with an error. On Windows the file is `%USERPROFILE%\.claude\settings.json`; run it from Git Bash, or from WSL with the `f=` line changed to `f=/mnt/c/Users/<you>/.claude/settings.json`.
 
 ## Plugins
 
@@ -152,36 +215,171 @@ See [SKILLS.md](SKILLS.md) for the full catalog of every skill, command and agen
 | `claude-security` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | deep vulnerability scanning with verified findings and patches |
 | `code-modernization` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | structured legacy-codebase modernization workflow and review agents |
 | `dotnet` | [dotnet/skills](https://github.com/dotnet/skills) (official Microsoft) | Roslyn C# language server (via `dnx`, needs .NET 10 SDK on PATH) + core .NET skills |
-| `azure-agent-skills` | [MicrosoftDocs/agent-skills](https://github.com/MicrosoftDocs/agent-skills) (official Microsoft) | 32 curated Azure skills — DevOps (Azure DevOps, Pipelines, Repos, Artifacts, Boards, ACR), platform (AKS, Key Vault, RBAC, Monitor, Managed Grafana, Policy, ARM, Cost, Logic Apps, Well-Architected, OpenTelemetry, Functions) and networking (VNet, DNS, Private Link, NAT, LB, App Gateway, WAF, Front Door, Firewall, Network Watcher, Bastion, VPN, DDoS). Structured Microsoft Learn indexes, not command recipes: they tell the model what to look up and fetch the live docs through the [Learn MCP server](https://learn.microsoft.com/training/support/mcp) |
+| `dotnet-aspnetcore` | [dotnet/skills](https://github.com/dotnet/skills) (official Microsoft) | ASP.NET Core skills: middleware, endpoints, real-time communication, API patterns |
+| `dotnet-test` | [dotnet/skills](https://github.com/dotnet/skills) (official Microsoft) | skills and agents for running, writing, analysing and improving .NET tests: filtering, coverage, testability, MSTest |
+| `dotnet-data` | [dotnet/skills](https://github.com/dotnet/skills) (official Microsoft) | .NET data access and Entity Framework Core skills |
+| `dotnet-nuget` | [dotnet/skills](https://github.com/dotnet/skills) (official Microsoft) | NuGet package management: dependencies and modernization |
+| `dotnet-advanced` | [dotnet/skills](https://github.com/dotnet/skills) (official Microsoft) | advanced .NET and C#: file-based C# scripts, P/Invoke, vectorization, NuGet trusted publishing |
+| `azure-agent-skills` | [MicrosoftDocs/agent-skills](https://github.com/MicrosoftDocs/agent-skills) (official Microsoft) | 32 curated Azure skills — DevOps (Azure DevOps, Pipelines, Repos, Artifacts, Boards, ACR), platform (AKS, Key Vault, RBAC, Monitor, Managed Grafana, Policy, ARM, Cost, Logic Apps, Well-Architected, OpenTelemetry, Functions) and networking (VNet, DNS, Private Link, NAT, LB, App Gateway, WAF, Front Door, Firewall, Network Watcher, Bastion, VPN, DDoS). Structured Microsoft Learn indexes, not command recipes: they tell the model what to look up and fetch the live docs through the [Microsoft Learn MCP server](https://learn.microsoft.com/training/support/mcp), which the plugin bundles (`microsoftdocs`, `https://learn.microsoft.com/api/mcp`: read-only, no sign-in; Claude Code exposes it as `mcp__plugin_azure-agent-skills_microsoftdocs__*`, and the skills' `mcp_microsoftdocs:*` references resolve to it) |
 | `csharp-patterns` | [Aaronontheweb/dotnet-skills](https://github.com/Aaronontheweb/dotnet-skills) | 12 curated C# design skills: coding standards, concurrency, nullable, API/type design, config, DI, serialization, project structure, packages, Testcontainers, AOT |
-| `powershell` | [Misaka-Mikoto-Tech/agent-skills](https://github.com/Misaka-Mikoto-Tech/agent-skills) | safe native-command invocation, quoting, escaping, encoding, `Start-Process` rules |
-| `mattpocock-skills` | [mattpocock/skills](https://github.com/mattpocock/skills) | 24 engineering skills: grill-me / grill-with-docs, to-spec, to-tickets, tdd, domain-modeling, triage, implement, handoff… (`code-review` excluded in favour of `pr-review-toolkit`); run `setup-matt-pocock-skills` once per repo |
+| `powershell` | [Misaka-Mikoto-Tech/agent-skills](https://github.com/Misaka-Mikoto-Tech/agent-skills), [github/awesome-copilot](https://github.com/github/awesome-copilot) | safe native-command invocation, quoting, escaping, encoding, `Start-Process` rules; Pester 6 testing guidelines (github/awesome-copilot), synced from awesome-copilot with local patches (`patches/pester.patch`) |
+| `mattpocock-skills` | [mattpocock/skills](https://github.com/mattpocock/skills) | 24 skills (17 engineering, 7 productivity): grill-me / grill-with-docs, to-spec, to-tickets, tdd, domain-modeling, triage, implement, handoff… (`code-review` excluded in favour of `pr-review-toolkit`); run `setup-matt-pocock-skills` once per repo |
 | `agent-browser` | [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) | browser automation CLI skill (navigate, forms, screenshots, extraction, QA); `install.sh` sets up the CLI + Chrome |
 | `spec-kit` | [github/spec-kit](https://github.com/github/spec-kit) | repo-owned bootstrap skill: installs Spec Kit via `uvx`/`uv tool` and guides the `/speckit.*` workflow; the `speckit-*` skills are generated per project by the CLI |
 | `component-documentation` | repo-owned | writes complete operational documentation for one infrastructure component (ingress, telemetry, alerting, security tooling, cluster services, Terraform) — purpose, architecture, deployment order, config per environment, monitoring, backup/recovery, runbooks, risks, ownership |
 | `codebase-onboarding` | [eabait/codebase-onboarding-skill](https://github.com/eabait/codebase-onboarding-skill) | generates a DeepWiki-style, source-linked wiki with diagrams to learn how a repo works; `pip install -r scripts/requirements.txt` optional for deeper analysis. Upstream repo LICENSE is MIT while the SKILL.md frontmatter says Apache-2.0; both permissive |
 | `terraform` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) (HashiCorp) | Terraform MCP server in docker: registry, provider and module docs lookup |
 | `pyright-lsp` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | Python language server; `install.sh` installs `pyright`. The repo-owned root `plugin.json` is the Copilot CLI manifest (Copilot needs `fileExtensions`) |
+| `yaml-lsp` | repo-owned ([redhat-developer/yaml-language-server](https://github.com/redhat-developer/yaml-language-server)) | YAML language server: syntax errors, SchemaStore schemas by file name (GitHub Actions, Azure Pipelines, GitLab CI, docker-compose, Kustomize, Helm `Chart.yaml`), schemas per file via modelines, no "Unresolved tag" errors for CloudFormation, GitLab `!reference` and Ansible `!vault`; `install.sh` installs `yaml-language-server`. `.claude-plugin/plugin.json` (Claude Code, with server `settings`) and root `plugin.json` (Copilot CLI, `fileExtensions`, no settings) |
+| `yaml-hooks` | repo-owned | Claude Code `PostToolUse` hook: runs `yamllint` after every `.yaml`/`.yml` Write/Edit and adds the errors to Claude's context; the project's `.yamllint` wins over a relaxed default; Helm templates skipped; silent without `yamllint` (`install.sh` installs it), with a `yamllint` found only through a relative `PATH` entry, and for files over 256 KiB; says it is inactive when yamllint is older than 1.30, rejects the config, crashes (a config it cannot load, a file that is not UTF-8) or runs past its time limit |
 | `caveman` | [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) | terse "caveman mode" that cuts ~65% of output tokens; `/caveman` commands + skills |
+
+**YAML** (`yaml-lsp`, `yaml-hooks`): the language server picks schemas from [SchemaStore](https://www.schemastore.org/) by file name and downloads the catalog and schemas on first use. Kubernetes manifests are not mapped by folder: yaml-language-server 1.24 flags every valid core `apiVersion: v1` object (ConfigMap, Service, ...) with "Matches multiple schemas when only one must validate" under a `kubernetes` mapping ([#998](https://github.com/redhat-developer/yaml-language-server/issues/998)), treats Helm `values.yaml` as a manifest, and reports "Unable to load schema" for CRDs missing from the catalog. Put a modeline on the first line of a manifest instead, e.g. `# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/v1.34.1-standalone-strict/deployment-apps-v1.json`, or for a CRD `https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/<group>/<kind>_<version>.json`. Helm templates with `{{ }}` blocks are not YAML: the language server reports syntax errors in them (it cannot skip files), the yamllint hook skips them. Claude Code starts no plugin language servers in cloud sessions; the hook runs there too. `YAML_HOOKS_WARNINGS=1` (e.g. in `settings.json` `env`) makes the hook list yamllint warnings as well as errors. The hook needs yamllint 1.30 or newer: its default config uses the `anchors` rule (new in 1.30), and with the project's own `.yamllint` it asks `yamllint --list-files` (new in 1.29) which files that config ignores. With an older yamllint, a config yamllint rejects, a yamllint that crashes (a config it cannot load, a file that is not UTF-8) or one that runs past its time limit (15 s for the lint, 5 s each for `--list-files` and `--version`, below the hook's 30 s timeout; a yamllint wrapper that does not `exec` the real one can outlast it), the hook adds one line saying it is inactive and why. Text from yamllint reaches Claude marked as data, not instructions: at most 20 lines of 300 bytes. `install.sh` replaces an older yamllint through pipx or uv and `install.ps1` through uv; without them they warn. In Copilot the server runs without the settings above (Copilot has no `settings` field), so CloudFormation and GitLab tags may show as unresolved.
 
 `caveman` is referenced directly from upstream (not vendored) because it is a full plugin with runtime hooks and a split MIT/BSL license. It is pinned to an exact commit `sha`; `scripts/bump-pinned.sh` proposes updates via PR.
 
 ## How syncing works
 
 - `sources.json` lists each upstream repo, the ref to track, a `trust` tier, and which paths to copy where.
-- `scripts/sync.sh` sparse-clones each source, copies the paths in (deleting anything upstream removed), records the synced commit in `UPSTREAM.lock.json`, then regenerates `SKILLS.md`. Flags: `--trust high|low`, `--only NAME`, `--locked` (rebuild from lockfile SHAs).
-- `scripts/validate.py` checks manifests, skill frontmatter, file sizes, sha pins and catalog freshness, and scans every text file under `plugins/` for prompt-injection, exfiltration, credential-access and remote-execution patterns (`--diff REF` limits the scan to lines added since `REF`; see [SECURITY.md](SECURITY.md)).
-- `.github/workflows/sync-upstream.yml` runs daily at 06:00 UTC (and on dispatch) and opens one PR per tier (`sync/high-trust`, `sync/low-trust`, the latter also carrying pinned-sha bumps) with the validator's hits for the added lines in the body; automation never pushes to `main`. Pull requests touching plugins run the validator plus `claude plugin validate`, and a high-severity hit in the added lines fails the check.
+- `scripts/sync.sh` sparse-clones each source, copies the paths in (deleting anything upstream removed), applies the source's patches (below), records the synced commit in `UPSTREAM.lock.json`, then regenerates `SKILLS.md`. A source that fails (a patch that no longer applies, a path upstream removed, a copy that cannot be written) is put back to the last commit and keeps its old lock entry; the other sources still sync and the script exits 1. Flags: `--trust high|low`, `--only NAME` (a source's `name` in `sources.json`), `--locked` (rebuild from lockfile SHAs; patches apply there too). An unknown `--trust` value, an `--only` name that matches no source, or a flag without a value or with an empty one exits 2 before anything is synced. Every run also drops the lock entries of sources no longer in `sources.json` (entries of sources that `--only`/`--trust` skip stay), and a file copy whose destination is a directory (upstream turned a folder into a file) replaces that directory.
+- `scripts/validate.py` checks manifests, skill frontmatter, file sizes, sha pins and catalog freshness, and scans every text file under `plugins/` for prompt-injection, exfiltration, credential-access and remote-execution patterns (`--diff REF` limits the scan to lines added since `REF`; see [SECURITY.md](SECURITY.md)); it also warns about skill descriptions that route badly (under 80 or over 1024 characters, no "Use when ..." phrase, or two skills sharing most of their distinctive words without naming each other; with `--diff` only for the SKILL.md files that changed), see [Skill trigger evals](#skill-trigger-evals).
+- `.github/workflows/sync-upstream.yml` runs daily at 06:00 UTC (and on dispatch) and opens one PR per tier (`sync/high-trust`, `sync/low-trust`, the latter also carrying pinned-sha bumps) with the validator's hits for the added lines in the body; automation never pushes to `main`. Before that it runs the repo tests (`scripts/run-tests.sh`, see [Tests](#tests)) and `scripts/test-skill-examples.sh` (the code blocks of the skills in `tests/skill-examples.json`, see [Skill example tests](#skill-example-tests)) on the synced tree, as a throwaway user without the workflow token, since that tree is unreviewed upstream code; a failure goes on top of the PR (see below). Every pull request runs the validator (a high-severity hit in the added lines fails the check), the repo tests and the skill examples; one that touches `plugins/` or `.claude-plugin/` also runs `claude plugin validate`.
 
 See [SECURITY.md](SECURITY.md) for the trust model. Run locally with `scripts/sync.sh` (needs `git`, `rsync`, `jq`, `python3`).
 
+### A red sync run
+
+- **PR titled "... (sync/test failure)"** with a *Sync failure*, *Repo tests failed*, *Skill example tests failed* or *Validator did not finish* section at the top and a failed `validate-pr` status: the rest of the tier synced, but the listed sources stayed at their last synced commit, a test no longer passes on the synced tree (e.g. `tests/evals/triggers.yaml` names a skill upstream renamed), or upstream now ships an example that fails. Do not merge a failing example as is: fix it with a patch (below) or drop the source.
+- **Failed workflow run, no PR**: a source failed and nothing else changed. The `error:` lines of the run name the source.
+- `error: patches/<name>.patch no longer applies to <source>@<sha>; refresh it (see README)`: upstream changed the lines the patch touches. Refresh the patch as below. The CI clone is shallow, so the 3-way fallback that `sync.sh` tries after a plain `git apply` only succeeds locally, where the patch's base version is in the object store.
+
+### Patching vendored files
+
+Vendored files are never edited by hand (the next sync overwrites them). A copy entry in `sources.json` can name a patch instead, a unified diff in `patches/` relative to the repo root:
+
+```json
+{ "from": "instructions/powershell-pester-6.instructions.md",
+  "to": "plugins/powershell/skills/pester/SKILL.md",
+  "patch": "patches/pester.patch" }
+```
+
+`sync.sh` checks that every patch file exists before cloning, applies a source's patches once all of its copies are written (`git apply`, falling back to a 3-way merge), and fails the source when one does not apply. Create or refresh a patch for `<to>` of source `<source>`:
+
+1. Remove the `"patch"` key from the copy entry and run `scripts/sync.sh --only <source>`: `<to>` is now pure upstream. Stage it with `git add <to>`.
+2. Edit `<to>` into the version you want, e.g. start from `git show HEAD:<to>` (the last patched version) and take over what upstream changed. Then `git diff -- <to> > patches/<name>.patch` and `git reset -q -- <to>`.
+3. Restore the `"patch"` key and run `scripts/sync.sh --only <source>` twice: both times `<to>` must come out byte-identical to your version (`cmp`). Check that the patch holds only your changes, run `scripts/test-skill-examples.sh <to>` (a patched SKILL.md with code blocks belongs in `tests/skill-examples.json` with `"mode": "enforce"`), and commit the patch with `<to>`, `sources.json`, `UPSTREAM.lock.json` and `SKILLS.md`.
+
 ## Adding a source
 
-1. Add an entry to `sources.json` with the repo, ref, `trust` (`high` only for vendors you would run code from unreviewed), and `copy` mappings into `plugins/<name>/...` (a copy entry may list `exclude` paths, relative to `from`).
+1. Add an entry to `sources.json` with a `name` (what `--only` takes), the repo, ref, `trust` (`high` only for vendors you would run code from unreviewed), and `copy` mappings into `plugins/<name>/...` (a copy entry may list `exclude` paths, relative to `from`, and a `patch` for local changes; see "Patching vendored files").
 2. If it is a bare skills folder (not a full plugin), add `plugins/<name>/.claude-plugin/plugin.json`.
 3. Add a plugin entry to `.claude-plugin/marketplace.json` pointing at `./plugins/<name>`.
 4. Add the plugin to exactly one profile in `profiles.json` (the validator enforces this).
-5. Run `scripts/sync.sh --only <name>` and `python3 scripts/validate.py`, then commit.
+5. Add a row to the [plugin table](#plugins).
+6. Run `scripts/sync.sh --only <source name>`.
+7. If its skills have bash, yaml, python, json or PowerShell examples worth checking, add a `report` entry for them to `tests/skill-examples.json` (see [Skill example tests](#skill-example-tests)).
+8. Run `python3 scripts/validate.py`, then commit.
+
+Removing a source or renaming one of its skills also means updating `tests/evals/triggers.yaml` (its offline tests fail on unknown skill names).
+
+## Tests
+
+`scripts/run-tests.sh` runs the repo's own tests and prints a summary per suite: every bats suite in `tests/bats/` (among them `sync.sh` copying, `--only`/`--trust`/`--locked`, failing sources and patches; `update-plugins.sh` and `update-plugins.ps1`; `bump-pinned.sh`; `adopt-branch.sh`; `clean-history.sh`; the `yaml-hooks` hook; `install.sh` and `install-copilot.sh` against fake `claude`/`copilot`, and `install.ps1` and `install-copilot.ps1` under pwsh with a Windows PowerShell 5.1 compatibility check; `bash -n`, shellcheck and a PowerShell parse check of the installers and scripts), `python3 -m pytest tests/` (`validate.py`, `gen-catalog.py`, the skill-example checker, the offline checks of the trigger evals and every other pytest suite under `tests/`) and shellcheck of the attribution guard's shell scripts (`tools/attribution-guard`, `.githooks` and the bash steps of its Azure DevOps pipelines). Every test works in a temp dir against local fake upstreams and fake `claude`/`copilot` binaries: no network, and neither the checkout nor `~/.claude` is touched.
+
+Prerequisites: bats-core ≥ 1.4 and pytest (`sudo apt install bats python3-pytest`; macOS: `brew install bats-core` and `python3 -m pip install pytest`), plus git, rsync, jq and python3. shellcheck, pwsh (with Pester 6 for the skill-example checker's Pester cases and PSScriptAnalyzer for the Windows compatibility check), git-filter-repo, yamllint and PyYAML (`python3-yaml`) are optional; the tests that need them are skipped without them (`PWSH=/path/to/pwsh` for a pwsh outside PATH; `SKILL_EXAMPLES_REQUIRE_TOOLS=1`, set in CI, turns a missing tool into a failure). `BASH32=/path/to/bash-3.2` also runs the installers and the updater under macOS's bash 3.2. `scripts/run-tests.sh bats`, `pytest` or `shellcheck` runs only those kinds; `RUN_KNOWN_BUGS=1` also runs tests that document an open bug (marked with `known_bug`; they fail until it is fixed, then the marker goes).
+
+### Skill example tests
+
+`scripts/test-skill-examples.sh` checks the fenced code blocks of the skills listed in
+[`tests/skill-examples.json`](tests/skill-examples.json), per fence language:
+
+| Fence | Check |
+|---|---|
+| `powershell`, `pwsh`, `ps1` | PowerShell parser (nothing runs); for a skill with `"runner": "pester"`, every block runs as a Pester 6 test |
+| `bash`, `shell` / `sh` | `bash -n` / `sh -n`, then `shellcheck` (dialect from the fence or a `#!` line) |
+| `python`, `py` | compiled; run only when listed in `python.runnable` |
+| `yaml`, `yml` | parsed with PyYAML (every document), then `yamllint` with [`scripts/skill-examples/yamllint.yaml`](scripts/skill-examples/yamllint.yaml) |
+| `json` | parsed |
+| anything else | not tested (counted in the summary) |
+
+`<name>` placeholders (`kubectl -n <namespace> get pods`) become a plain word before the shell and PowerShell checks
+(`"placeholders": false` turns that off for a skill).
+
+Each skill has a **mode**. `enforce`: a failing block fails the run. `report`: failures print as warnings and never
+change the exit status. Repo-controlled skills (repo-owned, or vendored with a patch in `patches/`, like `pester`) are
+`enforce`; vendored skills without a patch are `report`, because their fixes go through a patch, never an edit.
+`tests/skill_examples` checks this rule, and that every repo-controlled skill with code blocks is listed.
+
+```json
+{
+  "defaults": {
+    "shellcheck": { "exclude": ["SC1091", "SC2034", "SC2154"], "reason": "snippets are fragments" },
+    "placeholders": true
+  },
+  "skills": {
+    "plugins/example/skills/demo/SKILL.md": {
+      "mode": "enforce",
+      "skip": [
+        { "block": 4, "reason": "shows an error message, not a command" },
+        { "heading": "Anti-patterns", "reason": "wrong on purpose" }
+      ],
+      "shellcheck": { "exclude": ["SC2010"], "reason": "fixed names only" },
+      "python": { "runnable": [7] },
+      "powershell": {
+        "runner": "pester",
+        "stubs": "scripts/skill-examples/support/demo/stubs.ps1",
+        "fixtures": "scripts/skill-examples/support/demo/fixtures",
+        "allowed_skips": [{ "test": "Should work on Windows", "when": "not-windows", "reason": "Windows-only" }],
+        "required_passing": ["handles a"]
+      }
+    }
+  }
+}
+```
+
+- `block` counts every fenced block of the file from 1, whatever its language (the output prints it:
+  `block 4 (bash, line 88, under "Install")`). `heading` matches the heading a block sits under or any enclosing one,
+  so a `##` skip covers its `###` subsections. Skips and shellcheck exclusions need a `reason`; a skip that matches no
+  block fails the skill. Paths are relative to the repository root; unknown keys are an error.
+- `powershell.runner` is `parse` (default) or `pester`. Stubs define the commands the examples call or mock as
+  `function global:Name`; fixture files are copied next to the generated tests; `allowed_skips[].when` is `always`,
+  `windows`, `not-windows`, `linux`, `not-linux`, `macos` or `not-macos`.
+
+```bash
+scripts/test-skill-examples.sh                                            # every skill in the config
+scripts/test-skill-examples.sh plugins/powershell/skills/pester/SKILL.md  # only this file
+python3 -m pytest tests/skill_examples                                    # tests of the checker itself
+```
+
+A file that is not in the config is tested in enforce mode with the defaults (static checks only). Exit status:
+0 passed, 1 an enforce-mode example failed, 2 usage, configuration or environment error. Needs python3 (3.10+) and,
+for the blocks present, pwsh with Pester 6 (installed for the current user when missing unless
+`SKILL_EXAMPLES_NO_INSTALL=1`), shellcheck, yamllint and PyYAML. A missing tool that an enforce-mode skill needs is
+exit 2; `SKILL_EXAMPLES_ALLOW_MISSING_TOOLS=1` makes it a warning for local runs, and `SKILL_EXAMPLES_REQUIRE_TOOLS=1`
+(CI) makes any missing tool exit 2, report mode included. `TEST_SKILL_EXAMPLES_KEEP=1` keeps the generated files.
+shellcheck runs without `~/.shellcheckrc` and `SHELLCHECK_OPTS`, so local settings cannot change a result.
+`python3 -m pytest tests/skill_examples` skips its runs of the real config unless `SKILL_EXAMPLES_REAL_CONFIG=1`
+(`scripts/test-skill-examples.sh` runs it).
+The Pester runner and runnable python blocks execute the examples: only run this on SKILL.md files you trust (the sync
+job runs it as a throwaway user on a copy of the tree).
+
+### Skill trigger evals
+
+`tests/evals/triggers.yaml` holds ~50 prompts from daily cloud work (kubectl/helm, Azure DevOps, AKS, Key Vault, networking, Terraform, PowerShell/Pester, .NET tests; a few in Dutch). Each names the skills that must load (`expect`; `a|b` = either one), may load (`accept`) and must not load (`forbid`, the look-alikes); `expect: []` is a negative control. `scripts/eval-triggers.py` runs every prompt through `claude -p` with this repo's plugins (`--plugin-dir`), reads which skills the model loaded (its `Skill` tool calls in the stream-json output) and prints a pass/fail table, per-skill precision/recall and a summary.
+
+```bash
+python3 scripts/eval-triggers.py --dry-run                # validate triggers.yaml, print the commands; no model calls
+python3 scripts/eval-triggers.py                          # every case (needs `claude` logged in or ANTHROPIC_API_KEY, and PyYAML)
+python3 scripts/eval-triggers.py --filter pester --runs 3 # a subset, 3 runs per case (loaded = in at least half)
+python3 scripts/eval-triggers.py --profile cloud          # only the plugins of one profile
+python3 scripts/eval-triggers.py --listing-budget 0.03 --json out.json --markdown summary.md
+```
+
+The model can only load skills: every other tool is removed (`--tools Skill`), no MCP server starts, hooks, skill shell injection and Claude Code's bundled skills are off, and each run gets its own session, an empty working directory, `--max-turns 4` and `--max-budget-usd 0.5`; a run stops as soon as the model starts answering. Without credentials the script prints `SKIPPED` and exits 0 (3 with `--require-credentials`, which the workflow uses after its own secret check); it exits 1 when a case fails (`--no-fail` reports only) and 2 on a bad `triggers.yaml` or `--filter`. A `Skill` call the CLI rejects (an unknown name, a skill with `disable-model-invocation`) is reported, not scored; the summary counts rejected calls and unreadable stream lines. A full run costs roughly $3 with Sonnet (the skill listing is ~12k input tokens per prompt; an Azure skill adds 15-40k when it loads).
+
+`.github/workflows/skill-evals.yml` runs it every Monday and on demand (inputs: model, filter, runs, listing budget, strict) with the `ANTHROPIC_API_KEY` secret, skips with a notice when the secret is not set, and writes the table to the run summary. It never runs on pull requests; those only run the offline checks: `tests/evals/` and the description warnings of `scripts/validate.py`.
+
+**Skill listing budget.** Claude Code fits every skill description into about 1% of the context window. With every plugin of this repo installed the listing is ~58k characters against a 30k budget, so descriptions are cut and some skills stop loading (in the evals azure-boards, azure-private-link and run-tests loaded only with full descriptions). Install a profile instead of everything, or raise the budget in `~/.claude/settings.json`: `"skillListingBudgetFraction": 0.03`.
 
 ## Licensing
 

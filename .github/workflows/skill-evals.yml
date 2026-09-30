@@ -1,0 +1,85 @@
+name: Skill trigger evals
+
+# Weekly and on demand: does the right skill load for the realistic prompts in
+# tests/evals/triggers.yaml? Calls the model (costs tokens), so it never runs on pull requests;
+# tests/evals/ checks the prompt set offline on every PR. See README "Skill trigger evals".
+on:
+  schedule:
+    - cron: "17 5 * * 1"  # Mondays 05:17 UTC
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Model alias or id
+        default: sonnet
+      filter:
+        description: Regex on case id, prompt, tags or expected skill (empty = every case)
+        default: ""
+      runs:
+        description: Runs per case (a skill counts as loaded in at least half of them)
+        default: "1"
+      listing_budget:
+        description: skillListingBudgetFraction, e.g. 0.03 (empty = Claude Code default, descriptions get cut)
+        default: ""
+      strict:
+        description: Fail the run when a case fails
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: skill-evals
+  cancel-in-progress: false
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # The secret is only in the env of the steps that need it (not the installer's).
+      - name: Check for the API key
+        id: key
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::notice title=Skill trigger evals::skipped: the ANTHROPIC_API_KEY secret is not set"
+            printf '## Skill trigger evals\n\nSkipped: the ANTHROPIC_API_KEY secret is not set.\n' >> "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.key.outputs.run == 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - if: steps.key.outputs.run == 'true'
+        name: Install Claude Code and PyYAML
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          "$HOME/.local/bin/claude" --version
+          python3 -c 'import yaml' 2>/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq python3-yaml; }
+      - if: steps.key.outputs.run == 'true'
+        name: Run the evals
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          MODEL: ${{ inputs.model || 'sonnet' }}
+          FILTER: ${{ inputs.filter }}
+          RUNS: ${{ inputs.runs || '1' }}
+          LISTING_BUDGET: ${{ inputs.listing_budget }}
+          STRICT: ${{ inputs.strict }}
+        run: |
+          set -- --claude "$HOME/.local/bin/claude" --model "$MODEL" --runs "$RUNS" --jobs 6 \
+            --json "$RUNNER_TEMP/skill-evals.json" --markdown "$GITHUB_STEP_SUMMARY" --require-credentials
+          if [ -n "$FILTER" ]; then set -- "$@" --filter "$FILTER"; fi
+          if [ -n "$LISTING_BUDGET" ]; then set -- "$@" --listing-budget "$LISTING_BUDGET"; fi
+          if [ "$STRICT" != "true" ]; then set -- "$@" --no-fail; fi
+          python3 scripts/eval-triggers.py "$@"
+      - if: always() && steps.key.outputs.run == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: skill-evals
+          path: ${{ runner.temp }}/skill-evals.json
+          if-no-files-found: ignore
+          retention-days: 30

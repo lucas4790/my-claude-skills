@@ -1,0 +1,150 @@
+name: Attribution guard
+
+# Status check `attribution-guard`: fails when the PR title, the PR description or any commit in
+# the PR carries AI attribution or a chat/session link (patterns in
+# tools/attribution-guard/patterns.ere, matched by tools/attribution-guard/match.awk), or a commit
+# is authored or committed by the vendor identity (an @anthropic.com address). The word "claude"
+# alone passes. Strict: Markdown code blocks and `inline code` are checked too, because a link in
+# backticks is still a link.
+# Logs name the place and line number only, never the matched text: Actions logs are public.
+#
+# Repository variable ATTRIBUTION_ALLOW_CLOUD_COMMITTER=true turns a vendor COMMITTER into a
+# warning (cloud sessions force it; a squash merge keeps it off main). The author is always an error.
+#
+# pull_request_target: the workflow, the patterns and the matcher always come from the base branch,
+# so a PR cannot edit them to pass itself. Safe because nothing from the PR is checked out or executed:
+# PR text is read through the API into files and passed via env, never through ${{ }} in run:.
+# Sync PRs are opened with GITHUB_TOKEN, which starts no run here; the sync job posts this
+# status itself (sync-upstream.yml).
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: attribution-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # Auto-fix: drop attribution lines from the description (the hosted GitHub MCP server appends a
+  # footer server-side, which no local hook can stop). An edit made with GITHUB_TOKEN starts no
+  # new run, so this cannot loop. Edit history keeps the old text; see docs/ATTRIBUTION.md.
+  sanitize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4, base branch
+        with:
+          persist-credentials: false
+          sparse-checkout: tools/attribution-guard
+      - name: Strip attribution lines from the PR description
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
+          ATTRIB_AWK=$(cat tools/attribution-guard/match.awk)
+          # Self-test: a pattern that does not compile, is empty or matches everything must fail the
+          # job, never pass (or strip) everything.
+          awk -v mode=selftest "$ATTRIB_AWK" </dev/null || { echo "::error::the attribution pattern fails its self-test"; exit 1; }
+          gh api "repos/$REPO/pulls/$PR" --jq '.body // ""' > "$RUNNER_TEMP/body.md"
+          hits=$(awk -v mode=report "$ATTRIB_AWK" "$RUNNER_TEMP/body.md")
+          if [ -z "$hits" ]; then echo "Description is clean."; exit 0; fi
+          awk -v mode=strip "$ATTRIB_AWK" "$RUNNER_TEMP/body.md" > "$RUNNER_TEMP/clean.md"
+          jq -n --rawfile body "$RUNNER_TEMP/clean.md" '{body: $body}' \
+            | gh api -X PATCH "repos/$REPO/pulls/$PR" --input - --silent
+          echo "Removed $(printf '%s\n' "$hits" | wc -l) attribution line(s) from the description (lines $(printf '%s' "$hits" | tr '\n' ' '))."
+
+  attribution-guard:
+    needs: sanitize
+    # Run even if `sanitize` failed: a skipped job reports success and would satisfy the check.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4, base branch
+        with:
+          persist-credentials: false
+          sparse-checkout: tools/attribution-guard
+      - name: Check title, description, commit messages, authors and committers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          IDENT_RE: '@anthropic\.com$'
+          ALLOW_CLOUD_COMMITTER: ${{ vars.ATTRIBUTION_ALLOW_CLOUD_COMMITTER }}
+        run: |
+          set -euo pipefail
+          ATTRIB_RE=$(sed -n '1p' tools/attribution-guard/patterns.ere); export ATTRIB_RE
+          ATTRIB_AWK=$(cat tools/attribution-guard/match.awk)
+          # Self-test: a pattern that does not compile, is empty or matches everything must fail the
+          # job, never pass (or strip) everything.
+          awk -v mode=selftest "$ATTRIB_AWK" </dev/null || { echo "::error::the attribution pattern fails its self-test"; exit 1; }
+          t=$RUNNER_TEMP
+          fail=0
+          flag() { # $1 = where; stdin = line numbers with a hit
+            while IFS= read -r h; do
+              [ -n "$h" ] || continue
+              printf '::error title=AI attribution::%s, line %s\n' "$1" "$h"
+              fail=1
+            done
+          }
+
+          # Fresh from the API, not the event payload: `sanitize` may just have edited it.
+          gh api "repos/$REPO/pulls/$PR" > "$t/pr.json"
+          jq -r '.title' "$t/pr.json" > "$t/title.txt"
+          jq -r '.body // ""' "$t/pr.json" > "$t/body.md"
+          flag "PR title" < <(awk -v mode=report "$ATTRIB_AWK" "$t/title.txt")
+          flag "PR description" < <(awk -v mode=report "$ATTRIB_AWK" "$t/body.md")
+
+          # The commits endpoint returns at most 250 commits; fail closed beyond that.
+          total=$(jq -r '.commits' "$t/pr.json")
+          if [ "$total" -gt 250 ]; then
+            echo "::error::PR has $total commits; only 250 can be checked. Split or squash it."
+            exit 1
+          fi
+          gh api --paginate "repos/$REPO/pulls/$PR/commits?per_page=100" --jq '.[] | @base64' > "$t/commits.b64"
+          while IFS= read -r c; do
+            printf '%s' "$c" | base64 -d > "$t/c.json"
+            sha=$(jq -r '.sha[0:7]' "$t/c.json")
+            jq -r '.commit.message' "$t/c.json" > "$t/msg.txt"
+            flag "commit $sha message" < <(awk -v mode=report "$ATTRIB_AWK" "$t/msg.txt")
+            if jq -r '.commit.author.email' "$t/c.json" | grep -Eiq -e "$IDENT_RE"; then
+              echo "::error title=AI attribution::commit $sha is authored by the vendor identity"
+              fail=1
+            fi
+            if jq -r '.commit.committer.email' "$t/c.json" | grep -Eiq -e "$IDENT_RE"; then
+              if [ "$ALLOW_CLOUD_COMMITTER" = true ]; then
+                echo "::warning::commit $sha is committed by the vendor identity (allowed by ATTRIBUTION_ALLOW_CLOUD_COMMITTER)."
+              else
+                echo "::error title=AI attribution::commit $sha is committed by the vendor identity; re-commit it as yourself (scripts/adopt-branch.sh)"
+                fail=1
+              fi
+            fi
+          done < "$t/commits.b64"
+
+          head_ref=$(jq -r '.head.ref' "$t/pr.json")
+          case $head_ref in claude/*)
+            echo "::warning::The head branch carries the vendor prefix; scripts/adopt-branch.sh moves the work to a branch of your own." ;;
+          esac
+
+          if [ "$fail" -ne 0 ]; then
+            cat <<'EOF'
+          Fix: edit the PR title/description, and rewrite the listed commits as yourself:
+            bash scripts/adopt-branch.sh <cloud-branch> [new-branch]   (clean messages, you as author and committer)
+          or, on the same branch:
+            git rebase -r --exec 'git commit --amend --no-edit --reset-author' origin/main
+          with the attribution-guard commit-msg hook installed (strip mode), then force-push the branch.
+          EOF
+            exit 1
+          fi
+          echo "No AI attribution found."

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Manual fallback (core.hooksPath=.githooks, set by hand). The SessionStart hook normally points
+# core.hooksPath at .git/attribution-guard/hooks and sets .githooks only when that copy is missing.
+exec sh "$(git rev-parse --show-toplevel)/tools/attribution-guard/attribution-guard.sh" commit-msg "$@"

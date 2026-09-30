@@ -131,7 +131,7 @@
     {
       "name": "azure-agent-skills",
       "source": "./plugins/azure-agent-skills",
-      "description": "32 of Microsoft's first-party Azure Agent Skills: Azure DevOps, Pipelines, Repos, Artifacts, Boards, Container Registry, AKS, Key Vault, RBAC, Monitor, Managed Grafana, Policy, Resource Manager, Cost Management, Logic Apps, Well-Architected, OpenTelemetry, Functions, and networking (VNet, DNS, Private Link, NAT, Load Balancer, App Gateway, WAF, Front Door, Firewall, Network Watcher, Bastion, VPN Gateway, DDoS). Each skill is a structured Microsoft Learn index; pair with the Learn MCP server",
+      "description": "32 of Microsoft's first-party Azure Agent Skills: Azure DevOps, Pipelines, Repos, Artifacts, Boards, Container Registry, AKS, Key Vault, RBAC, Monitor, Managed Grafana, Policy, Resource Manager, Cost Management, Logic Apps, Well-Architected, OpenTelemetry, Functions, and networking (VNet, DNS, Private Link, NAT, Load Balancer, App Gateway, WAF, Front Door, Firewall, Network Watcher, Bastion, VPN Gateway, DDoS). Each skill is a structured Microsoft Learn index; the plugin bundles the Microsoft Learn MCP server (read-only docs, no sign-in) the skills fetch from",
       "author": {
         "name": "Microsoft"
       },
@@ -152,7 +152,7 @@
     {
       "name": "powershell",
       "source": "./plugins/powershell",
-      "description": "PowerShell skill: safe native-command invocation, quoting, escaping, encoding and Start-Process rules (Misaka-Mikoto-Tech/agent-skills)",
+      "description": "PowerShell skills: safe native-command invocation, quoting, escaping, encoding and Start-Process rules (Misaka-Mikoto-Tech/agent-skills); Pester 6 testing guidelines (github/awesome-copilot)",
       "author": {
         "name": "Lucas",
         "url": "https://github.com/lucas4790"
@@ -231,6 +231,28 @@
         "name": "Anthropic"
       },
       "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/pyright-lsp",
+      "category": "development"
+    },
+    {
+      "name": "yaml-lsp",
+      "source": "./plugins/yaml-lsp",
+      "description": "YAML language server (Red Hat yaml-language-server): syntax errors plus SchemaStore validation (GitHub Actions, Azure Pipelines, GitLab CI, docker-compose, Kustomize, Helm Chart.yaml, ...) and per-file schemas via modelines; requires `npm i -g yaml-language-server`",
+      "author": {
+        "name": "Lucas",
+        "url": "https://github.com/lucas4790"
+      },
+      "homepage": "https://github.com/redhat-developer/yaml-language-server",
+      "category": "development"
+    },
+    {
+      "name": "yaml-hooks",
+      "source": "./plugins/yaml-hooks",
+      "description": "Claude Code PostToolUse hook: runs yamllint on .yaml/.yml files after Write/Edit and adds the errors to Claude's context (the project's yamllint config if present, else a relaxed default; Helm templates skipped); requires yamllint",
+      "author": {
+        "name": "Lucas",
+        "url": "https://github.com/lucas4790"
+      },
+      "homepage": "https://github.com/adrienverge/yamllint",
       "category": "development"
     },
     {

@@ -10,7 +10,7 @@ Spec Kit is a CLI (`specify`) that scaffolds a `.specify/` directory and a set o
 ## 1. Check whether the project already has Spec Kit
 
 ```bash
-ls .specify 2>/dev/null && ls .claude/skills 2>/dev/null | grep speckit
+ls -d .specify .claude/skills/speckit-* 2>/dev/null
 ```
 
 If `.specify/` and `speckit-*` skills exist, skip to step 3.

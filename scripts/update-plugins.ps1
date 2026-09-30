@@ -1,8 +1,13 @@
 #Requires -Version 5.1
+
 <#
 .SYNOPSIS
-    Refreshes the my-claude-skills marketplace, installs plugins added upstream, updates installed ones.
-    Runs from a Claude Code SessionStart hook in the background; throttled to once per interval.
+    Refreshes the my-claude-skills marketplace, updates installed plugins, and installs the ones added to
+    the marketplace since the last run, so plugins left out of a subset install or uninstalled stay out.
+    The names it has seen are in plugins\my-claude-skills-known-plugins of the Claude config dir, one list
+    per config (install.ps1 writes the first).
+    Runs from a Claude Code SessionStart hook in the background; throttled to once per interval per config
+    dir (the stamp plugins\my-claude-skills-last-run sits next to that list).
 .PARAMETER Force
     Ignore the throttle and run now.
 #>
@@ -12,10 +17,15 @@ param([switch] $Force)
 
 $name = 'my-claude-skills'
 $cache = Join-Path $env:LOCALAPPDATA $name
-$stamp = Join-Path $cache 'last-run'
 $log = Join-Path $cache 'update.log'
+$claudeDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME '.claude' }
+$pluginsDir = Join-Path $claudeDir 'plugins'
+$knownFile = Join-Path $pluginsDir "$name-known-plugins"   # per config dir: each has its own plugins
+# Per config dir too: with one shared stamp, a config that always starts within the interval after
+# another one would never update.
+$stamp = Join-Path $pluginsDir "$name-last-run"
 $interval = if ($env:MY_CLAUDE_SKILLS_INTERVAL) { [int] $env:MY_CLAUDE_SKILLS_INTERVAL } else { 21600 }
-New-Item -ItemType Directory -Path $cache -Force | Out-Null
+New-Item -ItemType Directory -Path $cache, $pluginsDir -Force | Out-Null
 
 if (-not $Force -and (Test-Path $stamp)) {
     $age = ((Get-Date) - (Get-Item $stamp).LastWriteTime).TotalSeconds
@@ -25,7 +35,7 @@ New-Item -ItemType File -Path $stamp -Force | Out-Null
 
 if (-not (Get-Command claude -ErrorAction SilentlyContinue)) { exit 0 }
 Start-Transcript -Path $log -Append | Out-Null
-Write-Host "=== $((Get-Date).ToUniversalTime().ToString('s'))Z"
+Write-Host "=== $((Get-Date).ToUniversalTime().ToString('s'))Z $claudeDir"   # the log is shared by every config dir
 
 # Copilot CLI copies (install-copilot.ps1; VS Code reads the same ones): update only what is
 # installed there. New plugins are never added, so a Copilot profile stays a profile.
@@ -41,19 +51,94 @@ if (Get-Command copilot -ErrorAction SilentlyContinue) {
 & claude plugin marketplace update $name
 if ($LASTEXITCODE -ne 0) { Write-Host 'marketplace update failed'; Stop-Transcript | Out-Null; exit 1 }
 
-$mp = Join-Path $HOME ".claude\plugins\marketplaces\$name\.claude-plugin\marketplace.json"
-if (-not (Test-Path $mp)) { Write-Host "marketplace manifest not found at $mp"; Stop-Transcript | Out-Null; exit 1 }
-$available = (Get-Content $mp -Raw | ConvertFrom-Json).plugins.name
-$installed = (& claude plugin list --json 2>$null | ConvertFrom-Json) |
-    Where-Object { $_.id -like "*@$name" } | ForEach-Object { $_.id -replace "@$name$", '' }
+# install.ps1 copied this script once: refresh that copy from the marketplace clone so updater fixes
+# reach this machine. PowerShell has already read the whole script, so the new copy runs next time.
+# Not in a checkout of the repo (.claude-plugin\ next to scripts\): that would overwrite its working tree.
+# The temp name is this process's own: runs of other config dirs refresh the same copy.
+$selfNew = Join-Path $claudeDir "plugins\marketplaces\$name\scripts\update-plugins.ps1"
+if ($PSCommandPath -and (Test-Path $selfNew) -and
+    -not (Test-Path (Join-Path (Split-Path $PSCommandPath) '..\.claude-plugin\marketplace.json')) -and
+    (Get-FileHash $selfNew).Hash -ne (Get-FileHash $PSCommandPath).Hash) {
+    $selfTmp = "$PSCommandPath.$PID"
+    try {
+        Copy-Item $selfNew $selfTmp -Force -ErrorAction Stop
+        Move-Item $selfTmp $PSCommandPath -Force -ErrorAction Stop
+        Write-Host "refreshed $PSCommandPath from the marketplace (applies next run)"
+    } catch {
+        Remove-Item $selfTmp -Force -ErrorAction SilentlyContinue
+        Write-Host "could not refresh $PSCommandPath"
+    }
+}
 
+# Keep the attribution guard current (patterns and git hooks) from the marketplace clone, but only
+# where it was installed and not opted out. Re-run install.ps1 to refresh the PreToolUse registration.
+$guard = Join-Path $claudeDir "plugins\marketplaces\$name\tools\attribution-guard\install.sh"
+$guardHome = Join-Path $(if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $HOME '.config' }) 'git\attribution-guard'
+if ($env:MY_CLAUDE_SKILLS_ATTRIBUTION -ne 'keep' -and (Test-Path $guard) -and (Test-Path $guardHome)) {
+    $sh = $null
+    $execPath = & git --exec-path 2>$null
+    if ($execPath) {
+        $candidate = Join-Path (Split-Path (Split-Path (Split-Path ($execPath -replace '/', '\')))) 'bin\sh.exe'
+        if (Test-Path $candidate) { $sh = $candidate }
+    }
+    if (-not $sh) { $sh = (Get-Command sh.exe -ErrorAction SilentlyContinue).Source }
+    if ($sh) {
+        # install.sh keeps the mode and an opted-in global hooks path by itself.
+        $env:ATTRIBUTION_GUARD_SKIP_CLAUDE = '1'
+        & $sh $guard
+        if ($LASTEXITCODE -ne 0) { Write-Host 'attribution guard refresh failed' }
+    }
+}
+
+$mp = Join-Path $claudeDir "plugins\marketplaces\$name\.claude-plugin\marketplace.json"
+if (-not (Test-Path $mp)) { Write-Host "marketplace manifest not found at $mp"; Stop-Transcript | Out-Null; exit 1 }
+try {
+    $available = @((Get-Content $mp -Raw | ConvertFrom-Json -ErrorAction Stop).plugins | ForEach-Object { $_.name } | Where-Object { $_ })
+} catch {
+    Write-Host "could not read the plugin names from $mp"; Stop-Transcript | Out-Null; exit 1
+}
+
+# Without a list of what is installed, only update: installing would bring back every plugin that
+# was left out or uninstalled.
+$listed = $false
+$installed = @()
+$json = (& claude plugin list --json 2>$null) | Out-String
+if ($LASTEXITCODE -eq 0 -and $json.TrimStart().StartsWith('[')) {
+    try {
+        $installed = @(($json | ConvertFrom-Json -ErrorAction Stop) |
+            Where-Object { $_.id -like "*@$name" } | ForEach-Object { $_.id -replace "@$name$", '' })
+        $listed = $true
+    } catch {
+        $installed = @()
+    }
+}
+if (-not $listed) { Write-Host 'claude plugin list --json failed or gave no JSON list: updating only, installing no new plugins' }
+
+# New plugins are the ones in the marketplace but not in the snapshot of the earlier runs. Without a
+# snapshot yet for this config dir (installed before install.ps1 wrote one), record one and install nothing.
+$known = @(if (Test-Path $knownFile) { Get-Content $knownFile | Where-Object { $_ } })
+if ($listed -and $known.Count -eq 0) {
+    Write-Host "no plugin snapshot yet: recording the marketplace's $($available.Count) plugins, installing none"
+}
+$record = @()
 foreach ($p in $available) {
-    if ($installed -contains $p) {
+    if (-not $listed -or $installed -contains $p) {
         & claude plugin update "$p@$name" 2>&1 | Where-Object { $_ -notmatch 'already' }
-    } else {
+    } elseif ($known.Count -gt 0 -and $known -notcontains $p) {
         Write-Host "new plugin: $p"
         & claude plugin install "$p@$name"
+        if ($LASTEXITCODE -ne 0) { Write-Host "install failed: $p (retried next run)"; continue }
     }
+    $record += $p
+}
+
+# Only after a pass that saw what is installed. The snapshot keeps the names of earlier runs, so a
+# plugin that leaves the marketplace and comes back later is not new again. A failed install was not
+# in it and is not added, so it is retried.
+if ($listed -and $record.Count -gt 0) {
+    $record = @(@($record) + @($known) | Select-Object -Unique)
+    Set-Content -Path "$knownFile.new" -Value $record
+    Move-Item "$knownFile.new" $knownFile -Force
 }
 Write-Host 'done'
 Stop-Transcript | Out-Null
