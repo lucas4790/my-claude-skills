@@ -627,6 +627,189 @@ done <<'EOF'
 0 plain {"tool_name":"Bash","tool_input":{"command":"nice env -i git status"}}
 0 plain {"tool_name":"Bash","tool_input":{"command":"env LC_ALL=C git log"}}
 0 plain {"tool_name":"Bash","tool_input":{"command":"git commit -m \"use env -i here\""}}
+# env -S / --split-string that runs a git write fails closed (the string may clear the env or unset
+# HOME); a read or a benign string passes, and git's own -S (sign) after a command is not env's
+2 plain {"tool_name":"Bash","tool_input":{"command":"env -S \"git commit -m x\""}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env -S\"GIT_DIR=/tmp git commit -m x\""}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env --split-string=\"-i git push origin HEAD\""}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env -S \"LC_ALL=C git commit -m x\""}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env --spl \"git commit -m x\""}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"nice env -S \"git tag -a v1 -m x\""}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"env -S \"LC_ALL=C\" git log"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"env -S \"LC_ALL=C\" make"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"env FOO=bar git commit -S -m x"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"git commit -m \"use env -S in scripts\""}}
+# env -S read the way env reads it: \_ separates words, separators inside the quoted string do not end
+# the command, -C DIR before -S, assignments before env, env's own quotes; a quoted grep pattern is no command
+2 plain {"tool_name":"Bash","tool_input":{"command":"env -S'-i git\\_commit -m x'"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env -S\"-i FOO={ git commit -m x\""}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env -S\"-i FOO=| git commit -m x\""}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env -C . -S\"-i git commit -m x\""}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"FOO=1 env -S\"-i git commit -m x\""}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"FOO=1 env -i git commit -m x"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env -S\"-i 'git' commit -m x\""}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"env -S'-i' sh -c \"git commit -m x\""}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"env -S 'LC_ALL=C' git log"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"env -S \"LC_ALL=C\" grep \"git commit\" file"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"FOO=1 env LC_ALL=C git commit -m x"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"GIT_AUTHOR_NAME='x' GIT_AUTHOR_EMAIL='x@users.noreply.github.com' GIT_COMMITTER_NAME='x' GIT_COMMITTER_EMAIL='x@users.noreply.github.com' git commit -q -F - <<'MSG'\nFix the guard\n\nExplain env -S and chmod {644,x} in the docs.\nMSG"}}
+# chmod with a non-literal mode (variable, command substitution, glob) on a hook path fails closed;
+# a non-literal mode on an ordinary path still passes
+2 plain {"tool_name":"Bash","tool_input":{"command":"chmod $MODE .githooks/pre-push"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"chmod $(cat /tmp/m) .githooks/pre-push"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"chmod x* .githooks/pre-push"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"chmod -R $M .git/attribution-guard/hooks"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"cd .githooks && chmod $MODE pre-push"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"chmod $MODE scripts/foo.sh"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"chmod $MODE dir"}}
+# brace expansion leaves chmod no readable mode: fails closed; a mode it cannot read passes when chmod
+# names only plain non-hook files, and a chmod that is only an argument (grep -l chmod) is no chmod
+2 plain {"tool_name":"Bash","tool_input":{"command":"chmod {644,.githooks/pre-push}"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"chmod {,}644 .githooks/pre-push"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"cd .githooks && chmod {,}644 pre-push"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"ls .githooks/* | xargs chmod $M"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"find .githooks -type f -exec chmod $M {} +"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"ls .githooks && chmod $MODE scripts/foo.sh"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"find .githooks -type f -exec grep -l chmod README.md \\;"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"chmod +x scripts/x.sh"}}
+# git update-index --chmod=-x (or --chmod -x) on a hook file drops its exec bit; --chmod=+x, or -x on
+# an ordinary path, passes
+2 plain {"tool_name":"Bash","tool_input":{"command":"git update-index --chmod=-x .githooks/pre-push"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"git update-index --chmod -x .githooks/commit-msg"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"git update-index --chmod=-x .git/attribution-guard/hooks/commit-msg"}}
+# also git add --chmod, an abbreviated --chm, git -C, a path behind cd, xargs, --stdin or $(...), and a
+# quoted git path in PowerShell; a repository's own .husky hooks are not the guard's hook files
+2 plain {"tool_name":"Bash","tool_input":{"command":"git add --chmod=-x .githooks/pre-push"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"git add --chmod -x .githooks/pre-push"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"git update-index --chm=-x .githooks/pre-push"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"git -C sub update-index --chmod=-x .githooks/pre-push"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"cd .githooks && git update-index --chmod=-x pre-push"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"git ls-files .githooks | xargs git update-index --chmod=-x"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"echo .githooks/pre-push | git update-index --chmod=-x --stdin"}}
+2 plain {"tool_name":"Bash","tool_input":{"command":"git update-index --chmod=-x -- $(git ls-files .githooks)"}}
+2 plain {"tool_name":"PowerShell","tool_input":{"command":"& 'C:\\Program Files\\Git\\cmd\\git.exe' update-index --chmod=-x .githooks\\pre-push"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"git add --chmod=+x scripts/x.sh"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"ls .githooks && git update-index --chmod=-x scripts/x.sh"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"git update-index --chmod=-x .husky/pre-commit"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"git update-index --chmod=+x .githooks/pre-push"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"git update-index --chmod=+x scripts/x.sh"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"git update-index --chmod=-x scripts/x.sh"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"git -C sub update-index --chmod=+x .githooks/pre-push"}}
+0 plain {"tool_name":"Bash","tool_input":{"command":"git commit -m \"note: git update-index --chmod=-x .githooks/x is owner-only\""}}
+# update-index / add / stage: git -C or --work-tree into the hook directory, git stage, --c=-x, a backtick
+# substitution, the whole tree, pathspec magic or a glob, --cacheinfo / --index-info; plain files still pass
+2 plain {"tool_name": "Bash", "tool_input": {"command": "git -C .githooks update-index --chmod=-x pre-push"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "git --work-tree=.githooks update-index --chmod=-x pre-push"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "git stage --chmod=-x .githooks/pre-push"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "git add --c=-x .githooks/pre-push"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "git update-index --chmod=-x scripts/x.sh `git ls-files .githooks`"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "git add --chmod=-x ."}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "git add --chmod=-x :/"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "git add --chmod=-x '*'"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "git update-index --cacheinfo 100644,0123456789abcdef0123456789abcdef01234567,.githooks/pre-push"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "ls .githooks && git update-index --index-info < /tmp/list"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "git add --chmod=-x docs/x.md"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "git -C sub add --chmod=-x x.md"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "git update-index --cacheinfo 100644,0123456789abcdef0123456789abcdef01234567,scripts/x.sh"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "git add -A && git diff --cached --stat"}}
+# text handed to a shell (a heredoc for bash, sh -c, eval, ssh): every word counts for these checks too
+2 plain {"tool_name": "Bash", "tool_input": {"command": "bash <<'EOF'\ngit update-index --chmod=-x .githooks/pre-push\nEOF"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "bash <<'EOF'\nenv -S'-i git commit -m x'\nEOF"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "sh -c 'git update-index --chmod=-x .githooks/pre-push'"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "eval \"git update-index --chmod=-x .githooks/pre-push\""}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "ssh host 'git update-index --chmod=-x .githooks/pre-push'"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "bash -c \"chmod $M .githooks/pre-push\""}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "bash <<'EOF'\nls .githooks\necho done\nEOF"}}
+# reserved words before the command (for ... do, if ... then, !)
+2 plain {"tool_name": "Bash", "tool_input": {"command": "for f in .githooks/*; do git update-index --chmod=-x \"$f\"; done"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "if true; then git update-index --chmod=-x .githooks/pre-push; fi"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "! git update-index --chmod=-x .githooks/pre-push"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "if true; then env -S'-i git commit -m x'; fi"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "for f in .githooks/*; do chmod 644 \"$f\"; done"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "if true; then env -i git commit -m x; fi"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "if [ -f .githooks/pre-push ]; then rm .githooks/pre-push; fi"}}
+2 strict {"tool_name": "Bash", "tool_input": {"command": "if true; then gh pr create --fill; fi"}}
+2 strict {"tool_name": "Bash", "tool_input": {"command": "for i in 1; do gh release create v1; done"}}
+0 strict {"tool_name": "Bash", "tool_input": {"command": "for f in scripts/*.sh; do bash -n \"$f\"; done"}}
+# an unreadable chmod mode with brace expansion among the files, or a cd after assignments, builtin or if
+2 plain {"tool_name": "Bash", "tool_input": {"command": "chmod $M scripts/{a,../.githooks/pre-push}"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "M=644; chmod $M scripts/x{,/../../.githooks/pre-push}"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "builtin cd .githooks && chmod $M pre-push"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "CDPATH= cd .githooks && chmod $M pre-push"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "if cd .githooks; then chmod $M pre-push; fi"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "chmod $M scripts/{\"a b\",../.githooks/pre-push}"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "ls .githooks | awk '{print}'; chmod $M scripts/x.sh"}}
+# prose that starts a line with chmod (commit message, heredoc body) is no chmod command
+0 plain {"tool_name": "Bash", "tool_input": {"command": "git commit -m \"$(cat <<'EOF'\nfix(guard): fail closed\n\nchmod with a variable mode now fails closed on .githooks paths.\nEOF\n)\""}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "git commit -F - <<'EOF'\nfix(guard)\n\nchmod on .githooks files now fails closed\nEOF"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "cat > notes.md <<'EOF'\nchmod on .githooks files now fails closed\nEOF"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "git commit -F - <<'EOF'\nfix: chmod -x on core.hooksPath files now blocks\nEOF"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "GIT_AUTHOR_NAME='x' GIT_AUTHOR_EMAIL='x@users.noreply.github.com' GIT_COMMITTER_NAME='x' GIT_COMMITTER_EMAIL='x@users.noreply.github.com' git commit -q -F - <<'MSG'\nfix(guard): chmod on .githooks files now fails closed\nMSG"}}
+0 strict {"tool_name": "Bash", "tool_input": {"command": "GIT_AUTHOR_NAME='x' GIT_AUTHOR_EMAIL='x@users.noreply.github.com' GIT_COMMITTER_NAME='x' GIT_COMMITTER_EMAIL='x@users.noreply.github.com' git commit -q -F - <<'MSG'\nfix(guard): chmod on .githooks files now fails closed\nMSG"}}
+# env -S: a ${VAR} next to git fails closed; git named as an argument is no git command
+2 plain {"tool_name": "Bash", "tool_input": {"command": "G=git env -S'-i ${G} commit -m x'"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "env -S 'LC_ALL=C' echo git commit"}}
+# chmod --help / --version before the mode, chmod behind sudo or nice on plain files, grep -l chmod
+0 plain {"tool_name": "Bash", "tool_input": {"command": "ls .githooks && chmod --help"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "ls .githooks && chmod --version"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "ls .githooks; sudo chmod $M scripts/x.sh"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "ls .githooks && sudo -u root chmod $M scripts/x.sh"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "ls .githooks && sudo grep -l chmod x"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "ls .githooks; sudo -D .githooks chmod $M pre-push"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "ls .githooks; env -C .githooks chmod $M pre-push"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "chmod $M .githooks/pre-push --help"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "echo 644 .githooks/pre-push | xargs -r chmod"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "echo 644 .githooks/pre-push | xargs -n2 chmod"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "ls .githooks; find scripts -name '*.sh' -exec chmod $M {} +"}}
+# hook paths spelled another way, a hook directory computed at run time, a directory above the hooks
+2 plain {"tool_name": "Bash", "tool_input": {"command": "chmod 644 \"$(git rev-parse --git-common-dir)/attribution-guard/hooks/commit-msg\""}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "chmod 644 .git//attribution-guard/hooks/commit-msg"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "chmod 644 \"$(git config core.hooksPath)/commit-msg\""}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "chmod 644 \"$(git rev-parse --git-path hooks)/pre-push\""}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "chmod -R 644 ."}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "chmod -R a-x .."}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "chmod -R 644 .git"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "chmod -R go-w ."}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "chmod -R u+rwX,go+rX ."}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "chmod 644 \"${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json\""}}
+# the payload cwd (the Bash tool keeps a cd between calls) inside a hook directory
+2 plain {"cwd": "/work/repo/.githooks", "tool_name": "Bash", "tool_input": {"command": "git update-index --chmod=-x pre-push"}}
+2 plain {"cwd": "/work/repo/.githooks", "tool_name": "Bash", "tool_input": {"command": "chmod 644 pre-push"}}
+2 plain {"cwd": "/work/repo/.githooks", "tool_name": "Bash", "tool_input": {"command": "rm pre-push"}}
+2 plain {"cwd": "/work/repo/.githooks", "tool_name": "Bash", "tool_input": {"command": "echo exit 0 > pre-push"}}
+0 plain {"cwd": "/work/repo/.githooks", "tool_name": "Bash", "tool_input": {"command": "ls -la 2>/dev/null"}}
+0 plain {"cwd": "/work/repo/.githooks", "tool_name": "Bash", "tool_input": {"command": "chmod +x pre-push"}}
+0 plain {"cwd": "/work/repo", "tool_name": "Bash", "tool_input": {"command": "git update-index --chmod=-x pre-push"}}
+# env -S runs what the other checks look for; wrappers and git rm / git mv delete hook files too
+2 plain {"tool_name": "Bash", "tool_input": {"command": "env -S'chmod 644 .githooks/pre-push'"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "env -S'rm .githooks/pre-push'"}}
+2 strict {"tool_name": "Bash", "tool_input": {"command": "env -S'gh pr create --fill'"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "env -S 'LC_ALL=C' ls .githooks"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "env -S'-i strace git commit -m x'"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "nice rm .githooks/pre-push"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "/bin/rm .githooks/pre-push"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "git rm --cached .githooks/pre-push"}}
+2 plain {"tool_name": "Bash", "tool_input": {"command": "git mv .githooks/pre-push .githooks/pre-push.off"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "git log --oneline -- .githooks"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "git show HEAD:.githooks/pre-push"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "grep -rn rm .githooks"}}
+# kept passing
+0 plain {"tool_name": "Bash", "tool_input": {"command": "chmod +x scripts/x.sh"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "chmod -R 755 dir"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "git update-index --chmod=+x scripts/x.sh"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "git add --chmod=+x scripts/x.sh"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "env -S 'LC_ALL=C' git log"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "env LC_ALL=C git log"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "cut -f1 file"}}
+0 plain {"tool_name": "Bash", "tool_input": {"command": "git push -q origin some-branch"}}
+0 strict {"tool_name": "Bash", "tool_input": {"command": "chmod +x scripts/x.sh"}}
+0 strict {"tool_name": "Bash", "tool_input": {"command": "chmod -R 755 dir"}}
+0 strict {"tool_name": "Bash", "tool_input": {"command": "git update-index --chmod=+x scripts/x.sh"}}
+0 strict {"tool_name": "Bash", "tool_input": {"command": "git add --chmod=+x scripts/x.sh"}}
+0 strict {"tool_name": "Bash", "tool_input": {"command": "env -S 'LC_ALL=C' git log"}}
+0 strict {"tool_name": "Bash", "tool_input": {"command": "env LC_ALL=C git log"}}
+0 strict {"tool_name": "Bash", "tool_input": {"command": "cut -f1 file"}}
+0 strict {"tool_name": "Bash", "tool_input": {"command": "git push -q origin some-branch"}}
 # --strict: gh api field flags with an attached value; write verbs of the other gh command groups
 2 strict {"tool_name":"Bash","tool_input":{"command":"gh api -fbody=hi repos/o/r/issues/1/comments"}}
 2 strict {"tool_name":"Bash","tool_input":{"command":"gh api repos/o/r/issues/1/comments -Fbody=@/tmp/x.md"}}
