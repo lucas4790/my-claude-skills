@@ -143,10 +143,8 @@ ASP.NET Core web development skills including middleware, endpoints, real-time c
 
 | Name | What it does |
 |---|---|
-| [`configuring-opentelemetry-dotnet`](plugins/dotnet-aspnetcore/skills/configuring-opentelemetry-dotnet/SKILL.md) | Configure OpenTelemetry distributed tracing, metrics, and logging in ASP.NET Core using the .NET OpenTelemetry SDK. Use when adding observability, setting up OTLP exporters, creating custom metrics/spans, or… |
 | [`convert-blazor-server-to-webapp`](plugins/dotnet-aspnetcore/skills/convert-blazor-server-to-webapp/SKILL.md) | Guides conversion of a pre-.NET 8 Blazor Server app into a .NET 8+ Blazor Web App. USE FOR: migrating apps that use AddServerSideBlazor and MapBlazorHub to the AddRazorComponents/MapRazorComponents model, converting… |
 | [`dotnet-webapi`](plugins/dotnet-aspnetcore/skills/dotnet-webapi/SKILL.md) | Guides creation and modification of ASP.NET Core Web API endpoints with correct HTTP semantics, OpenAPI metadata, and error handling. USE FOR: adding new API endpoints (controllers or minimal APIs), wiring up… |
-| [`minimal-api-file-upload`](plugins/dotnet-aspnetcore/skills/minimal-api-file-upload/SKILL.md) | File upload endpoints in ASP.NET minimal APIs (.NET 8+) |
 
 ## `dotnet-test`
 
