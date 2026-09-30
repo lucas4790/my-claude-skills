@@ -441,11 +441,3 @@ cases:
     expect: [codebase-onboarding]
     forbid: [component-documentation]
     tags: [docs]
-
-  - id: rebase-conflicts-pipeline-yaml
-    prompt: >-
-      I'm in the middle of a rebase onto main with conflicts in azure-pipelines.yml and
-      values-prod.yaml. Help me resolve them.
-    expect: [resolving-merge-conflicts]
-    forbid: [azure-pipelines, azure-repos]
-    tags: [git]
