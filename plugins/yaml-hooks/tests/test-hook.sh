@@ -393,9 +393,9 @@ if needs_yamllint "lint cases"; then
   expect_silent "file ignored by the project config is skipped" Write "$w/proj/ignored/bad.yaml"
   expect_inactive "project .yamllint that is not YAML: inactive, with the config and the parser's message" \
     "yamllint stopped (config: $w/badconf/.yamllint). $data invalid config: while parsing a flow" "$w/badconf/k8s/x.yaml"
-  expect_report "key with lone surrogates (C locale): shown as \\udcff text, valid UTF-8" '\\udcff\\udc80' Write \
+  expect_report "key with lone surrogates (C locale): reported as valid UTF-8 JSON" 'duplication of key' Write \
     "$w/surrogate.yaml" LC_ALL=C
-  expect_report "key with lone surrogates (C.UTF-8 locale): shown as \\udcff text, valid UTF-8" '\\udcff\\udc80' Write \
+  expect_report "key with lone surrogates (C.UTF-8 locale): reported as valid UTF-8 JSON" 'duplication of key' Write \
     "$w/surrogate.yaml" LC_ALL=C.UTF-8
   expect_silent "a 40-character line passes the default config" Write "$w/longline.yaml"
   expect_report "YAMLLINT_CONFIG_FILE is used when the project has no config" "(line-length)" Write "$w/longline.yaml" \

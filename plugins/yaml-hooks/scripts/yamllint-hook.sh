@@ -222,6 +222,8 @@ fi
 
 { out=$(run_yl "$LINT_SECS" -f parsable "$@" -- "$rel"); } 2>/dev/null # bash warns about NUL bytes in the output
 rc=$?
+# a yamllint that ignores PYTHONIOENCODING writes a lone surrogate as raw bytes: drop what is not UTF-8
+if command -v iconv >/dev/null 2>&1 && clean=$(printf '%s\n' "$out" | iconv -c -f UTF-8 -t UTF-8 2>/dev/null) && [ -n "$clean" ]; then out=$clean; fi
 nerr=$(printf '%s\n' "$out" | grep -c ': \[error\] ')
 case $rc in
   0) ;;

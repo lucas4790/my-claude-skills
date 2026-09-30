@@ -2,6 +2,6 @@
   "$comment": "Hook registrations under plugins/ that the owner reviewed, as path -> sha256 of the file (CRLF read as LF). validate.py reports a listed, unchanged file's registration as [reviewed] instead of [high]; after any edit it fails --diff again and prints the new hash to set here once the change is reviewed. Only for repo-owned plugins: vendored hooks arrive through sync PRs, which report them without failing.",
   "reviewed": {
     "plugins/yaml-hooks/hooks/hooks.json": "fb70cbef1e08f4ee1e1a8753296480be8ef2fb2910e36090d25170eb0e8abb67",
-    "plugins/yaml-hooks/scripts/yamllint-hook.sh": "f2bd3afea2d2c890edb4244ff02d1821e457d9e041877578202cf4786c8bd5f4"
+    "plugins/yaml-hooks/scripts/yamllint-hook.sh": "002e2a91400c1da5ff8627ae584ff086dab8b5f9a9ffba61bfe09bbe696dc4bc"
   }
 }
