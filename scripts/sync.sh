@@ -26,9 +26,9 @@ usage_error() { echo "$*" >&2; exit 2; }
 trust_filter="" locked=0 only=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --trust)  [ "$#" -ge 2 ] && [ -n "$2" ] || usage_error "error: --trust needs a value"; trust_filter="$2"; shift 2 ;;
+    --trust)  if [ "$#" -lt 2 ] || [ -z "$2" ]; then usage_error "error: --trust needs a value"; fi; trust_filter="$2"; shift 2 ;;
     --locked) locked=1; shift ;;
-    --only)   [ "$#" -ge 2 ] && [ -n "$2" ] || usage_error "error: --only needs a value"; only="$2"; shift 2 ;;
+    --only)   if [ "$#" -lt 2 ] || [ -z "$2" ]; then usage_error "error: --only needs a value"; fi; only="$2"; shift 2 ;;
     *) usage_error "unknown option: $1" ;;
   esac
 done

@@ -8,10 +8,10 @@
 # the network, ~/.claude or the global git config.
 
 # Every fixture path hangs off BATS_TEST_TMPDIR (bats >= 1.4); never let it fall back to "" or "/".
-[ -n "${BATS_TEST_TMPDIR:-}" ] && [ -d "$BATS_TEST_TMPDIR" ] || {
+if [ -z "${BATS_TEST_TMPDIR:-}" ] || [ ! -d "$BATS_TEST_TMPDIR" ]; then
   echo "helpers.bash: BATS_TEST_TMPDIR is not set; bats-core >= 1.4 is required" >&2
   exit 1
-}
+fi
 
 REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 export REPO_ROOT

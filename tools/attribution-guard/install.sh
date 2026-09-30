@@ -97,7 +97,7 @@ else
     # init.templateDir replaces git's own template: start from it (info/exclude, description).
     tpl="$(git --exec-path 2>/dev/null)/../../share/git-core/templates"
     if [ -d "$tpl" ]; then cp -R "$tpl/." "$dst/template/" 2>/dev/null || true
-    else mkdir -p "$dst/template/info" && [ -f "$dst/template/info/exclude" ] || : >"$dst/template/info/exclude"; fi
+    else mkdir -p "$dst/template/info"; [ -f "$dst/template/info/exclude" ] || : >"$dst/template/info/exclude"; fi
     for h in commit-msg pre-push; do
         printf '#!/bin/sh\n# attribution guard (installed by my-claude-skills tools/attribution-guard/install.sh)\nexec sh "%s/attribution-guard.sh" %s "$@"\n' "$dst" "$h" >"$dst/template/hooks/$h"
         chmod +x "$dst/template/hooks/$h"

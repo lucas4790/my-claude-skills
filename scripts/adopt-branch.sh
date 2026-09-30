@@ -20,7 +20,7 @@ case $new in claude/*) echo "pick a branch name without the claude/ prefix" >&2;
 
 me_name=$(git config user.name || true)
 me_mail=$(git config user.email || true)
-[ -n "$me_name" ] && [ -n "$me_mail" ] || { echo "set git user.name and user.email first" >&2; exit 1; }
+if [ -z "$me_name" ] || [ -z "$me_mail" ]; then echo "set git user.name and user.email first" >&2; exit 1; fi
 case $me_mail in *@anthropic.com) echo "user.email is the vendor identity; set your own first" >&2; exit 1 ;; esac
 if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then
   echo "a rebase is in progress: finish it (git rebase --continue) or abort it (git rebase --abort) first" >&2; exit 1
