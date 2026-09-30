@@ -111,6 +111,8 @@ echo "==> rewriting (git filter-repo)"
 CLEAN_HISTORY_GUARD=$guard CLEAN_HISTORY_OWNER_NAME=$owner_name CLEAN_HISTORY_OWNER_EMAIL=$owner_email \
   CLEAN_HISTORY_DROP=$(printf '%s\n' "${drop[@]+"${drop[@]}"}") \
   git -C "$repo" filter-repo --quiet "${args[@]}" || die "git filter-repo stopped; nothing was pushed"
+# some filter-repo versions keep the origin remote of a bare clone; it must not survive, so a stray push is impossible
+git -C "$repo" remote remove origin 2>/dev/null || true
 
 # --- verify ---------------------------------------------------------------------------------------
 fail=0
