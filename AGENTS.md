@@ -25,7 +25,7 @@ VS Code. Most of `plugins/` is **vendored** from upstream repos listed in `sourc
 - Hooks in repo-owned plugins never block or fail: every error path exits 0, findings go to
   `hookSpecificOutput.additionalContext`, and a hook whose tool is missing stays silent. A hook whose tool is there
   but cannot run says so in one "inactive" line of that context instead (the yaml-hooks hook does this when yamllint
-  is older than 1.30, rejects its config or crashes). A hook that depends on Claude Code's payload or output goes in a
+  is older than 1.30, rejects its config, crashes or runs past its time limit). A hook that depends on Claude Code's payload or output goes in a
   `claude-only` plugin. A new or changed hook registration under `plugins/` (any event: a `hooks.json`, a
   manifest's `hooks` key or a file it names, `hooks:` frontmatter), or any edit of a reviewed hook file or of a
   script it runs through `${CLAUDE_PLUGIN_ROOT}`, fails `validate.py --diff` until that file is listed with its new
