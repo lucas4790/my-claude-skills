@@ -2,7 +2,7 @@
   "agent-browser": {
     "ref": "main",
     "repo": "https://github.com/vercel-labs/agent-browser.git",
-    "sha": "d01253d9db28d75080e36da3c1c31ef89454731e",
+    "sha": "526157cfd4ec64f45939f9ba0f10d5936aa7ac33",
     "trust": "high"
   },
   "anthropics-skills": {
@@ -20,7 +20,7 @@
   "claude-plugins-official": {
     "ref": "main",
     "repo": "https://github.com/anthropics/claude-plugins-official.git",
-    "sha": "2a8ad9f74633d10e3d9bb0660a03bfc6e50584b1",
+    "sha": "d182ca456ca09d31d139f7d3818d1d333b103cce",
     "trust": "high"
   },
   "codebase-onboarding": {
@@ -32,7 +32,7 @@
   "dotnet-skills": {
     "ref": "main",
     "repo": "https://github.com/dotnet/skills.git",
-    "sha": "ff66f963fb82944910814f91e4aead62ff5c69eb",
+    "sha": "e87c5da26cbf0f8c701e91247c4817df0adc12f7",
     "trust": "high"
   },
   "mattpocock-skills": {

@@ -132,7 +132,8 @@ Official Microsoft .NET plugin: Roslyn C# language server (via dnx, needs .NET 1
 
 | Name | What it does |
 |---|---|
-| [`csharp-refactoring`](plugins/dotnet/skills/csharp-refactoring/SKILL.md) | Performs safe, behavior-preserving refactoring of C#/.NET code, verified with build, tests, and analyzers. USE FOR: rename or move a symbol/type/file; extract a method/type/interface; inline a wrapper/method/local;… |
+| [`csharp-refactoring`](plugins/dotnet/skills/csharp-refactoring/SKILL.md) | Safely refactors C#/.NET code without changing behavior. USE FOR any request to refactor, rename, move, extract, inline, merge, consolidate, deduplicate, split, or modernize C# code, including partial/generated… |
+| [`msbuild`](plugins/dotnet/skills/msbuild/SKILL.md) | Use only for MSBuild failure investigation, build-performance analysis, or review of existing build XML/extension contracts. A plan to convert a working legacy/non-SDK project to SDK style or migrate packages.config is… |
 | [`setup-local-sdk`](plugins/dotnet/skills/setup-local-sdk/SKILL.md) | Install a .NET SDK locally for safe preview testing, specific-version pinning, or reproducible team setups — without modifying the system-wide installation. USE FOR: trying .NET previews safely, testing specific SDK… |
 
 ## `dotnet-aspnetcore`
