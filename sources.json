@@ -52,7 +52,8 @@
         },
         {
           "from": "external_plugins/terraform",
-          "to": "plugins/terraform"
+          "to": "plugins/terraform",
+          "patch": "patches/terraform.patch"
         },
         {
           "from": "plugins/pyright-lsp/LICENSE",
