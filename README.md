@@ -202,6 +202,47 @@ rm -f "$src" "$out"
 
 Like the snippets under [Permissions baseline](#permissions-baseline-opt-in-manual), it starts a missing or empty file as `{}`, writes through a symlink and leaves a file that is not plain JSON alone with an error. On Windows the file is `%USERPROFILE%\.claude\settings.json`; run it from Git Bash, or from WSL with the `f=` line changed to `f=/mnt/c/Users/<you>/.claude/settings.json`.
 
+#### Cloud guardrails (opt-in, manual)
+
+[`settings/cloud-guardrails.json`](settings/cloud-guardrails.json) is a second, separate file of `permissions.ask` rules for work on production clusters and subscriptions. It asks before the Terraform, kubectl, helm and az commands in the table below, which change something or print secret values or tokens; the verb lists are a sample, not every verb of these tools (see the backstop paragraph). It only adds ask rules (nothing in it allows or denies anything), so merging it never widens what Claude may run. It is for Claude Code only, also in VS Code's **Claude** session target (Copilot CLI and VS Code's Copilot sessions do not read it), and every rule is also there for the PowerShell tool (`PowerShell(...)`; rules there ignore case).
+
+A sentence in [`settings/user-instructions.md`](settings/user-instructions.md) shapes what Claude tries; an ask rule is enforced by Claude Code. It wins over allow rules, over a skill's `allowed-tools` and over a `Bash(terraform *)` you approved once, it prompts in every permission mode (`dontAsk` mode and `claude -p` refuse the call instead of prompting), and it matches past a leading `VAR=value`, `timeout`/`time`/`nice`/`nohup`/`command` and a bare `xargs`, in every part of a `&&`, `;` or `|` chain. Every verb has two rules, `terraform apply *` and `terraform -* apply *`, so flags before the verb are covered too: `terraform -chdir=infra apply`, `kubectl --context prod -n x delete pod y`, `helm --kube-context prod upgrade r c`. A verb of two words (`helm get values`, `kubectl rollout restart`, `kubectl config use-context`) also matches with flags between its words (`helm get -n x values r`); Terraform takes no flags there. `az` has its verb after a group path, so `az * delete *` covers `az group delete`, `az aks nodepool delete` and the rest.
+
+| Tool | Asks before it changes something | Asks before it prints secrets or tokens |
+|---|---|---|
+| `terraform` | `apply`, `destroy`, `refresh`, `import`, `taint`, `untaint`, `force-unlock`, `state rm`/`mv`/`push`, `workspace new`/`select`/`delete` | `state pull`, `output -json`/`-raw`, `show -json` |
+| `kubectl` | `apply`, `create`, `delete`, `replace`, `edit`, `patch`, `scale`, `autoscale`, `set`, `label`, `annotate`, `taint`, `cordon`, `uncordon`, `drain`, `expose`, `run`, `rollout restart`/`undo`/`pause`/`resume`, `exec`, `cp`, `debug`, `port-forward`, `config use-context`/`set*`/`unset`/`delete-*`/`rename-context` | `get` with `secret` anywhere in the command, `config view --raw` or `--flatten` |
+| `helm` | `install`, `upgrade`, `uninstall`, `delete`, `rollback`, `push`, `plugin install`/`update` | `get values`/`manifest`/`hooks`/`all` |
+| `az` | `create`, `delete`, `update`, `set`, `add`, `remove`, `reset`, `start`, `stop`, `restart`, `deallocate`, `scale`, `upgrade` (the CLI's own too), `purge`, `recover`, `restore`, `import`, `move`, `assign`, `invoke`, `run`, `deploy`, `pipelines build queue`, `create-for-rbac`, `get-credentials`, `update-credentials`, `rotate-certs`, `enable-addons`, `disable-addons`, `delete-machines`, `set-policy`, `delete-policy`, `login`, `rest` | `keyvault secret show`, `keyvault secret download`, `account get-access-token`, `list-keys`, `keys list`, `credential show`, `appsettings list`, `acr login --expose-token` |
+
+Every rule asks and none denies: you run each of these commands yourself, and a deny would also block them when you ask Claude for exactly that action. To turn one into a hard block, copy its rule into `permissions.deny` in your own settings. Merge (union for `ask`, existing entries first):
+
+```bash
+f=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json
+src=$(mktemp) && out=$(mktemp) &&
+  curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/settings/cloud-guardrails.json -o "$src" &&
+  mkdir -p "$(dirname "$f")" && touch "$f" &&
+  jq -s --slurpfile g "$src" '(.[0] // {}) | (.permissions.ask // []) as $a
+    | .permissions.ask = $a + ($g[0].permissions.ask | map(select(. as $x | $a | index($x) | not)))' \
+    "$f" > "$out" && cat "$out" > "$f" || echo "error: $f not merged" >&2
+rm -f "$src" "$out"
+```
+
+It has the same guarantees and the same Windows note as the snippet above. To drop a rule you find too noisy, delete it from `~/.claude/settings.json` (or in `/permissions`); a later merge adds it back.
+
+**Overlap with `permissions.json`.** An ask rule wins over an allow rule, so if you merged the [read-only list](#permissions-baseline-opt-in-manual) too, these four of its allow rules now ask for the forms that print secrets, and nothing else changes (`tests/test_settings.py` checks that no other allow rule is touched):
+
+| Allow rule | Now asks for | Still runs unprompted |
+|---|---|---|
+| `kubectl get *` | a `kubectl get` with `secret` in it: `secret`, `secrets`, `cm,secret`, `--raw /api/v1/…/secrets`, and a name such as `secretproviderclass` | `kubectl get pods`; `kubectl describe secret` (names and sizes, no values) also stays allowed, by its own rule `kubectl describe *` |
+| `helm get *` | `helm get values`, `manifest`, `hooks`, `all` (also `helm get -n x values r`) | `helm get notes`, `helm get metadata` |
+| `terraform output *` | `terraform output -json`, `-raw` | `terraform output` (the list redacts sensitive values), `terraform output <name>` (a named output can print a sensitive value; no rule can tell its name from an ordinary one) |
+| `terraform show *` | `terraform show -json` | `terraform show`, `terraform show <plan>` |
+
+**A backstop, not a sandbox.** Claude Code matches a rule against the command text as written, so these spellings get past it: a quoted or escaped verb (`kubectl 'delete'`), `bash -c '…'`, `sh -c`, `eval`, `xargs` with flags (`xargs -n1 kubectl delete`; a bare `xargs` is matched), a verb that comes from the environment or a default value (`terraform $VERB`, `${V:-apply}`), an alias or shell function, a path-qualified or `.exe` tool (`./terraform apply`, `/usr/bin/kubectl delete`, `terraform.exe apply`), a wrapper that Claude Code does not strip (`sudo`, `env`, `watch`), an upper-case spelling in Bash (`kubectl get Secret`) and a tool that is not listed (`tofu`, `argocd`, `flux`). A verb that is not in the table is not asked about either: the lists are a sample, and `az` alone has far more verbs than any list here. Known gaps are `terraform test`, `terraform init -migrate-state`, `terraform state replace-provider`, `helm test`, `kubectl attach`, `kubectl proxy`, `kubectl auth reconcile`, `kubectl certificate approve` and az forms that print secrets, such as `storage account show-connection-string`, `storage account generate-sas` and `webapp deployment list-publishing-profiles`. A few of these Claude Code may ask about anyway (in 2.1.292 a plain `v=apply; terraform $v` was resolved and asked, which its documentation does not promise), but no rule here makes it. A `--dry-run` does not exempt a command.
+
+**False positives** are the price of rules that stay readable: a rule matches words, not meaning. `kubectl get` asks for a name that merely contains `secret`, and `az * set *` for a resource that is literally called `set`. With flags before the verb, any later word that is a verb counts: `kubectl --context prod auth can-i create pods`, `kubectl -n x logs deploy/web -c debug` and `helm -n x diff upgrade r c` ask. Claude Code also matches each rule against the whole command line (the Bash tool, 2.1.292), so a leading wildcard reaches past a pipe or `&&`: `kubectl get pods -A | grep -i secret` and `az account show && npm run build` ask too. `tests/test_settings.py` pins each of these. For a limit that holds, give the identity Claude works with a read-only role in Azure and Kubernetes.
+
 ## Plugins
 
 See [SKILLS.md](SKILLS.md) for the full catalog of every skill, command and agent (regenerated on each sync).

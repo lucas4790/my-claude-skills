@@ -13,6 +13,8 @@ Edit freely; these are defaults, not rules from the repo.
   or `az … create/delete/update` unless I ask for that exact action. Show the command and the target
   (kube context, namespace, subscription, workspace) first.
 - Never print or copy secrets (Key Vault values, kubeconfig tokens, `.tfvars`, `.env`) into chat or files.
+- If a permission rule or prompt blocks a cloud command (terraform, kubectl, helm, az), stop and ask me; do not reword it
+  (`bash -c`, quotes, variables, `xargs`, another tool) to get past the rule.
 
 ## Bash
 - `#!/usr/bin/env bash` + `set -euo pipefail`; quote every expansion; prefer `[[ ]]`, `$(…)`, arrays for argument lists.
