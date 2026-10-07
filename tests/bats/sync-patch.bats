@@ -229,3 +229,82 @@ expected_msg() { printf 'error: patches/fake.patch no longer applies to fake-pat
   cmp "$R/plugins/plain/skills/other/SKILL.md" "$T/up/up-b/skills/other/SKILL.md"
   assert_eq "$(lock_sha fake-plain)" "$B1" "lock sha"
 }
+
+@test "patch: a file the patch creates at an excluded path is rebuilt on every sync" {
+  sync_and_commit
+  assert_file_content "$M/new.txt" "added by the patch"
+  # upstream has no new.txt, but the entry excludes it: the leftover goes before the patch creates it again
+  jq_edit "$R/sources.json" '(.sources[] | select(.name == "fake-multi") | .copy[0].exclude) = ["new.txt"]'
+  run_sync --only fake-multi
+  assert_status 0
+  assert_line "    patch patches/multi.patch"
+  assert_file_content "$M/new.txt" "added by the patch"
+  index_matches_head
+  commit_root "exclude new.txt"
+  run_sync --only fake-multi
+  assert_status 0
+  worktree_clean
+}
+
+# pv_stamp: the version of the patched plugin's manifest
+pv_stamp() { jq -r .version "$R/plugins/pv/.claude-plugin/plugin.json"; }
+
+@test "patch: the version is stamped after the patches, so a patch to the manifest next to its version line applies" {
+  new_upstream up-p
+  put "$T/up/up-p/plugins/pv/.claude-plugin/plugin.json" $'{\n  "name": "pv",\n  "version": "2.0.0",\n  "description": "Plugin pv",\n  "skills": ["./skills/"]\n}\n'
+  put "$T/up/up-p/plugins/pv/skills/p/SKILL.md" $'---\nname: p\ndescription: Skill p. Use when testing patches.\n---\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\n'
+  commit_upstream up-p P1 >/dev/null
+  add_source fake-pv up-p low
+  add_copy fake-pv plugins/pv plugins/pv
+  run_sync --only fake-pv
+  assert_status 0
+  commit_root "vendor pure upstream, stamped"
+  unpatched=$(pv_stamp)
+  [[ "$unpatched" =~ ^2\.0\.0\+[0-9a-f]{7}$ ]] || { echo "unexpected stamp: $unpatched"; return 1; }
+
+  # the patch is made against upstream's version value (the stamp comes after the patches): put it back
+  # in the manifest before editing next to it
+  cp "$T/up/up-p/plugins/pv/.claude-plugin/plugin.json" "$R/plugins/pv/.claude-plugin/plugin.json"
+  git -C "$R" add -A plugins/pv
+  sed_file 's/^  "description": "Plugin pv",$/  "description": "Plugin pv, patched",/' "$R/plugins/pv/.claude-plugin/plugin.json"
+  sed_file 's/^line 7$/line 7 PATCHED by us/' "$R/plugins/pv/skills/p/SKILL.md"
+  git -C "$R" diff -- plugins/pv > "$R/patches/pv.patch"
+  git -C "$R" reset -q -- plugins/pv
+  git -C "$R" checkout -q -- plugins/pv
+  set_patch fake-pv plugins/pv patches/pv.patch
+  commit_root "add patch"
+
+  run_sync --only fake-pv
+  assert_status 0
+  assert_line "    patch patches/pv.patch"
+  assert_eq "$(jq -r .description "$R/plugins/pv/.claude-plugin/plugin.json")" "Plugin pv, patched" "patched description"
+  grep -qx 'line 7 PATCHED by us' "$R/plugins/pv/skills/p/SKILL.md"
+  patched=$(pv_stamp)
+  [[ "$patched" =~ ^2\.0\.0\+[0-9a-f]{7}$ ]] || { echo "unexpected stamp: $patched"; return 1; }
+  [ "$patched" != "$unpatched" ] || { echo "the stamp ignores the patch: $patched"; return 1; }
+  index_matches_head
+  commit_root "patched"
+
+  # and it stays stable, also when the 3-way fallback runs (line 4 is in the hunk's context)
+  run_sync --only fake-pv
+  assert_status 0
+  worktree_clean
+  put "$T/up/up-p/plugins/pv/skills/p/SKILL.md" $'---\nname: p\ndescription: Skill p. Use when testing patches.\n---\nline 1\nline 2\nline 3\nline 4 changed upstream\nline 5\nline 6\nline 7\nline 8\n'
+  commit_upstream up-p P2 >/dev/null
+  run_sync --only fake-pv
+  assert_status 0
+  assert_line "    patch patches/pv.patch (3-way merge)"
+  [ "$(pv_stamp)" != "$patched" ] || { echo "stamp did not follow the new upstream content: $patched"; return 1; }
+  grep -qx 'line 4 changed upstream' "$R/plugins/pv/skills/p/SKILL.md"
+  grep -qx 'line 7 PATCHED by us' "$R/plugins/pv/skills/p/SKILL.md"
+  index_matches_head
+  commit_root "sync P2"
+  run_sync --only fake-pv
+  assert_status 0
+  worktree_clean
+
+  # --locked rebuilds the same bytes
+  run_sync --locked --only fake-pv
+  assert_status 0
+  worktree_clean
+}

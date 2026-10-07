@@ -57,7 +57,7 @@ setup() {
   assert_file_content "$R/plugins/fake/skills/demo/deep/sub/ignored.txt" "same name, deeper: not excluded"
 }
 
-@test "sync: files deleted upstream and local additions are removed (rsync --delete)" {
+@test "sync: files deleted upstream, local additions and leftovers at excluded paths are removed" {
   run_sync
   assert_status 0
   commit_root "vendor"
@@ -70,8 +70,92 @@ setup() {
   assert_status 0
   assert_not_exists "$R/plugins/fake/skills/demo/sub/keep.txt"
   assert_not_exists "$R/plugins/fake/skills/demo/local-edit.md"
-  # rsync never deletes excluded paths on the receiving side (no --delete-excluded)
-  assert_file_content "$R/plugins/fake/skills/demo/sub/ignored.txt" "local file at an excluded path"
+  # an excluded path is not vendored, so what an earlier sync left there goes too (--delete-excluded)
+  assert_not_exists "$R/plugins/fake/skills/demo/sub/ignored.txt"
+  assert_file_content "$R/plugins/fake/skills/demo/deep/sub/ignored.txt" "same name, deeper: not excluded"
+}
+
+@test "sync: a newly excluded folder is removed with everything in it; repo-owned files outside the copy's to stay" {
+  run_sync
+  assert_status 0
+  put "$R/plugins/fake/.claude-plugin/plugin.json" '{"name": "fake"}'   # next to, not inside, the vendored folder
+  put "$R/plugins/fake/skills/owned.md" "repo-owned, a sibling of the vendored skill folder"
+  commit_root "vendor"
+  assert_exists "$R/plugins/fake/skills/demo/sub/keep.txt"
+
+  # the entry now excludes the whole sub/ folder that the first sync vendored
+  jq_edit "$R/sources.json" '.sources[0].copy[0].exclude = ["sub"]'
+  run_sync --only fake-a
+  assert_status 0
+  assert_not_exists "$R/plugins/fake/skills/demo/sub"
+  assert_file_content "$R/plugins/fake/skills/demo/deep/sub/ignored.txt" "same name, deeper: not excluded"
+  assert_exists "$R/plugins/fake/skills/demo/SKILL.md"
+  assert_file_content "$R/plugins/fake/.claude-plugin/plugin.json" '{"name": "fake"}'
+  assert_file_content "$R/plugins/fake/skills/owned.md" "repo-owned, a sibling of the vendored skill folder"
+  commit_root "exclude sub"
+
+  # dropping the exclude brings the folder back from upstream
+  jq_edit "$R/sources.json" '.sources[0].copy[0].exclude = ["sub/ignored.txt"]'
+  run_sync --only fake-a
+  assert_status 0
+  assert_file_content "$R/plugins/fake/skills/demo/sub/keep.txt" "keep"
+  assert_not_exists "$R/plugins/fake/skills/demo/sub/ignored.txt"
+}
+
+@test "sync: a folder copy whose to is not a clean path below the repo root fails the source with a reason and deletes nothing" {
+  run_sync
+  assert_status 0
+  commit_root "vendor"
+  add_copy fake-a skills/demo ""
+  run_sync --only fake-a
+  assert_status 1
+  assert_line "error: fake-a: cannot copy skills/demo to \"\": a folder copy needs a clean path below the repo root (no empty, . or .. part)"
+  assert_line "==> FAILED sources: fake-a"
+  assert_exists "$R/scripts/sync.sh"
+  assert_exists "$R/sources.json"
+  assert_exists "$R/.claude-plugin/marketplace.json"
+  worktree_clean plugins scripts
+
+  # these spellings of a folder below the root worked once, but --delete-excluded makes a to that is
+  # not clean too risky to guess at: the message says why
+  local to
+  for to in "plugins/../.." "./plugins/fake/skills/demo" "plugins//fake/skills/demo" "plugins/fake/./skills/demo"; do
+    jq_edit "$R/sources.json" --arg to "$to" '.sources[0].copy[-1].to = $to'
+    run_sync --only fake-a
+    assert_status 1
+    assert_line "error: fake-a: cannot copy skills/demo to \"$to\": a folder copy needs a clean path below the repo root (no empty, . or .. part)"
+    assert_exists "$T/up/up-a/LICENSE"
+    assert_exists "$R/scripts/sync.sh"
+    worktree_clean plugins scripts
+  done
+
+  # a trailing slash is fine
+  jq_edit "$R/sources.json" '.sources[0].copy[-1].to = "plugins/fake/skills/demo/"'
+  run_sync --only fake-a
+  assert_status 0
+  assert_exists "$R/plugins/fake/skills/demo/SKILL.md"
+}
+
+@test "sync: an exclude removes what the repo keeps at that path; an entry nested in another's to survives when it comes after" {
+  # outer: all of skills/demo into plugins/nest/outer, sub/ and LOCAL.md excluded; inner: sub/ again, into
+  # plugins/nest/outer/sub, listed after it
+  jq_edit "$R/sources.json" '.sources[0].copy = [
+      {from: "skills/demo", to: "plugins/nest/outer", exclude: ["sub", "LOCAL.md"]},
+      {from: "skills/demo/sub", to: "plugins/nest/outer/sub"}]'
+  put "$R/plugins/nest/outer/LOCAL.md" "repo-owned, but at an excluded path"
+  commit_root "nested entries"
+  run_sync --only fake-a
+  assert_status 0
+  assert_not_exists "$R/plugins/nest/outer/LOCAL.md"
+  assert_file_content "$R/plugins/nest/outer/sub/keep.txt" "keep"
+  assert_file_content "$R/plugins/nest/outer/SKILL.md" $'---\nname: demo\ndescription: Demo skill. Use when testing sync.\n---\nbody v1\n'
+  commit_root "vendor"
+
+  # the second run: the outer entry deletes the excluded sub/ the first run vendored, the inner one brings it back
+  run_sync --only fake-a
+  assert_status 0
+  assert_file_content "$R/plugins/nest/outer/sub/keep.txt" "keep"
+  worktree_clean plugins
 }
 
 @test "sync: --only NAME syncs one source and keeps the other lock entries" {
@@ -397,4 +481,546 @@ add_stale_lock_entry() {
   assert_status 1
   assert_line "error: rsync required"
   assert_not_exists "$R/UPSTREAM.lock.json"
+}
+
+# --- symlinks ---------------------------------------------------------------------------------------
+
+@test "sync: a symlink in a folder copy fails the source with its target named; nothing is copied or committed" {
+  put "$T/secret.txt" "SECRET outside every plugin"
+  ln -s SKILL.md "$T/up/up-a/skills/demo/inside-link.md"                  # resolves inside the plugin
+  ln -s "$T/secret.txt" "$T/up/up-a/skills/demo/sub/abs-link.txt"         # absolute, outside it
+  ln -s ../../../../../../secret.txt "$T/up/up-a/skills/demo/rel-link.txt" # relative, outside it
+  ln -s sub "$T/up/up-a/skills/demo/dir-link"                             # to a folder
+  ln -s nowhere "$T/up/up-a/skills/demo/dangling-link"                    # to nothing
+  A2=$(commit_upstream up-a A2)
+  put "$T/up/up-b/NOTICE" "notice b, version 2"
+  B2=$(commit_upstream up-b B2)
+
+  run_sync
+  assert_status 1
+  assert_line "error: fake-a: skills/demo/inside-link.md is a symlink (-> SKILL.md); vendored content holds none: add \"inside-link.md\" to that copy entry's \"exclude\" (see SECURITY.md)"
+  assert_line "error: fake-a: skills/demo/rel-link.txt is a symlink (-> ../../../../../../secret.txt); vendored content holds none: add \"rel-link.txt\" to that copy entry's \"exclude\" (see SECURITY.md)"
+  assert_line "error: fake-a: skills/demo/sub/abs-link.txt is a symlink (-> $T/secret.txt); vendored content holds none: add \"sub/abs-link.txt\" to that copy entry's \"exclude\" (see SECURITY.md)"
+  assert_line "error: fake-a: skills/demo/dir-link is a symlink (-> sub); vendored content holds none: add \"dir-link\" to that copy entry's \"exclude\" (see SECURITY.md)"
+  assert_line "error: fake-a: skills/demo/dangling-link is a symlink (-> nowhere); vendored content holds none: add \"dangling-link\" to that copy entry's \"exclude\" (see SECURITY.md)"
+  assert_line "==> FAILED sources: fake-a"
+  refute_output_contains "    skills/demo -> plugins/fake/skills/demo"
+  # fake-a was never committed: no file or link of it is left; its lock entry was never written
+  assert_eq "$(find "$R/plugins/fake" \( -type f -o -type l \) 2>/dev/null | wc -l | tr -d ' ')" "0" "files and links left under plugins/fake"
+  assert_eq "$(lock_sha fake-a)" "" "fake-a lock sha"
+  # the other source still synced
+  assert_file_content "$R/plugins/other/NOTICE" "notice b, version 2"
+  assert_eq "$(lock_sha fake-b)" "$B2" "fake-b lock sha"
+}
+
+@test "sync: at most 10 symlinks are listed, then a count" {
+  local n
+  for n in 1 2 3 4 5 6 7 8 9 10 11 12; do ln -s SKILL.md "$T/up/up-a/skills/demo/link-$n"; done
+  commit_upstream up-a A2 >/dev/null
+  run_sync --only fake-a
+  assert_status 1
+  assert_line "error: fake-a: skills/demo/link-1 is a symlink (-> SKILL.md); vendored content holds none: add \"link-1\" to that copy entry's \"exclude\" (see SECURITY.md)"
+  # sorted as strings: link-1, link-10 ... link-12, link-2 ... link-7 are the first 10
+  assert_line "error: fake-a: skills/demo/link-7 is a symlink (-> SKILL.md); vendored content holds none: add \"link-7\" to that copy entry's \"exclude\" (see SECURITY.md)"
+  refute_output_contains "skills/demo/link-8 is a symlink"
+  assert_line "error: fake-a: plus 2 more symlinks under skills/demo"
+}
+
+@test "sync: excluding the symlink's path lets the source sync again" {
+  ln -s SKILL.md "$T/up/up-a/skills/demo/sub/link.md"
+  commit_upstream up-a A2 >/dev/null
+  run_sync --only fake-a
+  assert_status 1
+
+  jq_edit "$R/sources.json" '.sources[0].copy[0].exclude += ["sub/link.md"]'
+  run_sync --only fake-a
+  assert_status 0
+  assert_not_exists "$R/plugins/fake/skills/demo/sub/link.md"
+  [ ! -L "$R/plugins/fake/skills/demo/sub/link.md" ]
+  assert_file_content "$R/plugins/fake/skills/demo/sub/keep.txt" "keep"
+}
+
+@test "sync: a single file whose from is a symlink fails the source and is not followed" {
+  put "$T/secret.txt" "SECRET outside every plugin"
+  rm "$T/up/up-a/LICENSE"
+  ln -s "$T/secret.txt" "$T/up/up-a/LICENSE"
+  commit_upstream up-a A2 >/dev/null
+
+  run_sync --only fake-a
+  assert_status 1
+  assert_line "error: fake-a: LICENSE is a symlink (-> $T/secret.txt); vendored content holds none: point \"from\" at what it names (see SECURITY.md)"
+  assert_line "==> FAILED sources: fake-a"
+  refute grep -rqF SECRET "$R/plugins"
+  assert_not_exists "$R/plugins/fake/LICENSE"
+}
+
+@test "sync: a folder whose from is a symlink fails the source; a dangling one too" {
+  mkdir "$T/outside"
+  put "$T/outside/secret.txt" "SECRET outside every plugin"
+  rm -r "$T/up/up-a/skills/demo"
+  ln -s "$T/outside" "$T/up/up-a/skills/demo"
+  commit_upstream up-a A2 >/dev/null
+  run_sync --only fake-a
+  assert_status 1
+  assert_line "error: fake-a: skills/demo is a symlink (-> $T/outside); vendored content holds none: point \"from\" at what it names (see SECURITY.md)"
+  refute grep -rqF SECRET "$R/plugins"
+  assert_not_exists "$R/plugins/fake"
+
+  rm "$T/up/up-a/skills/demo"
+  ln -s "$T/nowhere" "$T/up/up-a/skills/demo"
+  commit_upstream up-a A3 >/dev/null
+  run_sync --only fake-a
+  assert_status 1
+  assert_line "error: fake-a: skills/demo is a symlink (-> $T/nowhere); vendored content holds none: point \"from\" at what it names (see SECURITY.md)"
+  refute_output_contains "not found in fake-a"
+}
+
+# A link below a from that another entry checks out (and excludes): a trailing slash on from, or a link in
+# the middle of it, hides the link from a test of the last path component alone, and rsync follows it.
+@test "sync: a from that is a symlink behind a trailing slash fails the source and is not followed" {
+  mkdir "$T/outside"
+  put "$T/outside/secret.txt" "SECRET outside every plugin"
+  rm -r "$T/up/up-a/skills/demo"
+  put "$T/up/up-a/skills/other/o.txt" "o"
+  ln -s "$T/outside" "$T/up/up-a/skills/demo"
+  commit_upstream up-a A2 >/dev/null
+  jq_edit "$R/sources.json" '.sources[0].copy = [
+      {from: "skills", to: "plugins/fake/skills", exclude: ["demo"]},
+      {from: "skills/demo/", to: "plugins/fake/elsewhere"}]'
+  run_sync --only fake-a
+  assert_status 1
+  assert_line "error: fake-a: skills/demo is a symlink (-> $T/outside); vendored content holds none: point \"from\" at what it names (see SECURITY.md)"
+  refute grep -rqF SECRET "$R/plugins"
+  # the first entry was written and is put back: no file of fake-a is left
+  assert_eq "$(find "$R/plugins/fake" \( -type f -o -type l \) | wc -l | tr -d ' ')" "0" "files and links left under plugins/fake"
+}
+
+@test "sync: a from that passes through a symlink fails the source and is not followed; a dangling one too" {
+  mkdir -p "$T/outside/sub"
+  put "$T/outside/sub/secret.txt" "SECRET outside every plugin"
+  rm -r "$T/up/up-a/skills/demo"
+  put "$T/up/up-a/skills/other/o.txt" "o"
+  ln -s "$T/outside" "$T/up/up-a/skills/lnk"
+  commit_upstream up-a A2 >/dev/null
+  jq_edit "$R/sources.json" '.sources[0].copy = [
+      {from: "skills", to: "plugins/fake/skills", exclude: ["lnk"]},
+      {from: "skills/lnk/sub", to: "plugins/fake/elsewhere"}]'
+  run_sync --only fake-a
+  assert_status 1
+  assert_line "error: fake-a: skills/lnk is a symlink (-> $T/outside); vendored content holds none: point \"from\" at what it names (see SECURITY.md)"
+  refute grep -rqF SECRET "$R/plugins"
+  assert_eq "$(find "$R/plugins/fake" \( -type f -o -type l \) | wc -l | tr -d ' ')" "0" "files and links left under plugins/fake"
+
+  rm "$T/up/up-a/skills/lnk"
+  ln -s "$T/nowhere" "$T/up/up-a/skills/lnk"
+  commit_upstream up-a A3 >/dev/null
+  run_sync --only fake-a
+  assert_status 1
+  assert_line "error: fake-a: skills/lnk is a symlink (-> $T/nowhere); vendored content holds none: point \"from\" at what it names (see SECURITY.md)"
+  refute_output_contains "not found in fake-a"
+}
+
+@test "sync: control characters in a symlink's name or target never reach the log" {
+  local esc c1
+  esc=$(printf '\033') c1=$(printf '\302\233')
+  ln -s "tgt${esc}[31m-red${c1}" "$T/up/up-a/skills/demo/evil${esc}[2J${c1}name"
+  commit_upstream up-a A2 >/dev/null
+  run_sync --only fake-a
+  assert_status 1
+  refute grep -q "$esc" <<<"$output"
+  refute grep -q "$c1" <<<"$output"
+  assert_line "error: fake-a: skills/demo/evil[2Jname is a symlink (-> tgt[31m-red); vendored content holds none: add \"evil[2Jname\" to that copy entry's \"exclude\" (see SECURITY.md)"
+
+  # the same for a from that is a link
+  rm "$T/up/up-a/skills/demo/evil${esc}[2J${c1}name" "$T/up/up-a/LICENSE"
+  ln -s "${esc}[31mto-here" "$T/up/up-a/LICENSE"
+  commit_upstream up-a A3 >/dev/null
+  run_sync --only fake-a
+  assert_status 1
+  refute grep -q "$esc" <<<"$output"
+  assert_line "error: fake-a: LICENSE is a symlink (-> [31mto-here); vendored content holds none: point \"from\" at what it names (see SECURITY.md)"
+}
+
+@test "sync: a symlink whose name holds a newline is one error line, not several" {
+  ln -s x "$T/up/up-a/skills/demo/$(printf 'a\nerror: fake-a: forged')"
+  commit_upstream up-a A2 >/dev/null
+  run_sync --only fake-a
+  assert_status 1
+  assert_eq "$(grep -c 'is a symlink' <<<"$output")" "1" "lines naming a symlink"
+  assert_line "error: fake-a: skills/demo/aerror: fake-a: forged is a symlink (-> x); vendored content holds none: add \"aerror: fake-a: forged\" to that copy entry's \"exclude\" (see SECURITY.md)"
+  refute grep -q '^error: fake-a: forged' <<<"$output"
+}
+
+@test "sync: a failed symlink check puts the last commit's files back" {
+  run_sync
+  assert_status 0
+  commit_root "vendor"
+  put "$T/up/up-a/skills/demo/SKILL.md" $'---\nname: demo\ndescription: Demo skill. Use when testing sync.\n---\nbody v2, not wanted\n'
+  ln -s SKILL.md "$T/up/up-a/skills/demo/link.md"
+  commit_upstream up-a A2 >/dev/null
+
+  run_sync --only fake-a
+  assert_status 1
+  worktree_clean plugins/fake
+  assert_not_exists "$R/plugins/fake/skills/demo/link.md"
+  assert_eq "$(lock_sha fake-a)" "$A1" "fake-a lock sha"
+}
+
+# --- stamped versions ---------------------------------------------------------------------------------
+
+# manifest NAME VERSION: a plugin manifest as upstream writes it: indented, an inline array, and a nested
+# "version" key with a string before the real one (the stamp must change only the top-level key);
+# VERSION "" leaves the top-level key out
+manifest() {
+  local v=""
+  [ -z "$2" ] || v=$(printf '  "version": "%s",\n' "$2")
+  printf '{\n  "name": "%s",\n  "metadata": {"version": "1.2.3"},\n%s  "description": "Plugin %s",\n  "skills": ["./skills/"]\n}\n' \
+    "$1" "$v" "$1"
+}
+
+# pinned_upstream: up-v holds plugins/pinned (pinned 1.2.3; manifests for Claude Code, Copilot and Codex),
+# plugins/still (pinned 0.5.0+build.7, never changes) and plugins/free (no version), vendored whole
+# by the source fake-v
+pinned_upstream() {
+  new_upstream up-v
+  local d="$T/up/up-v/plugins" s
+  for s in pinned still; do
+    put "$d/$s/skills/s/SKILL.md" $'---\nname: s\ndescription: Skill s. Use when testing stamps.\n---\nbody v1\n'
+  done
+  put "$d/free/skills/s/SKILL.md" $'---\nname: s\ndescription: Skill s. Use when testing stamps.\n---\nbody v1\n'
+  put "$d/pinned/.claude-plugin/plugin.json" "$(manifest pinned 1.2.3)"
+  put "$d/pinned/plugin.json" "$(manifest pinned 1.2.3)"
+  put "$d/pinned/.codex-plugin/plugin.json" "$(manifest pinned 1.2.3)"
+  put "$d/still/.claude-plugin/plugin.json" "$(manifest still 0.5.0+build.7)"
+  put "$d/free/.claude-plugin/plugin.json" "$(manifest free "")"
+  V1=$(commit_upstream up-v V1)
+  add_source fake-v up-v low
+  add_copy fake-v plugins/pinned plugins/pinned
+  add_copy fake-v plugins/still plugins/still
+  add_copy fake-v plugins/free plugins/free
+  commit_root "source fake-v"
+}
+
+# stamp PLUGIN [MANIFEST]: the version string in the plugin's manifest
+stamp() { jq -r .version "$R/plugins/$1/${2:-.claude-plugin/plugin.json}"; }
+
+@test "sync: stamps <version>+<7 hex> into the vendored manifests that carry a version, and only those" {
+  pinned_upstream
+  run_sync --only fake-v
+  assert_status 0
+  v=$(stamp pinned)
+  [[ "$v" =~ ^1\.2\.3\+[0-9a-f]{7}$ ]] || { echo "unexpected stamp: $v"; return 1; }
+  assert_line "    version plugins/pinned/.claude-plugin/plugin.json: 1.2.3 -> $v"
+  assert_line "    version plugins/pinned/plugin.json: 1.2.3 -> $v"
+  assert_line "    version plugins/pinned/.codex-plugin/plugin.json: 1.2.3 -> $v"
+  # Copilot's and Codex's manifests carry the same stamp. Only the version value differs from what
+  # upstream wrote: the layout stays, and so does a nested "version" key
+  assert_eq "$(stamp pinned plugin.json)" "$v" "root plugin.json"
+  assert_eq "$(stamp pinned .codex-plugin/plugin.json)" "$v" "Codex plugin.json"
+  cmp "$R/plugins/pinned/.claude-plugin/plugin.json" <(sed "/^  \"version\"/s/1\.2\.3/$v/" "$T/up/up-v/plugins/pinned/.claude-plugin/plugin.json")
+  assert_eq "$(jq -r .metadata.version "$R/plugins/pinned/plugin.json")" "1.2.3" "nested version key"
+  # existing build metadata is extended, not replaced
+  [[ "$(stamp still)" =~ ^0\.5\.0\+build\.7\.[0-9a-f]{7}$ ]] || { echo "unexpected stamp: $(stamp still)"; return 1; }
+  # no version upstream: the manifest is byte-identical, and no line names it
+  cmp "$R/plugins/free/.claude-plugin/plugin.json" "$T/up/up-v/plugins/free/.claude-plugin/plugin.json"
+  refute_output_contains "plugins/free/.claude-plugin/plugin.json:"
+}
+
+@test "sync: only a plugin whose files changed gets a new stamp; a version bump alone keeps the hash" {
+  pinned_upstream
+  run_sync --only fake-v
+  assert_status 0
+  commit_root "vendor"
+  p1=$(stamp pinned); s1=$(stamp still)
+
+  put "$T/up/up-v/plugins/pinned/skills/s/SKILL.md" $'---\nname: s\ndescription: Skill s. Use when testing stamps.\n---\nbody v2, longer\n'
+  commit_upstream up-v V2 >/dev/null
+  run_sync --only fake-v
+  assert_status 0
+  p2=$(stamp pinned)
+  [ "$p2" != "$p1" ] || { echo "stamp did not change with the content: $p1"; return 1; }
+  assert_eq "${p2%%+*}" "1.2.3" "upstream part of the new stamp"
+  assert_eq "$(stamp pinned plugin.json)" "$p2" "root plugin.json"
+  assert_eq "$(stamp still)" "$s1" "stamp of the plugin that did not change"
+  assert_eq "$(git -C "$R" status --porcelain -- plugins/still plugins/free)" "" "unchanged plugins in git status"
+  commit_root "vendor V2"
+
+  # upstream bumps the version and nothing else: new upstream part, same hash
+  put "$T/up/up-v/plugins/pinned/.claude-plugin/plugin.json" "$(manifest pinned 1.3.0)"
+  put "$T/up/up-v/plugins/pinned/plugin.json" "$(manifest pinned 1.3.0)"
+  put "$T/up/up-v/plugins/pinned/.codex-plugin/plugin.json" "$(manifest pinned 1.3.0)"
+  commit_upstream up-v V3 >/dev/null
+  run_sync --only fake-v
+  assert_status 0
+  assert_eq "$(stamp pinned)" "1.3.0+${p2#*+}" "stamp after a version-only bump"
+}
+
+@test "sync: a mode change alone, or a new file, changes the stamp" {
+  pinned_upstream
+  run_sync --only fake-v
+  assert_status 0
+  commit_root "vendor"
+  p1=$(stamp pinned)
+
+  chmod +x "$T/up/up-v/plugins/pinned/skills/s/SKILL.md"
+  commit_upstream up-v "V2: executable" >/dev/null
+  run_sync --only fake-v
+  assert_status 0
+  p2=$(stamp pinned)
+  [ "$p2" != "$p1" ] || { echo "a mode change left the stamp at $p1"; return 1; }
+  commit_root "vendor V2"
+
+  put "$T/up/up-v/plugins/pinned/skills/s/extra.md" "new file"
+  commit_upstream up-v "V3: new file" >/dev/null
+  run_sync --only fake-v
+  assert_status 0
+  [ "$(stamp pinned)" != "$p2" ] || { echo "a new file left the stamp at $p2"; return 1; }
+}
+
+@test "sync: what the repo's .gitignore ignores does not change the stamp, a rule of this clone's own does not either" {
+  pinned_upstream
+  # two copies of one plugin: the folder holds files outside every copy's "to", which rsync leaves alone
+  add_copy fake-v plugins/pinned/.claude-plugin plugins/mixed/.claude-plugin
+  add_copy fake-v plugins/pinned/skills plugins/mixed/skills
+  commit_root "mixed plugin"
+  run_sync --only fake-v
+  assert_status 0
+  commit_root "vendor"
+  m1=$(stamp mixed)
+
+  put "$R/plugins/mixed/__pycache__/junk.pyc" "ignored by .gitignore"
+  run_sync --only fake-v
+  assert_status 0
+  assert_exists "$R/plugins/mixed/__pycache__/junk.pyc"
+  assert_eq "$(stamp mixed)" "$m1" "stamp with a file the repo's .gitignore ignores"
+
+  # untracked and not ignored counts: CI sees the same file once it is committed. A rule that only this
+  # clone has (.git/info/exclude, or a global ignore file) must not hide it, or a local run and CI differ.
+  put "$R/plugins/mixed/local.dat" "a repo-owned file"
+  run_sync --only fake-v
+  assert_status 0
+  m2=$(stamp mixed)
+  [ "$m2" != "$m1" ] || { echo "a repo-owned file left the stamp at $m1"; return 1; }
+  printf '*.dat\n' >> "$R/.git/info/exclude"
+  run_sync --only fake-v
+  assert_status 0
+  assert_eq "$(stamp mixed)" "$m2" "stamp with a file that only .git/info/exclude ignores"
+}
+
+# The sync's result is uncommitted when the stamp is computed, and committed on the next run: git lists
+# tracked files before untracked ones, so the two runs see the same files in a different order, and the
+# stamp must not care.
+@test "sync: the stamp is the same before and after the sync's own commit (a new file that sorts first, a deleted file)" {
+  pinned_upstream
+  put "$T/up/up-v/plugins/pinned/skills/s/b.md" "b"
+  commit_upstream up-v "V1b: second file" >/dev/null
+  run_sync --only fake-v
+  assert_status 0
+  commit_root "vendor"
+
+  put "$T/up/up-v/plugins/pinned/skills/a-new.md" "new file, sorts before the tracked skills/s/*"
+  commit_upstream up-v "V2: new file" >/dev/null
+  run_sync --only fake-v
+  assert_status 0
+  uncommitted=$(stamp pinned)
+  commit_root "vendor V2"
+  run_sync --only fake-v
+  assert_status 0
+  assert_eq "$(stamp pinned)" "$uncommitted" "stamp after committing a new file"
+  worktree_clean
+
+  rm "$T/up/up-v/plugins/pinned/skills/s/b.md"
+  commit_upstream up-v "V3: drop b.md" >/dev/null
+  run_sync --only fake-v
+  assert_status 0
+  uncommitted=$(stamp pinned)
+  commit_root "vendor V3"
+  run_sync --only fake-v
+  assert_status 0
+  assert_eq "$(stamp pinned)" "$uncommitted" "stamp after committing a deleted file"
+  worktree_clean
+}
+
+@test "sync: two runs and a --locked rebuild leave the same bytes" {
+  pinned_upstream
+  run_sync
+  assert_status 0
+  commit_root "vendor"
+  p1=$(stamp pinned)
+  [[ "$p1" =~ ^1\.2\.3\+[0-9a-f]{7}$ ]] || { echo "unexpected stamp: $p1"; return 1; }
+  run_sync
+  assert_status 0
+  worktree_clean
+  assert_eq "$(stamp pinned)" "$p1" "stamp after the second run"
+
+  put "$T/up/up-v/plugins/pinned/skills/s/SKILL.md" $'---\nname: s\ndescription: Skill s. Use when testing stamps.\n---\nbody v2, longer\n'
+  commit_upstream up-v V2 >/dev/null
+  run_sync --locked
+  assert_status 0
+  worktree_clean
+  assert_eq "$(lock_sha fake-v)" "$V1" "lock sha after --locked"
+
+  # a source that --only or --trust skips keeps its stamped files as they are
+  run_sync --only fake-a
+  assert_status 0
+  worktree_clean
+}
+
+@test "sync: a manifest the repo owns is never stamped, even when it has a version" {
+  pinned_upstream
+  put "$R/plugins/owned/.claude-plugin/plugin.json" "$(manifest owned 9.9.9)"
+  add_copy fake-v plugins/pinned/skills plugins/owned/skills
+  commit_root "repo-owned manifest next to a vendored skills folder"
+  run_sync --only fake-v
+  assert_status 0
+  # the manifests this source vendored are stamped, the one the repo owns is not
+  [[ "$(stamp pinned)" =~ ^1\.2\.3\+[0-9a-f]{7}$ ]]
+  assert_file_content "$R/plugins/owned/.claude-plugin/plugin.json" "$(manifest owned 9.9.9)"
+  refute_output_contains "    version plugins/owned/"
+  assert_exists "$R/plugins/owned/skills/s/SKILL.md"
+}
+
+@test "sync: the stamp covers the whole plugin folder, the files the repo owns in it too" {
+  pinned_upstream
+  # the manifest and the skills are two copies of one plugin, with a repo-owned file between them
+  add_copy fake-v plugins/pinned/.claude-plugin plugins/mixed/.claude-plugin
+  add_copy fake-v plugins/pinned/skills plugins/mixed/skills
+  commit_root "mixed plugin"
+  run_sync --only fake-v
+  assert_status 0
+  m1=$(stamp mixed)
+  [[ "$m1" =~ ^1\.2\.3\+[0-9a-f]{7}$ ]] || { echo "unexpected stamp: $m1"; return 1; }
+  commit_root "vendor"
+
+  put "$R/plugins/mixed/NOTES.md" "repo-owned note"
+  run_sync --only fake-v
+  assert_status 0
+  [ "$(stamp mixed)" != "$m1" ] || { echo "a repo-owned file left the stamp at $m1"; return 1; }
+  assert_file_content "$R/plugins/mixed/NOTES.md" "repo-owned note"
+}
+
+@test "sync: a plugin folder that two sources write to is not stamped; a warning says so" {
+  pinned_upstream
+  new_upstream up-w
+  put "$T/up/up-w/skills/w/SKILL.md" $'---\nname: w\ndescription: Skill w. Use when testing stamps.\n---\nw v1\n'
+  commit_upstream up-w W1 >/dev/null
+  add_source fake-w up-w low
+  add_copy fake-w skills/w plugins/pinned/skills/w
+  run_sync --only fake-v
+  assert_status 0
+  assert_line "warning: fake-v: plugins/pinned also receives files from another source; its version is not stamped"
+  assert_eq "$(stamp pinned)" "1.2.3" "unstamped version"
+  [[ "$(stamp still)" =~ ^0\.5\.0\+build\.7\.[0-9a-f]{7}$ ]]
+}
+
+@test "sync: a vendored manifest that is not a JSON object gets a warning and no stamp; the source still syncs" {
+  pinned_upstream
+  put "$T/up/up-v/plugins/pinned/plugin.json" '{"name": "pinned", "version": "1.2.3",'
+  commit_upstream up-v V2 >/dev/null
+  run_sync --only fake-v
+  assert_status 0
+  assert_line "warning: fake-v: plugins/pinned/plugin.json is not a JSON object; its version is not stamped"
+  assert_eq "$(stamp pinned plugin.json 2>/dev/null)" "" "broken manifest"
+  [[ "$(stamp pinned)" =~ ^1\.2\.3\+[0-9a-f]{7}$ ]]
+  assert_eq "$(lock_sha fake-v)" "$(git -C "$T/up/up-v" rev-parse HEAD)" "lock sha"
+}
+
+@test "sync: a version with newlines or control characters cannot forge log lines" {
+  pinned_upstream
+  # the sync log is read as workflow commands ("::...") and its "error:" lines go into the PR body
+  jq -n --arg v $'1.0\n::add-mask::topsecret\nerror: forged line\n::stop-commands::abc\033[2J' '{name: "pinned", version: $v}' \
+    > "$T/up/up-v/plugins/pinned/plugin.json"
+  commit_upstream up-v V2 >/dev/null
+  run_sync --only fake-v
+  assert_status 0
+  refute grep -q '^::' <<<"$output"
+  refute grep -q '^error:' <<<"$output"
+  refute grep -q "$(printf '\033')" <<<"$output"
+  assert_eq "$(grep -c '^    version plugins/pinned/plugin.json: ' <<<"$output")" "1" "progress lines of that manifest"
+  # the manifest itself keeps upstream's text in front of the stamp
+  [[ "$(jq -r .version "$R/plugins/pinned/plugin.json")" == $'1.0\n::add-mask::topsecret\nerror: forged line\n::stop-commands::abc\033[2J+'* ]]
+}
+
+@test "sync: a manifest whose top-level version cannot be rewritten fails the source and puts its files back" {
+  pinned_upstream
+  run_sync --only fake-v
+  assert_status 0
+  commit_root "vendor"
+  p1=$(stamp pinned)
+
+  # parsed as "version", but written with an escape: there is no literal key to rewrite. The Claude Code
+  # manifest is stamped first and must go back to the committed one with everything else.
+  put "$T/up/up-v/plugins/pinned/plugin.json" $'{"name": "pinned", "vers\\u0069on": "1.2.3"}'
+  put "$T/up/up-v/plugins/pinned/skills/s/SKILL.md" $'---\nname: s\ndescription: Skill s. Use when testing stamps.\n---\nbody v2, longer\n'
+  commit_upstream up-v V2 >/dev/null
+  run_sync --only fake-v
+  assert_status 1
+  assert_line "error: fake-v: cannot rewrite the version in plugins/pinned/plugin.json"
+  assert_line "==> FAILED sources: fake-v"
+  worktree_clean plugins
+  assert_eq "$(stamp pinned)" "$p1" "stamp after the failed sync"
+  assert_eq "$(lock_sha fake-v)" "$V1" "lock sha"
+}
+
+@test "sync: a failing git ls-files fails the source instead of stamping from a partial list" {
+  pinned_upstream
+  mkdir "$T/shim"
+  printf '#!/bin/sh\ncase " $* " in *" ls-files -z "*) exit 128 ;; esac\nexec "%s" "$@"\n' "$(command -v git)" > "$T/shim/git"
+  chmod +x "$T/shim/git"
+  PATH="$T/shim:$PATH" run_sync --only fake-v
+  assert_status 1
+  assert_line "error: fake-v: git ls-files failed under plugins/pinned; cannot stamp its version"
+  assert_line "==> FAILED sources: fake-v"
+  assert_not_exists "$R/plugins/pinned"
+}
+
+@test "sync: a manifest nested too deep to parse gets a warning and no stamp; the source still syncs" {
+  pinned_upstream
+  local deep
+  deep=$(python3 -c 'print("[" * 100000 + "]" * 100000)')
+  put "$T/up/up-v/plugins/pinned/plugin.json" "{\"name\": \"pinned\", \"version\": \"1.2.3\", \"x\": $deep}"
+  commit_upstream up-v V2 >/dev/null
+  run_sync --only fake-v
+  assert_status 0
+  assert_line "warning: fake-v: plugins/pinned/plugin.json is not a JSON object; its version is not stamped"
+  cmp "$R/plugins/pinned/plugin.json" "$T/up/up-v/plugins/pinned/plugin.json"
+  [[ "$(stamp pinned)" =~ ^1\.2\.3\+[0-9a-f]{7}$ ]]
+  assert_eq "$(lock_sha fake-v)" "$(git -C "$T/up/up-v" rev-parse HEAD)" "lock sha"
+}
+
+@test "sync: thousands of nested version keys before the real one do not stall the stamp" {
+  pinned_upstream
+  python3 - "$T/up/up-v/plugins/pinned/plugin.json" <<'PY'
+import sys
+decoys = ", ".join('{"version": "1"}' for _ in range(20000))
+with open(sys.argv[1], "w") as f:
+    f.write('{"name": "pinned", "x": [%s], "version": "1.2.3"}\n' % decoys)
+PY
+  commit_upstream up-v V2 >/dev/null
+  local t0=$SECONDS
+  run_sync --only fake-v
+  assert_status 0
+  [ $((SECONDS - t0)) -lt 20 ] || { echo "the sync took $((SECONDS - t0)) s"; return 1; }
+  [[ "$(stamp pinned plugin.json)" =~ ^1\.2\.3\+[0-9a-f]{7}$ ]]
+  assert_eq "$(jq -r '.x[0].version' "$R/plugins/pinned/plugin.json")" "1" "a nested version key"
+}
+
+@test "sync: a manifest that repeats its version key has the one that counts (the last) stamped" {
+  pinned_upstream
+  put "$T/up/up-v/plugins/pinned/plugin.json" '{"name": "pinned", "version": "0.0.1", "version": "1.2.3"}'
+  commit_upstream up-v V2 >/dev/null
+  run_sync --only fake-v
+  assert_status 0
+  [[ "$(stamp pinned plugin.json)" =~ ^1\.2\.3\+[0-9a-f]{7}$ ]]
+  grep -qF '"version": "0.0.1",' "$R/plugins/pinned/plugin.json"
+}
+
+@test "sync: a to that spells its path with ./ or // still gets its manifest stamped" {
+  pinned_upstream
+  add_copy fake-v plugins/pinned/.claude-plugin/plugin.json ./plugins/solo//.claude-plugin/plugin.json
+  add_copy fake-v plugins/pinned/skills/s/SKILL.md plugins/solo/skills/s/SKILL.md
+  commit_root "two file copies"
+  run_sync --only fake-v
+  assert_status 0
+  [[ "$(stamp solo)" =~ ^1\.2\.3\+[0-9a-f]{7}$ ]] || { echo "unexpected stamp: $(stamp solo)"; return 1; }
 }
