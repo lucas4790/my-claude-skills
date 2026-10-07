@@ -131,12 +131,38 @@ jobs:
           sandboxed bash "$work/scripts/test-skill-examples.sh" 2>&1 | tee "$RUNNER_TEMP/examples.log" \
             || echo "EXAMPLES_FAILED=1" >> "$GITHUB_ENV"
           sudo pkill -KILL -u sandbox || true
+      # The log goes into the PR body: it shows what each pinned plugin's new sha pulls in (compare link,
+      # commit and file counts, manifest version). pipefail keeps a failing script failing the step.
       - if: matrix.trust == 'low'
-        run: scripts/bump-pinned.sh
+        name: Bump pinned plugins
+        run: |
+          set -o pipefail
+          scripts/bump-pinned.sh 2>&1 | tee "$RUNNER_TEMP/bump.log"
       # The pipe deliberately masks validate's exit code (no pipefail): the PR must be opened even on
       # a structural problem; the next step turns any ✗ line into a failed `validate-pr` status.
       - name: Validate (injection hits surface in the PR body)
         run: python3 scripts/validate.py --diff HEAD --warn-only | tee "$RUNNER_TEMP/validate.log"
+      # What this sync changes, for the PR body: per source and plugin, new and removed skills, the description
+      # budget, hook/MCP/LSP registrations. It reads git objects and parses JSON and frontmatter only (nothing from
+      # the synced tree is run or imported), needs no token, and a failure only swaps the digest for a note.
+      - name: Digest of the changes
+        continue-on-error: true
+        run: |
+          digest() { timeout 120 python3 -I scripts/sync-digest.py --base HEAD "$@" > "$RUNNER_TEMP/digest.md" 2> "$RUNNER_TEMP/digest.err"; }
+          guard() { sh tools/attribution-guard/attribution-guard.sh check < "$RUNNER_TEMP/digest.md" >&2; }
+          if ! digest; then
+            echo '_The change digest could not be built; see the "Digest of the changes" step log._' > "$RUNNER_TEMP/digest.md"
+          elif ! guard; then
+            # Upstream text in the digest (a hook command that edits commit messages) can look like attribution and
+            # would turn the PR's attribution-guard status red: list the registrations without their commands, or
+            # leave the digest out when that is not enough.
+            echo "sync-digest: the digest matched the attribution guard; building it without the commands" >&2
+            if ! digest --no-commands || ! guard; then
+              echo '_The change digest was left out: text in it matched the attribution guard; see the "Digest of the changes" step log._' > "$RUNNER_TEMP/digest.md"
+            fi
+          fi
+          cat "$RUNNER_TEMP/digest.err" >&2
+          cat "$RUNNER_TEMP/digest.md"
       - name: Open or update PR
         env:
           GH_TOKEN: ${{ github.token }}
@@ -155,9 +181,25 @@ jobs:
           shas=$(jq -r 'to_entries | map(select(.value.trust=="${{ matrix.trust }}") | "\(.key)@\(.value.sha[0:7])") | join(", ")' UPSTREAM.lock.json)
           # every file: without --untracked-files=all a new directory counts as one line
           changed=$(git status --porcelain --untracked-files=all | wc -l)
-          # validator lines quote upstream text (file names, skill names): drop backticks so it cannot close the fence
-          hits=$(grep -E '^(‼|⚠|✗)' "$RUNNER_TEMP/validate.log" | tr '\140' "'" || true)
+          # Bytes, not characters, from here on: in a UTF-8 locale grep takes a log that holds a file name that is not valid
+          # UTF-8 for binary and drops its lines (the hits with them), and sed cannot cut such a line.
+          export LC_ALL=C
+          # validator lines quote upstream text (file names, skill names): drop backticks so it cannot close the fence,
+          # and shorten a line over 300 bytes in the middle (a path can be that long; the severity and label at its end
+          # stay)
+          hits=$(grep -aE '^(‼|⚠|✗)' "$RUNNER_TEMP/validate.log" | tr '\140' "'" | sed -E 's/^(.{150}).{4,}(.{145})$/\1...\2/' || true)
           [ -n "$hits" ] || hits='validator: no hits in added lines'
+          # a big sync can list hundreds of lines and the PR body may hold 65536 characters in all: show 60 at most, the
+          # ✗ and [high] lines first so that a [low] line never takes the place of one that matters, and say what is cut
+          hit_lines=$(printf '%s\n' "$hits" | wc -l)
+          if [ "$hit_lines" -gt 60 ]; then
+            first=$(grep -E '^(‼|✗)|\[high\]' <<<"$hits" || true)
+            rest=$(grep -vE '^(‼|✗)|\[high\]' <<<"$hits" || true)
+            first_lines=$(grep -c . <<<"$first" || true)
+            cut_note="... $((hit_lines - 60)) more lines not shown"
+            [ "$first_lines" -le 60 ] || cut_note+=", $((first_lines - 60)) of them ✗ or [high]"
+            hits="$(head -n 60 <<<"$(grep . <<<"$first"$'\n'"$rest")")"$'\n'"$cut_note (see the Validate step log)"
+          fi
           # grep -c prints 0 but exits 1 on no match, which `bash -e` would treat as failure;
           # only a real grep error (exit 2) aborts the step.
           high=$(grep -c '\[high\]' "$RUNNER_TEMP/validate.log" || [ $? -eq 1 ])
@@ -172,21 +214,25 @@ jobs:
           # printf -v, not $(...): command substitution would strip the blank line after each section.
           problems='' part=''
           fence=$(printf '\140\140\140')
+          # Each block holds at most 40 lines of 300 characters, so that the problems and the hits together stay well
+          # under the size limit of the PR body (see below) however much a log says.
           if [ "${SYNC_FAILED:-0}" = 1 ]; then
+            err=$(grep -a '^error:' "$RUNNER_TEMP/sync.log" || true)
+            err=$(head -n 40 <<<"$err" | tr '\140' "'" | cut -c1-300)
             printf -v part '### Sync failure\n\nThese sources were not updated (see README, "How syncing works"):\n\n%s\n%s\n%s\n\n' \
-              "$fence" "$(grep '^error:' "$RUNNER_TEMP/sync.log" || echo 'see the sync step log')" "$fence"
+              "$fence" "${err:-see the sync step log}" "$fence"
             problems+=$part
           fi
           if [ "${TESTS_FAILED:-0}" = 1 ]; then
             # Test output quotes the synced content: drop its backticks so it cannot close the fence.
             printf -v part '### Repo tests failed\n\n%s\n%s\n%s\n\n' \
-              "$fence" "$(tail -n 40 "$RUNNER_TEMP/tests.log" | tr '\140' "'")" "$fence"
+              "$fence" "$(tail -n 40 "$RUNNER_TEMP/tests.log" | tr '\140' "'" | cut -c1-300)" "$fence"
             problems+=$part
           fi
           if [ "${EXAMPLES_FAILED:-0}" = 1 ]; then
             # The log is upstream output: drop its backticks so it cannot close the fence.
             printf -v part '### Skill example tests failed\n\n%s\n%s\n%s\n\n' \
-              "$fence" "$(tail -n 40 "$RUNNER_TEMP/examples.log" | tr '\140' "'")" "$fence"
+              "$fence" "$(tail -n 40 "$RUNNER_TEMP/examples.log" | tr '\140' "'" | cut -c1-300)" "$fence"
             problems+=$part
           fi
           # validate.py always ends with a ✓/✗/‼ summary line; without it, it crashed (stderr is not in the log)
@@ -194,7 +240,39 @@ jobs:
             problems+=$'### Validator did not finish\n\n`scripts/validate.py` exited without its summary line; see the "Validate" step log.\n\n'
           fi
           [ -z "$problems" ] || title="$title (sync/test failure)"
-          body=$(printf '%s## %s-trust upstream changes — review before merging\n\n%s files changed. Sources: %s\n\nThe validator scanned only the lines this sync adds. `[high]` = instruction-shaped text, exfiltration channel, credential access, remote code execution or a new hook: read that line in context before merging. `[low]` = worth a glance.\n\n```\n%s\n```\n\nSee SECURITY.md for the review checklist.\n' "$problems" "${{ matrix.trust }}" "$changed" "$shas" "$hits")
+          # What changed (scripts/sync-digest.py: markdown it builds itself, upstream text only in code spans) and,
+          # in the low-trust job, what the pinned-plugin bumps pull in (scripts/bump-pinned.sh). Either may be absent.
+          digest=''
+          if [ -s "$RUNNER_TEMP/digest.md" ]; then
+            digest="$(cat "$RUNNER_TEMP/digest.md")"$'\n\n'
+          fi
+          pinned=''
+          if [ -s "$RUNNER_TEMP/bump.log" ]; then
+            # clone output and manifest text are upstream's: printable ASCII only, no backticks (so it cannot close
+            # the fence), at most 40 lines of 300 characters; unchanged pins are not news
+            lines=$(grep -avE ' unchanged$' "$RUNNER_TEMP/bump.log" | LC_ALL=C tr -cd '\n\040-\176' | tr '\140' "'" | cut -c1-300 || true)
+            total=$(printf '%s\n' "$lines" | grep -c . || true)
+            if [ "$total" -gt 0 ]; then
+              lines=$(printf '%s\n' "$lines" | grep . | head -n 40)
+              [ "$total" -le 40 ] || lines+=$'\n'"... $((total - 40)) more lines not shown (see the Bump pinned plugins step log)"
+              printf -v pinned '### Pinned plugins\n\nWhat the new shas pull in, from a clone of each upstream repository:\n\n%s\n%s\n%s\n\n' "$fence" "$lines" "$fence"
+            fi
+          fi
+          compose_body() {
+            printf '%s## %s-trust upstream changes — review before merging\n\n%s files changed. Sources: %s\n\n%s%sThe validator scanned only the lines this sync adds. `[high]` = instruction-shaped text, exfiltration channel, credential access, remote code execution or a new hook: read that line in context before merging. `[low]` = worth a glance.\n\n```\n%s\n```\n\nSee SECURITY.md ("Reviewing a sync PR") for how to read this and for the review checklist.\n' "$problems" "${{ matrix.trust }}" "$changed" "$shas" "$1" "$2" "$hits"
+          }
+          body=$(compose_body "$digest" "$pinned")
+          # GitHub refuses a body over 65536 characters, and that would stop this step before the PR exists. The problems
+          # (at most 3 x 40 lines of 300 characters) and the hits (at most 60 such lines) stay under 60000 together, so
+          # the pinned block, then the digest, give way: a note says where to read them instead.
+          if [ "${#body}" -gt 60000 ] && [ -n "$pinned" ]; then
+            pinned=$'### Pinned plugins\n\nLeft out, because the PR body would be too long: see the "Bump pinned plugins" step log.\n\n'
+            body=$(compose_body "$digest" "$pinned")
+          fi
+          if [ "${#body}" -gt 60000 ] && [ -n "$digest" ]; then
+            digest=$'### Digest of the changes\n\nLeft out, because the PR body would be too long: see the "Digest of the changes" step log.\n\n'
+            body=$(compose_body "$digest" "$pinned")
+          fi
           if gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' | grep -q .; then
             gh pr edit "$BRANCH" --title "$title" --body "$body"
           else

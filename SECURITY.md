@@ -56,7 +56,22 @@ Regexes catch the obvious, not the paraphrased: the PR body tells you *where* to
 
 ## Reviewing a sync PR
 
-1. Open the PR; read the validator hits in the body. Every `[high]` line is a file:line to open in context.
+Both sync PRs open with a **digest** of what the sync changed (`scripts/sync-digest.py`); the low-trust PR adds what each pinned-plugin bump pulls in (`scripts/bump-pinned.sh`). The validator hits come after them: they say where instruction-shaped text sits, the digest says what is new. Read it top down:
+
+| Part | What it shows | Look twice when |
+|---|---|---|
+| Sources | each upstream whose commit moved, old to new, with a GitHub compare link (the upstream change log); a pinned plugin (`caveman`) shows as `pinned` | a source moved but no plugin row follows: nothing this repo copies changed |
+| Plugins | files added, modified and removed per plugin (a rename shows as one removal and one addition), and a manifest version change | a new plugin, a version jump, or far more files than the compare link explains |
+| Skills | new and removed skills (a second `SKILL.md` with an existing name is listed with its path), changed descriptions, and whether the model can invoke the skill on its own; the last line is the net change in the description characters of the skills (commands are not counted), which the skill listing budget is spent on | a new or newly invocable skill (`yes`): its description is loaded into every session; a big budget increase |
+| Hooks, MCP and LSP servers | each registration added, removed or changed since `main`, read the way the validator reads hooks (for a hook in a skill's or agent's frontmatter: the frontmatter from its `hooks` key on) | any row: it runs code or opens a connection on every machine that installs the plugin; open the file in its last column. Pinned plugins are not in this tree: their hooks are under Pinned plugins |
+| Also | files outside `plugins/`, agents, commands and scripts added or removed, symlinks, submodules and files that became executable | any symlink or executable |
+| Pinned plugins (low-trust PR) | per bump: compare link, commits and files from a clone of the upstream repository, manifest version, whether the manifest's `hooks` changed (and for which events), and the changed hook files: those with "hook" in their path or that the manifest names, scripts before docs and tests | `manifest hooks: changed`, a hook script in the list, or a major version jump; if the clone failed there is a warning and the compare link still works |
+
+The digest is capped at about 12 KB and says how many entries it did not show; the Files changed tab has the rest. A changed file over 1 MB is not read: the digest names it (`Not read ...`) and then "None added, removed or changed" is not claimed, so open that file yourself. Names, versions, paths and commands in it come from upstream: they are shortened, stripped of control characters and backticks and printed in code spans, and nothing from the synced tree is run to build it. If a hook or server command in it would look like attribution text to the attribution guard, the workflow lists the registrations without their commands (open the file in the last column); if that is not enough it leaves the digest out and says so. If the digest cannot be built the PR says so in one line and is still opened. The digest narrows where to look; it does not replace the diff. After a local `scripts/sync.sh` the same digest is `python3 scripts/sync-digest.py --base HEAD` (`--head REF` compares two refs).
+
+The whole PR body is kept under GitHub's 65536 characters: every block is cut in lines and width, and when the digest and the pinned block together do not fit, the pinned block and then the digest give way to a one-line note that points to the step log.
+
+1. Open the PR; read the digest, then the validator hits in the body. Every `[high]` line is a file:line to open in context; the body shows at most 60 hit lines, `✗` and `[high]` first, and counts the rest (the Validate step log has them).
 2. Diff every changed `SKILL.md`, `agents/*.md`, `commands/*.md`, `hooks/`, `scripts/`.
 3. Look for instructions aimed at the model rather than the user (exfiltration, "ignore", hidden text), new shell commands, new network calls, new hooks.
 4. Merge or close. Closed PRs are re-opened on the next sync if upstream still differs.
