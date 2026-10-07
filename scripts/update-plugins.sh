@@ -2,7 +2,10 @@
 # Refreshes the my-claude-skills marketplace, updates the installed plugins, and installs the ones
 # added to the marketplace since the last run, so plugins left out of a subset install or uninstalled
 # stay out. The names it has seen are in plugins/my-claude-skills-known-plugins of the Claude config
-# dir, one list per config (install.sh writes the first). Runs from a Claude Code SessionStart hook
+# dir, one list per config (install.sh writes the first). With install.sh --profile, the profiles it
+# recorded in plugins/my-claude-skills-profiles limit that to new plugins of those profiles in profiles.json
+# of the marketplace clone (the others are logged as available; plugins/my-claude-skills-profile-plugins
+# is the snapshot of the profiles' plugins handled so far). Runs from a Claude Code SessionStart hook
 # (in the background) and throttles itself to once per interval per config dir (the stamp
 # plugins/my-claude-skills-last-run sits next to that list); changes apply to the next session.
 #   update-plugins.sh            throttled run (default every 6 h; MY_CLAUDE_SKILLS_INTERVAL=seconds)
@@ -17,6 +20,9 @@ KNOWN="$CLAUDE_DIR/plugins/$NAME-known-plugins"   # per config dir: each has its
 # Per config dir too: with one shared stamp, a config that always starts within the interval after
 # another one would never update.
 STAMP="$CLAUDE_DIR/plugins/$NAME-last-run"
+# install.sh --profile records the profiles this config dir follows; PKNOWN is what the updater has handled of their plugins
+PROFILES="$CLAUDE_DIR/plugins/$NAME-profiles"
+PKNOWN="$CLAUDE_DIR/plugins/$NAME-profile-plugins"
 INTERVAL="${MY_CLAUDE_SKILLS_INTERVAL:-21600}"
 mkdir -p "$CACHE" "$CLAUDE_DIR/plugins"
 
@@ -83,25 +89,71 @@ else
   echo "claude plugin list --json failed or gave no JSON list: updating only, installing no new plugins"
 fi
 
+# Recorded profiles (install.sh --profile): of the new plugins only those of these profiles are installed,
+# the others are listed as available. profiles.json of the marketplace clone says which plugins they hold.
+# No record: every new plugin is installed.
+pmode=0 pj_ok=1 members="" profiles=""
+if [ -s "$PROFILES" ]; then
+  pmode=1
+  want=$(cat "$PROFILES")
+  profiles=$(jq -Rrs 'split("\n") | map(select(. != "")) | join(",")' "$PROFILES")
+  if members=$(jq -r --arg want "$want" '(.profiles // {}) as $p | ($want | split("\n") | map(select(. != ""))) | .[] | . as $n | select($p | has($n)) | $p[$n][]' "$clone/profiles.json" 2>/dev/null); then
+    gone=$(jq -r --arg want "$want" '(.profiles // {}) as $p | $want | split("\n") | map(. as $n | select(. != "" and ($p | has($n) | not))) | join(",")' "$clone/profiles.json")
+    if [ "$gone" = "$profiles" ]; then
+      pj_ok=0   # none of them resolves: the same as no profiles.json
+      echo "recorded profile(s) not in profiles.json: $gone: installing no new plugins"
+    elif [ -n "$gone" ]; then
+      echo "recorded profile(s) not in profiles.json: $gone"
+    fi
+  else
+    pj_ok=0
+    echo "profiles.json of the marketplace clone is missing or unreadable: installing no new plugins (profiles: $profiles)"
+  fi
+fi
+
 # New plugins are the ones in the marketplace but not in the snapshot of the earlier runs. Without a
 # snapshot yet for this config dir (installed before install.sh wrote one), record one and install nothing.
 if [ "$listed" = 1 ] && [ ! -s "$KNOWN" ]; then
   echo "no plugin snapshot yet: recording the marketplace's ${#available[@]} plugins, installing none"
 fi
-known=()
+known=() pknown=() offered=()
 for p in ${available[@]+"${available[@]}"}; do
+  member=0
+  [ "$pmode" = 1 ] && printf '%s\n' "$members" | grep -qxF -- "$p" && member=1
   if [ "$listed" = 0 ] || printf '%s\n' "$installed" | grep -qxF -- "$p"; then
     claude plugin update "$p@$NAME" 2>&1 | grep -vE "already up to date|is already" || true
+  elif [ "$pmode" = 1 ] && [ "$pj_ok" = 0 ]; then
+    continue   # cannot tell which plugins the profiles hold: leave this one as it is, decide next run
+  elif [ "$member" = 1 ]; then
+    # a plugin of a recorded profile that the snapshot of those plugins lacks: new, or moved into the profile.
+    # An empty snapshot (install.sh: every plugin of the profiles failed) is a snapshot: the file's existence counts.
+    if [ -e "$PKNOWN" ] && ! grep -qxF -- "$p" "$PKNOWN"; then
+      echo "new plugin: $p"
+      claude plugin install "$p@$NAME" || { echo "install failed: $p (retried next run)"; continue; }
+    fi
   elif [ -s "$KNOWN" ] && ! grep -qxF -- "$p" "$KNOWN"; then
-    echo "new plugin: $p"
-    claude plugin install "$p@$NAME" || { echo "install failed: $p (retried next run)"; continue; }
+    if [ "$pmode" = 1 ]; then
+      offered+=("$p")
+    else
+      echo "new plugin: $p"
+      claude plugin install "$p@$NAME" || { echo "install failed: $p (retried next run)"; continue; }
+    fi
   fi
   known+=("$p")
+  [ "$member" = 0 ] || pknown+=("$p")
 done
+if [ "${#offered[@]}" -gt 0 ]; then
+  list=""
+  for p in "${offered[@]}"; do list="${list:+$list, }$p"; done
+  echo "available (outside profiles $profiles): $list"
+fi
+if [ "$listed" = 1 ] && [ "$pmode" = 1 ] && [ "$pj_ok" = 1 ] && [ ! -e "$PKNOWN" ]; then
+  echo "no profile snapshot yet: recording the ${#pknown[@]} plugins of profiles $profiles, installing none"
+fi
 
-# Only after a pass that saw what is installed. The snapshot keeps the names of earlier runs, so a
+# Only after a pass that saw what is installed. The snapshots keep the names of earlier runs, so a
 # plugin that leaves the marketplace and comes back later is not new again. A failed install was not
-# in it and is not added, so it is retried.
+# in them and is not added, so it is retried.
 if [ "$listed" = 1 ] && [ "${#known[@]}" -gt 0 ]; then
   if [ -s "$KNOWN" ]; then
     while IFS= read -r p; do
@@ -109,5 +161,13 @@ if [ "$listed" = 1 ] && [ "${#known[@]}" -gt 0 ]; then
     done < "$KNOWN"
   fi
   printf '%s\n' "${known[@]}" > "$KNOWN.$$" && mv -f "$KNOWN.$$" "$KNOWN"
+fi
+if [ "$listed" = 1 ] && [ "${#pknown[@]}" -gt 0 ]; then
+  if [ -s "$PKNOWN" ]; then
+    while IFS= read -r p; do
+      [ -n "$p" ] && ! printf '%s\n' "${pknown[@]}" | grep -qxF -- "$p" && pknown+=("$p")
+    done < "$PKNOWN"
+  fi
+  printf '%s\n' "${pknown[@]}" > "$PKNOWN.$$" && mv -f "$PKNOWN.$$" "$PKNOWN"
 fi
 echo "done"

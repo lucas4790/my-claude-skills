@@ -1,5 +1,5 @@
 {
-  "$comment": "Named plugin subsets for the installers. Every marketplace plugin belongs to exactly one profile (scripts/validate.py checks this). install-copilot.sh/.ps1 default to copilotDefault; install.sh/.ps1 (Claude Code) still install every plugin, or the names passed to them. claude-only plugins rely on Claude Code features (Workflow engine, !`cmd` injection, Claude-only hook events) and are skipped by install-copilot unless named explicitly.",
+  "$comment": "Named plugin subsets for the installers. Every marketplace plugin belongs to exactly one profile (scripts/validate.py checks this). install.sh/.ps1 (Claude Code) install every plugin unless --profile / -Profile names profiles (comma-separated, combinable with plugin names; claude-only included); they record the profiles per Claude config dir, and the SessionStart updater then installs only new plugins of those profiles (also ones moved into them here) and lists the others as available. install-copilot.sh/.ps1 default to copilotDefault. claude-only plugins rely on Claude Code features (Workflow engine, !`cmd` injection, Claude-only hook events) and are skipped by install-copilot unless named explicitly.",
   "profiles": {
     "cloud": [
       "terraform",

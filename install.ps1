@@ -10,9 +10,18 @@
     so Get-Help shows only the common parameters under PARAMETERS):
       -Plugin NAME, ...    install only these plugins; also positional (.\install.ps1 dotnet, powershell).
                            Default: every plugin in the marketplace.
+      -Profile NAME, ...   install the plugins of these profiles in profiles.json (comma-separated in one string
+                           is fine too; also -Profiles); combined with -Plugin, both are installed. Under irm | iex,
+                           which takes no arguments: $env:MY_CLAUDE_SKILLS_PROFILE = 'cloud,dotnet' (a run of the
+                           file ignores it). The profiles are recorded for the auto-updater, which then installs only
+                           new plugins of them and lists the others as available. Neither -Profile nor -Plugin:
+                           every plugin, and no profile recorded.
 .EXAMPLE
     .\install.ps1                      # every plugin in the marketplace
     .\install.ps1 dotnet, powershell   # only these
+    .\install.ps1 -Profile cloud, dotnet
+    .\install.ps1 -Profile cloud -Plugin agent-browser
+    $env:MY_CLAUDE_SKILLS_PROFILE = 'cloud,dotnet'; irm https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/install.ps1 | iex
     irm https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/install.ps1 | iex
 #>
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'Interactive installer; progress lines are for the console')]
@@ -24,7 +33,7 @@ param()   # the parameters are the scriptblock's below: here, irm | iex would se
 # session. Run as a file (.\install.ps1), it exits 1 when a plugin failed.
 & {
     [CmdletBinding()]
-    param([string[]] $Plugin)
+    param([Parameter(Position = 0)] [string[]] $Plugin, [Alias('Profile')] [string[]] $Profiles)   # Position: -Profile is by name only
     $ErrorActionPreference = 'Stop'
     $repo = 'lucas4790/my-claude-skills'
     $name = 'my-claude-skills'
@@ -74,6 +83,35 @@ param()   # the parameters are the scriptblock's below: here, irm | iex would se
     }
     Write-Host "==> base deps: git $(& git --version), node $(& node --version)"
 
+    # --- plugin list ----------------------------------------------------------------
+    # Resolved before anything is installed but the base dependencies: an unknown profile stops here.
+    # (The profile part is the same as install-copilot.ps1's, minus its claude-only, caveman and default handling.)
+    $named = @($Plugin | Where-Object { $_ })
+    # irm | iex takes no arguments: the environment variable stands in for -Profile, as in install-copilot.ps1.
+    # Only there: a variable still set from an install-copilot.ps1 run must not turn a file run into a profile install.
+    $fromEnv = $false
+    if (-not $scriptFile -and -not $named -and -not $Profiles -and $env:MY_CLAUDE_SKILLS_PROFILE) { $Profiles = $env:MY_CLAUDE_SKILLS_PROFILE; $fromEnv = $true }
+    $wanted = @($Profiles | Where-Object { $_ } | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -Unique)
+    if ($fromEnv -and -not $wanted) { throw 'MY_CLAUDE_SKILLS_PROFILE needs a profile name (e.g. cloud,dotnet)' }
+    if ($PSBoundParameters.ContainsKey('Profiles') -and -not $wanted) { throw '-Profile needs a value (e.g. -Profile cloud,dotnet)' }
+    $members = @()
+    if ($wanted) {
+        $localProfiles = if ($here) { Join-Path $here 'profiles.json' } else { $null }
+        $pj = if ($localProfiles -and (Test-Path $localProfiles) -and (Test-Path (Join-Path $here '.claude-plugin\marketplace.json'))) { Get-Content $localProfiles -Raw | ConvertFrom-Json }
+              else { Invoke-RestMethod -Uri "https://raw.githubusercontent.com/$repo/main/profiles.json" }
+        $unknown = @($wanted | Where-Object { -not $pj.profiles.PSObject.Properties[$_] })
+        if ($unknown) { throw "unknown profile(s): $($unknown -join ' ') (available: $(($pj.profiles.PSObject.Properties.Name) -join ', '))" }
+        $members = @($wanted | ForEach-Object { $pj.profiles.$_ } | Where-Object { $_ } | Select-Object -Unique)
+        foreach ($n in $named) {   # `-Profile cloud dotnet` (no comma) names the plugin dotnet, not the profile
+            if ($pj.profiles.PSObject.Properties[$n]) { Write-Warning "$n is also a profile name; it is installed as the plugin of that name. For the profile too: -Profile $($wanted -join ','),$n" }
+        }
+        $Plugin = @($members + $named | Select-Object -Unique)
+        Write-Host "==> profiles $($wanted -join ','): $($members.Count) plugin(s)$(if ($fromEnv) { ' (from MY_CLAUDE_SKILLS_PROFILE)' })"
+    } elseif (-not $named) {
+        $Plugin = @((Invoke-RestMethod -Uri $manifestUrl).plugins.name)
+    }
+    if (-not $Plugin) { throw 'no plugins to install' }
+
     # --- desktop app check ---------------------------------------------------------
     # Plugins live in ~/.claude/plugins, which both the desktop app and the CLI read, so
     # installing via the CLI here also reaches the desktop app (after it is restarted).
@@ -100,9 +138,6 @@ param()   # the parameters are the scriptblock's below: here, irm | iex would se
     }
     Write-Host "==> claude $(Invoke-Quiet { & claude --version 2>$null } | Select-Object -First 1)"
 
-    # --- plugin list ----------------------------------------------------------------
-    if (-not $Plugin) { $Plugin = (Invoke-RestMethod -Uri $manifestUrl).plugins.name }
-
     # --- marketplace + plugins ------------------------------------------------------
     $existing = Invoke-Quiet { & claude plugin marketplace list 2>$null }
     if ($existing -match $name) {
@@ -121,11 +156,14 @@ param()   # the parameters are the scriptblock's below: here, irm | iex would se
     }
     Write-Host "Installed $($Plugin.Count) plugin(s) from $name."
     if ($failed) { Write-Warning "failed plugins: $($failed -join ', ')" }
+    # With profiles the updater retries a failed plugin of the profiles; a named one outside them is only offered as available.
+    $lost = @($failed | Where-Object { $wanted -and $members -notcontains $_ })
+    if ($lost) { Write-Warning "the updater does not retry $($lost -join ', ') (outside the profiles); re-run this installer to retry" }
 
     # The updater's list of known plugins for this Claude config dir (see update-plugins.ps1). A first
     # install records every plugin in the marketplace but the failed ones: plugins left out stay out,
-    # and the next update retries a failed one. A re-run adds the plugins it installed and takes the
-    # failed ones out.
+    # and the next update retries a failed one (with -Profile: only a failed plugin of the profiles).
+    # A re-run adds the plugins it installed and takes the failed ones out.
     $claudeDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME '.claude' }
     $knownFile = Join-Path (Join-Path $claudeDir 'plugins') "$name-known-plugins"
     $cloneManifest = Join-Path $claudeDir "plugins\marketplaces\$name\.claude-plugin\marketplace.json"
@@ -136,6 +174,29 @@ param()   # the parameters are the scriptblock's below: here, irm | iex would se
         if ($known) { Write-Utf8 $knownFile (($known -join "`n") + "`n") }
     } catch {
         Write-Warning "could not write $knownFile ($($_.Exception.Message)); the updater's first run records the plugins instead"
+    }
+
+    # The profiles this config dir follows (see update-plugins.ps1): with -Profile, the profiles and a snapshot
+    # of their plugins without the failed ones (the next update retries those; the file stays, empty, when
+    # every one failed: a missing file means no snapshot yet); without -Profile and plugin names, everything
+    # was installed and the record goes; plugin names alone leave it as it is.
+    $profilesFile = Join-Path (Join-Path $claudeDir 'plugins') "$name-profiles"
+    $profilePluginsFile = Join-Path (Join-Path $claudeDir 'plugins') "$name-profile-plugins"
+    if ($wanted) {
+        try {
+            New-Item -ItemType Directory -Path (Split-Path $profilesFile) -Force | Out-Null
+            Write-Utf8 $profilesFile (($wanted -join "`n") + "`n")
+            try {
+                $snapshot = @($members | Where-Object { $failed -notcontains $_ })
+                Write-Utf8 $profilePluginsFile $(if ($snapshot) { ($snapshot -join "`n") + "`n" } else { '' })
+            } catch {
+                Write-Warning "could not write $profilePluginsFile ($($_.Exception.Message)); the updater keeps the earlier snapshot, or records the plugins of the profiles at its first run"
+            }
+        } catch {
+            Write-Warning "could not write $profilesFile ($($_.Exception.Message)); the updater keeps following the earlier record, or installs every new plugin, until you re-run with -Profile"
+        }
+    } elseif (-not $named) {
+        Remove-Item $profilesFile, $profilePluginsFile -Force -ErrorAction SilentlyContinue
     }
 
     # --- tools ------------------------------------------------------------------------

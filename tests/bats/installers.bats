@@ -235,7 +235,7 @@ installs() { grep '^copilot plugin install ' "$FAKE_CALLS" | sed 's/^copilot plu
 # --- install.sh against a fake claude ---------------------------------------------------------------
 
 # install_fixture: fake claude (installs all but $FAKE_CLAUDE_INSTALL_FAIL and lists them), git, node, npm
-# and curl (serves only the main branch's marketplace manifest, with alpha and beta) on $IPATH;
+# and curl (serves only the main branch's marketplace manifest, with alpha and beta, and its profiles.json) on $IPATH;
 # CLAUDE_CONFIG_DIR does not exist yet
 install_fixture() {
   mkdir -p "$T/ifake" "$T/home" "$T/tmp"
@@ -258,6 +258,7 @@ EOF
 echo "curl $*" >> "$FAKE_CALLS"
 case "$*" in
   *"/main/.claude-plugin/marketplace.json") echo '{"plugins": [{"name": "alpha"}, {"name": "beta"}]}' ;;
+  *"/main/profiles.json") echo '{"profiles": {"core": ["remote-one"], "claude-only": ["remote-two"]}}' ;;
   *) exit 22 ;;
 esac
 EOF
@@ -280,6 +281,31 @@ offers() {
 run_install() { run env PATH="$IPATH" "${INSTALL_BASH:-$BASH}" "$REPO_ROOT/install.sh" "$@"; }
 hook_cmd() { printf 'bash "%s"' "$XDG_DATA_HOME/my-claude-skills/update-plugins.sh"; }
 session_start_count() { jq '[.hooks.SessionStart[]? | select(.hooks[0].command == $c)] | length' --arg c "$(hook_cmd)" "$1"; }
+
+# profile_fixture: $C = a checkout-like copy of install.sh with the updater, a profiles.json and a marketplace
+# manifest, and a marketplace clone that offers alpha to epsilon
+profile_fixture() {
+  install_fixture
+  C="$T/checkout"
+  mkdir -p "$C/.claude-plugin" "$C/scripts"
+  cp "$REPO_ROOT/install.sh" "$C/"
+  cp "$REPO_ROOT/scripts/update-plugins.sh" "$C/scripts/"
+  echo '{"name": "my-claude-skills", "plugins": []}' > "$C/.claude-plugin/marketplace.json"
+  echo '{"profiles": {"core": ["alpha", "beta"], "extra": ["gamma"], "claude-only": ["delta"]}, "unrelated": 1}' > "$C/profiles.json"
+  offers alpha beta gamma delta epsilon
+  PROFILES="$CLAUDE_CONFIG_DIR/plugins/my-claude-skills-profiles"
+  PKNOWN="$CLAUDE_CONFIG_DIR/plugins/my-claude-skills-profile-plugins"
+}
+run_profiled() { run env PATH="$IPATH" "${INSTALL_BASH:-$BASH}" "$C/install.sh" "$@"; }
+# run_piped ARG...: $C/install.sh piped into bash -s, as curl | bash does
+run_piped() { run env PATH="$IPATH" "$BASH" -s -- "$@" < "$C/install.sh"; }
+# run_updater: the updater copy the installer left in XDG_DATA_HOME, forced
+run_updater() { run env PATH="$IPATH" bash "$XDG_DATA_HOME/my-claude-skills/update-plugins.sh" --force; }
+# run_profiles_json SRC: install.sh's profiles_json (extracted into $T/profiles_json.sh) with SRC as the script
+# file (empty under curl | bash) and HERE = the checkout $C
+run_profiles_json() { run env PATH="$IPATH" REPO=lucas4790/my-claude-skills HERE="$C" SRC="$1" "$BASH" -c '. "$1"; profiles_json' _ "$T/profiles_json.sh"; }
+claude_installs() { grep '^claude plugin install ' "$FAKE_CALLS" | sed 's/^claude plugin install //; s/@my-claude-skills$//' | tr '\n' ' ' || true; }
+
 
 @test "install.sh: installs the manifest's plugins and registers the startup hook once, creating CLAUDE_CONFIG_DIR" {
   install_fixture
@@ -426,6 +452,230 @@ PS1
   run "$PWSH_BIN" -NoLogo -NoProfile -NonInteractive -File "$T/modules-driver.ps1" none none "$FAKE_MODULES"
   assert_status 0
   assert_eq "$output" $'install PSScriptAnalyzer min=\ninstall Pester min=6.0.0' "with neither"
+}
+
+@test "install.sh --profile: installs the plugins of the profiles and the named ones, records both, and the updater then keeps to them" {
+  profile_fixture
+  run_profiled --profile core delta
+  assert_status 0
+  assert_eq "$(claude_installs)" "alpha beta delta " "installs"
+  assert_line "==> profiles core: 2 plugin(s)"
+  assert_file_content "$PROFILES" $'core\n'
+  assert_file_content "$PKNOWN" $'alpha\nbeta\n'
+  assert_file_content "$KNOWN" $'alpha\nbeta\ngamma\ndelta\nepsilon\n'
+  refute grep -q "profiles.json" "$FAKE_CALLS"   # a checkout reads its own
+
+  # epsilon joins core, zeta joins extra, and the marketplace gets both
+  offers alpha beta gamma delta epsilon zeta
+  echo '{"profiles": {"core": ["alpha", "beta", "epsilon"], "extra": ["gamma", "zeta"], "claude-only": ["delta"]}}' \
+    > "$CLAUDE_CONFIG_DIR/plugins/marketplaces/my-claude-skills/profiles.json"
+  : > "$FAKE_CALLS"
+  run_updater
+  assert_status 0
+  assert_eq "$(claude_installs)" "epsilon " "the updater's installs"
+  grep -qxF "available (outside profiles core): zeta" "$XDG_CACHE_HOME/my-claude-skills/update.log"
+}
+
+@test "install.sh --profile: an unknown profile is an error before anything is installed" {
+  profile_fixture
+  run_profiled --profile core,nope,also-not
+  assert_status 1
+  assert_line "error: unknown profile(s): nope also-not (available: core, extra, claude-only)"
+  refute grep -q "^claude " "$FAKE_CALLS"
+  assert_not_exists "$CLAUDE_CONFIG_DIR/plugins/my-claude-skills-profiles"
+  assert_not_exists "$XDG_DATA_HOME"
+}
+
+@test "install.sh --profile: names are split at commas, trimmed and joined over repeats; claude-only is a profile like the others" {
+  profile_fixture
+  run_profiled --profile " core, extra,core" --profile=claude-only
+  assert_status 0
+  assert_eq "$(claude_installs)" "alpha beta gamma delta " "installs"
+  assert_file_content "$PROFILES" $'core\nextra\nclaude-only\n'
+
+  run_profiled --profile
+  assert_status 1
+  assert_line "error: --profile needs a value (e.g. --profile cloud,dotnet)"
+  run_profiled --profile ","
+  assert_status 1
+  assert_line "error: --profile needs a value (e.g. --profile cloud,dotnet)"
+
+  # an empty value is the same error, never "no --profile" (that would install everything and drop the record)
+  : > "$FAKE_CALLS"
+  run_profiled --profile ""
+  assert_status 1
+  assert_line "error: --profile needs a value (e.g. --profile cloud,dotnet)"
+  run_profiled --profile=
+  assert_status 1
+  assert_line "error: --profile needs a value (e.g. --profile cloud,dotnet)"
+  run_profiled --profile "" alpha
+  assert_status 1
+  assert_line "error: --profile needs a value (e.g. --profile cloud,dotnet)"
+  refute grep -q . "$FAKE_CALLS"   # nothing ran, nothing was fetched
+  assert_file_content "$PROFILES" $'core\nextra\nclaude-only\n'
+
+  run_profiled --bogus
+  assert_status 1
+  assert_line "error: unknown option --bogus"
+  run_profiled --profile 'we"ird'   # a quote is part of the (unknown) name, not a parse error
+  assert_status 1
+  assert_line 'error: unknown profile(s): we"ird (available: core, extra, claude-only)'
+}
+
+@test "install.sh: plugin names alone keep the recorded profiles; no arguments install everything and drop them" {
+  profile_fixture
+  run_profiled --profile extra
+  assert_file_content "$PROFILES" $'extra\n'
+  run_profiled alpha
+  assert_status 0
+  assert_file_content "$PROFILES" $'extra\n'
+  assert_file_content "$PKNOWN" $'gamma\n'
+
+  : > "$FAKE_CALLS"
+  run_install
+  assert_status 0
+  assert_eq "$(claude_installs)" "alpha beta " "installs"
+  assert_not_exists "$PROFILES"
+  assert_not_exists "$PKNOWN"
+  refute grep -q "profiles.json" "$FAKE_CALLS"   # no argument never fetches it
+}
+
+@test "install.sh --profile: a failed plugin stays out of the snapshot of the profile, so the updater retries it" {
+  profile_fixture
+  FAKE_CLAUDE_INSTALL_FAIL=beta run_profiled --profile core
+  assert_status 1
+  assert_line "warning: failed plugins: beta"
+  refute_output_contains "does not retry"   # a failed plugin of the profile is retried
+  assert_file_content "$PROFILES" $'core\n'
+  assert_file_content "$PKNOWN" $'alpha\n'
+}
+
+@test "install.sh --profile: when every plugin of the profile failed, the snapshot stays empty and the updater installs them" {
+  profile_fixture
+  FAKE_CLAUDE_INSTALL_FAIL=gamma run_profiled --profile extra   # offline, not logged in: all of a profile fail together
+  assert_status 1
+  assert_file_content "$PROFILES" $'extra\n'
+  assert_file_content "$PKNOWN" ""
+  assert_file_content "$KNOWN" $'alpha\nbeta\ndelta\nepsilon\n'
+
+  cp "$C/profiles.json" "$CLAUDE_CONFIG_DIR/plugins/marketplaces/my-claude-skills/profiles.json"
+  : > "$FAKE_CALLS"
+  run_updater
+  assert_status 0
+  assert_eq "$(claude_installs)" "gamma " "the updater's installs"
+  grep -qxF "new plugin: gamma" "$XDG_CACHE_HOME/my-claude-skills/update.log"
+  refute grep -q "no profile snapshot yet" "$XDG_CACHE_HOME/my-claude-skills/update.log"
+  assert_file_content "$PKNOWN" $'gamma\n'
+  assert_file_content "$KNOWN" $'alpha\nbeta\ngamma\ndelta\nepsilon\n'
+}
+
+@test "install.sh --profile: a failed plugin named outside the profiles is not retried, and the installer says so" {
+  profile_fixture
+  FAKE_CLAUDE_INSTALL_FAIL="delta" run_profiled --profile core delta
+  assert_status 1
+  assert_line "warning: failed plugins: delta"
+  assert_line "warning: the updater does not retry delta (outside the profiles); re-run this installer to retry"
+  assert_file_content "$PKNOWN" $'alpha\nbeta\n'
+
+  cp "$C/profiles.json" "$CLAUDE_CONFIG_DIR/plugins/marketplaces/my-claude-skills/profiles.json"
+  : > "$FAKE_CALLS"
+  run_updater
+  assert_status 0
+  assert_eq "$(claude_installs)" "" "the updater's installs"
+  grep -qxF "available (outside profiles core): delta" "$XDG_CACHE_HOME/my-claude-skills/update.log"
+
+  # without profiles the updater retries the failure, so the installer does not say otherwise
+  FAKE_CLAUDE_INSTALL_FAIL="delta" run_profiled delta
+  assert_line "warning: failed plugins: delta"
+  refute_output_contains "does not retry"
+}
+
+@test "install.sh --profile: a plugin name that is also a profile name gets a warning (a forgotten comma)" {
+  profile_fixture
+  run_profiled --profile core extra
+  assert_status 0
+  assert_line "warning: extra is also a profile name; it is installed as the plugin of that name. For the profile too: --profile core,extra"
+  assert_eq "$(claude_installs)" "alpha beta extra " "installs"
+  assert_file_content "$PROFILES" $'core\n'
+
+  run_profiled extra   # without --profile it is only the plugin
+  assert_status 0
+  refute_output_contains "also a profile name"
+}
+
+@test "install.sh --profile: a record that cannot be written is a warning that names the consequence" {
+  profile_fixture
+  printf '#!/bin/sh\nexit 1\n' > "$T/ifake/mv"   # every rename fails, as on a read-only disk
+  chmod +x "$T/ifake/mv"
+  run_profiled --profile core
+  assert_status 0
+  assert_output_contains "warning: could not write $PROFILES; the updater keeps following the earlier record, or installs every new plugin, until you re-run with --profile"
+  assert_not_exists "$PROFILES"
+  assert_eq "$(ls "$CLAUDE_CONFIG_DIR/plugins")" "marketplaces" "files left behind"
+}
+
+@test "install.sh piped to bash reads profiles.json from the repo, never from the current directory" {
+  profile_fixture
+  mkdir -p "$T/old-clone/.claude-plugin"
+  echo '{"profiles": {"core": ["stale-plugin"]}}' > "$T/old-clone/profiles.json"
+  echo '{"name": "my-claude-skills", "plugins": []}' > "$T/old-clone/.claude-plugin/marketplace.json"
+  cd "$T/old-clone"
+  run_piped --profile core
+  assert_status 0
+  assert_eq "$(claude_installs)" "remote-one " "installs"
+  grep -qF "curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/profiles.json" "$FAKE_CALLS"
+
+  run_piped --help
+  assert_status 0
+  assert_output_contains "Usage: install.sh [--profile NAME[,NAME...]] [plugin ...]"
+}
+
+@test "install.sh: profiles_json reads the directory of the script only for a script file, not under curl | bash (where it is /)" {
+  profile_fixture
+  sed -n '/^profiles_json() {/,/^}/p' "$REPO_ROOT/install.sh" > "$T/profiles_json.sh"
+  run_profiles_json ""
+  assert_status 0
+  assert_output_contains "remote-one"   # main's profiles.json, though HERE holds a checkout
+  run_profiles_json "$C/install.sh"
+  assert_status 0
+  assert_output_contains '"extra": ["gamma"]'   # the checkout's own
+}
+
+@test "install.sh --help prints the usage and installs nothing" {
+  link_tools "$T/sys" bash sed dirname
+  HOME="$T/home" run env PATH="$T/sys" "$BASH" "$REPO_ROOT/install.sh" --help
+  assert_status 0
+  assert_output_contains "install.sh --profile cloud,dotnet"
+  assert_not_exists "$T/home"
+}
+
+@test "install.sh --profile resolves the same plugins as install-copilot.sh --profile" {
+  profile_fixture
+  run_profiled --profile core,extra
+  assert_status 0
+  local ours; ours=$(claude_installs)
+  copilot_fixture
+  echo '{"profiles": {"core": ["alpha", "beta"], "extra": ["gamma"], "claude-only": ["delta"]}, "copilotDefault": ["core"]}' > "$C/profiles.json"
+  run_copilot --profile core,extra
+  assert_status 0
+  assert_eq "$ours" "$(installs | sed 's/@my-claude-skills//' | tr '\n' ' ')" "install order"
+}
+
+@test "install.sh --profile runs under bash 3.2, macOS's /bin/bash (set BASH32=/path/to/bash-3.2)" {
+  [ -n "${BASH32:-}" ] || skip "set BASH32=/path/to/bash-3.2 to run this"
+  profile_fixture
+  INSTALL_BASH="$BASH32" run_profiled --profile core,extra delta
+  assert_status 0
+  refute_output_contains "command not found"
+  refute_output_contains "unbound variable"
+  assert_eq "$(claude_installs)" "alpha beta gamma delta " "installs"
+  assert_file_content "$PROFILES" $'core\nextra\n'
+  assert_file_content "$PKNOWN" $'alpha\nbeta\ngamma\n'
+  INSTALL_BASH="$BASH32" run_profiled --profile extra
+  assert_status 0
+  INSTALL_BASH="$BASH32" run_profiled
+  assert_status 0
+  refute_output_contains "unbound variable"
 }
 
 @test "install.sh and install-copilot.sh run under bash 3.2, macOS's /bin/bash (set BASH32=/path/to/bash-3.2)" {

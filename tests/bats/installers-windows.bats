@@ -24,6 +24,8 @@ setup() {
   link_tools "$T/sys" bash touch cp chmod dirname basename
   SETTINGS="$T/home/.claude/settings.json"
   KNOWN="$T/home/.claude/plugins/my-claude-skills-known-plugins"
+  PROFILES="$T/home/.claude/plugins/my-claude-skills-profiles"
+  PKNOWN="$T/home/.claude/plugins/my-claude-skills-profile-plugins"
   UPDATER="$T/local/my-claude-skills/update-plugins.ps1"
   HOOK_CMD="powershell -NoProfile -ExecutionPolicy Bypass -File \"$UPDATER\""
 }
@@ -61,6 +63,7 @@ EOF
 #   driver.ps1 file SCRIPT [ARG...]      & SCRIPT ARG, ... (as .\install.ps1 dotnet, powershell); prints exit=<code>
 #   driver.ps1 plugin SCRIPT PLUGIN...   & SCRIPT -Plugin PLUGIN, ...; prints exit=<code>
 #   driver.ps1 profile SCRIPT NAME...    & SCRIPT -Profile NAME, ... (profiles also: -Profiles); prints exit=<code>
+#   driver.ps1 expr SCRIPT TEXT          & SCRIPT TEXT, TEXT being PowerShell argument text (-Profile cloud -Plugin x)
 #   driver.ps1 iex SCRIPT                Get-Content -Raw SCRIPT | Invoke-Expression, as `irm | iex` does, from a
 #                                        caller that has its own $Profiles and $Plugin; then prints what the
 #                                        installer left in the session
@@ -95,6 +98,7 @@ if ($mode -ne 'iex') {
         elseif ($mode -eq 'file') { & $installer @($rest) }
         elseif ($mode -eq 'profile') { & $installer -Profile @($rest) }
         elseif ($mode -eq 'profiles') { & $installer -Profiles @($rest) }
+        elseif ($mode -eq 'expr') { Invoke-Expression "& '$installer' $($rest -join ' ')" }
         else { & $installer -Plugin @($rest) }
         "exit=$LASTEXITCODE"
     } catch { "threw: $($_.Exception.Message)" }
@@ -107,7 +111,7 @@ if ($mode -ne 'iex') {
     "Profiles=[$Profiles]"
     "Plugin=[$Plugin]"
     $vars = @('repo', 'name', 'failed', 'settings', 'settingsPath', 'updater', 'existing', 'scriptFile', 'here', 'knownFile',
-              'ok', 'pj', 'localProfiles', 'cfg') | Where-Object { Test-Path "variable:$_" }
+              'ok', 'pj', 'localProfiles', 'cfg', 'named', 'wanted', 'fromEnv', 'members', 'unknown', 'profilesFile', 'profilePluginsFile', 'snapshot', 'lost', 'n') | Where-Object { Test-Path "variable:$_" }
     "leaked variables=[$($vars -join ',')]"
     $fns = @('Test-Cmd', 'Install-Winget', 'Invoke-Quiet', 'Test-PlainJson', 'Initialize-Path', 'Install-MyClaudeSkillsForCopilot') |
         Where-Object { Test-Path "function:$_" }
@@ -242,7 +246,7 @@ PS1
   run "$PWSH_BIN" -NoLogo -NoProfile -NonInteractive -File "$T/help.ps1" \
     "$REPO_ROOT/install.ps1" "$REPO_ROOT/install-copilot.ps1" "$REPO_ROOT/scripts/update-plugins.ps1"
   assert_status 0
-  assert_line "install.ps1: Plugin described"
+  assert_line "install.ps1: Plugin described, Profiles described"
   assert_line "install-copilot.ps1: Profiles described, Plugin described"
   assert_line "update-plugins.ps1: Force described"
   refute_output_contains "is not a parameter"
@@ -512,6 +516,179 @@ EOF
   assert_line "exit=0"
   assert_output_contains "yamllint present (1.30.0)"
   refute grep -q "^uv " "$FAKE_CALLS"
+}
+
+# a clone: install.ps1 and the updater next to a profiles.json and the marketplace manifest
+profile_clone() {
+  mkdir -p "$T/clone/scripts" "$T/clone/.claude-plugin"
+  cp "$REPO_ROOT/install.ps1" "$T/clone/"
+  cp "$REPO_ROOT/scripts/update-plugins.ps1" "$T/clone/scripts/"
+  echo '{"name": "my-claude-skills", "plugins": []}' > "$T/clone/.claude-plugin/marketplace.json"
+  echo '{"profiles": {"core": ["alpha", "beta"], "extra": ["gamma"], "claude-only": ["delta"], "bad": ["alpha", "broken"]}, "unrelated": 1}' \
+    > "$T/clone/profiles.json"
+  offers alpha beta gamma delta epsilon
+}
+claude_installs() { { grep '^claude plugin install ' "$FAKE_CALLS" || true; } | sed 's/^claude plugin install //; s/@my-claude-skills$//' | tr '\n' ' '; }
+
+@test "install.ps1 -Profile: installs the plugins of the profiles and the named ones and records both" {
+  base_fakes
+  profile_clone
+  run_ps expr "$T/clone/install.ps1" -Profile core -Plugin delta
+  assert_line "exit=0"
+  assert_eq "$(claude_installs)" "alpha beta delta " "installs"
+  assert_line "==> profiles core: 2 plugin(s)"
+  assert_eq "$(cat "$PROFILES")" "core" "recorded profiles"
+  assert_eq "$(cat "$PKNOWN")" $'alpha\nbeta' "snapshot of the profile's plugins"
+  assert_eq "$(head -c 1 "$PROFILES")" "c" "first byte (UTF-8 without BOM)"
+  refute grep -q "^Invoke-RestMethod\|profiles.json" "$FAKE_CALLS"   # a clone reads its own
+  assert_eq "$(our_hooks "$SETTINGS")" "$HOOK_CMD" "hook command"
+}
+
+@test "install.ps1 -Profile: comma lists, -Profiles, repeats and blanks are the same; an empty value is an error" {
+  base_fakes
+  profile_clone
+  run_ps expr "$T/clone/install.ps1" -Profile "' core, extra,core'"
+  assert_eq "$(claude_installs)" "alpha beta gamma " "one string"
+  assert_eq "$(cat "$PROFILES")" $'core\nextra' "recorded"
+  : > "$FAKE_CALLS"
+  run_ps profiles "$T/clone/install.ps1" extra claude-only   # -Profiles extra, claude-only
+  assert_eq "$(claude_installs)" "gamma delta " "-Profiles"
+  assert_eq "$(cat "$PROFILES")" $'extra\nclaude-only' "recorded"
+  : > "$FAKE_CALLS"
+  run_ps expr "$T/clone/install.ps1" -Profile "','"
+  assert_output_contains "threw: -Profile needs a value (e.g. -Profile cloud,dotnet)"
+  assert_eq "$(claude_installs)" "" "installs"
+  run_ps expr "$T/clone/install.ps1" -Profile "''"
+  assert_output_contains "threw: -Profile needs a value (e.g. -Profile cloud,dotnet)"
+  assert_eq "$(claude_installs)" "" "installs"
+}
+
+@test "install.ps1 -Profile: an unknown profile is an error before anything is installed; -Profile is not positional" {
+  base_fakes
+  profile_clone
+  run_ps expr "$T/clone/install.ps1" -Profile core, nope
+  assert_output_contains "threw: unknown profile(s): nope (available: core, extra, claude-only, bad)"
+  refute grep -q "^claude " "$FAKE_CALLS"
+  assert_not_exists "$T/home/.claude/plugins/my-claude-skills-profiles"
+  assert_not_exists "$T/local/my-claude-skills"
+
+  # two plugin names without a comma are no profile: the error of today
+  run_ps expr "$T/clone/install.ps1" dotnet powershell
+  assert_output_contains "threw: A positional parameter cannot be found that accepts argument 'powershell'"
+  refute grep -q "^claude " "$FAKE_CALLS"
+}
+
+@test "install.ps1: plugin names alone keep the recorded profiles; no arguments install everything and drop them" {
+  base_fakes
+  profile_clone
+  manifest alpha beta
+  run_ps expr "$T/clone/install.ps1" -Profile extra
+  assert_eq "$(cat "$PROFILES")" "extra" "recorded"
+  run_ps file "$T/clone/install.ps1" alpha
+  assert_line "exit=0"
+  assert_eq "$(cat "$PROFILES")" "extra" "after plugin names"
+  assert_eq "$(cat "$PKNOWN")" "gamma" "snapshot after plugin names"
+
+  : > "$FAKE_CALLS"
+  run_ps file "$T/clone/install.ps1"
+  assert_line "exit=0"
+  assert_eq "$(claude_installs)" "alpha beta " "installs"
+  assert_not_exists "$PROFILES"
+  assert_not_exists "$PKNOWN"
+}
+
+@test "install.ps1 -Profile: a failed plugin stays out of the snapshot of the profile, so the updater retries it" {
+  base_fakes
+  profile_clone
+  run_ps expr "$T/clone/install.ps1" -Profile bad
+  assert_line "exit=1"
+  assert_output_contains "failed plugins: broken"
+  assert_eq "$(cat "$PROFILES")" "bad" "recorded"
+  assert_eq "$(cat "$PKNOWN")" "alpha" "snapshot"
+}
+
+@test "install.ps1 -Profile: when every plugin of the profile failed, the snapshot file stays, empty, so the updater installs them" {
+  base_fakes
+  profile_clone
+  echo '{"profiles": {"solo": ["broken"]}}' > "$T/clone/profiles.json"
+  run_ps expr "$T/clone/install.ps1" -Profile solo
+  assert_line "exit=1"
+  assert_eq "$(cat "$PROFILES")" "solo" "recorded"
+  assert_file_content "$PKNOWN" ""
+}
+
+@test "install.ps1 -Profile: a failed plugin named outside the profiles is not retried, and the installer says so" {
+  base_fakes
+  profile_clone
+  run_ps expr "$T/clone/install.ps1" -Profile core -Plugin broken
+  assert_line "exit=1"
+  assert_output_contains "failed plugins: broken"
+  assert_output_contains "the updater does not retry broken (outside the profiles); re-run this installer to retry"
+  run_ps expr "$T/clone/install.ps1" -Profile bad   # a failed plugin of the profile is retried
+  assert_line "exit=1"
+  assert_output_contains "failed plugins: broken"
+  refute_output_contains "does not retry"
+}
+
+@test "install.ps1 -Profile: a plugin name that is also a profile name gets a warning (a forgotten comma)" {
+  base_fakes
+  profile_clone
+  run_ps expr "$T/clone/install.ps1" -Profile core extra
+  assert_line "exit=0"
+  assert_output_contains "extra is also a profile name; it is installed as the plugin of that name. For the profile too: -Profile core,extra"
+  assert_eq "$(claude_installs)" "alpha beta extra " "installs"
+  assert_eq "$(cat "$PROFILES")" "core" "recorded"
+}
+
+@test "install.ps1 -Profile: a record that cannot be written is a warning that names the consequence" {
+  base_fakes
+  profile_clone
+  mkdir -p "$T/home/.claude/plugins/my-claude-skills-profiles"   # a directory where the file should be
+  run_ps expr "$T/clone/install.ps1" -Profile core
+  assert_line "exit=0"
+  assert_output_contains "could not write $PROFILES"
+  assert_output_contains "the updater keeps following the earlier record, or installs every new plugin, until you re-run with -Profile"
+}
+
+@test "install.ps1 under irm | iex: MY_CLAUDE_SKILLS_PROFILE picks the profiles, and the caller's session stays clean" {
+  base_fakes
+  echo '{"profiles": {"core": ["alpha", "beta"], "extra": ["gamma"]}}' > "$T/profiles.json"
+  with_env FAKE_PROFILES="$T/profiles.json" MY_CLAUDE_SKILLS_PROFILE="core, extra"
+  run_ps iex "$REPO_ROOT/install.ps1"
+  assert_line "still in the session"
+  assert_line "Profiles=[preset]"
+  assert_line "leaked variables=[]"
+  assert_line "leaked functions=[]"
+  refute_output_contains "threw:"
+  assert_line "==> profiles core,extra: 3 plugin(s) (from MY_CLAUDE_SKILLS_PROFILE)"
+  assert_eq "$(claude_installs)" "alpha beta gamma " "installs"
+  assert_eq "$(cat "$PROFILES")" $'core\nextra' "recorded"
+
+  # explicit plugin names ignore the variable
+  : > "$FAKE_CALLS"
+  run_ps file "$REPO_ROOT/install.ps1" alpha
+  assert_eq "$(claude_installs)" "alpha " "installs with plugin names"
+
+  # so does a run of the file: a variable left over from install-copilot.ps1 does not make it a profile install
+  manifest alpha beta epsilon
+  : > "$FAKE_CALLS"
+  run_ps file "$REPO_ROOT/install.ps1"
+  assert_line "exit=0"
+  refute_output_contains "==> profiles"
+  assert_eq "$(claude_installs)" "alpha beta epsilon " "installs of a file run without arguments"
+  assert_not_exists "$PROFILES"
+}
+
+@test "install.ps1 under irm | iex: a MY_CLAUDE_SKILLS_PROFILE without a profile name is an error before anything is installed" {
+  base_fakes
+  echo '{"profiles": {"core": ["alpha", "beta"]}}' > "$T/profiles.json"
+  manifest alpha beta
+  with_env FAKE_PROFILES="$T/profiles.json" MY_CLAUDE_SKILLS_PROFILE=" , "
+  run_ps iex "$REPO_ROOT/install.ps1"
+  assert_output_contains "threw: MY_CLAUDE_SKILLS_PROFILE needs a profile name (e.g. cloud,dotnet)"
+  assert_line "leaked variables=[]"
+  refute grep -q "^claude " "$FAKE_CALLS"
+  assert_not_exists "$PROFILES"
 }
 
 # --- install-copilot.ps1 ------------------------------------------------------------------------------

@@ -19,6 +19,8 @@ setup() {
   LOG="$CACHE/update.log"
   KNOWN="$CLAUDE_CONFIG_DIR/plugins/my-claude-skills-known-plugins"
   STAMP="$CLAUDE_CONFIG_DIR/plugins/my-claude-skills-last-run"   # per config dir, next to KNOWN
+  PROFILES="$CLAUDE_CONFIG_DIR/plugins/my-claude-skills-profiles"
+  PKNOWN="$CLAUDE_CONFIG_DIR/plugins/my-claude-skills-profile-plugins"
   MP_DIR="$CLAUDE_CONFIG_DIR/plugins/marketplaces/my-claude-skills"
   export FAKE_CALLS="$T/calls.log" FAKE_STATE="$T/state"
   mkdir -p "$FAKE_STATE" "$MP_DIR/.claude-plugin"
@@ -75,6 +77,12 @@ mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"; }
 age() { python3 -c 'import os, sys, time; t = time.time() - int(sys.argv[2]); os.utime(sys.argv[1], (t, t))' "$1" "$2"; }
 # snapshot NAME...: the known-plugins snapshot a previous run left behind
 snapshot() { mkdir -p "$(dirname "$KNOWN")"; printf '%s\n' "$@" > "$KNOWN"; }
+# follow PROFILE...: what install.sh --profile recorded for this config dir
+follow() { mkdir -p "$(dirname "$PROFILES")"; printf '%s\n' "$@" > "$PROFILES"; }
+# profile_snapshot NAME...: the plugins of the recorded profiles that earlier runs handled
+profile_snapshot() { mkdir -p "$(dirname "$PKNOWN")"; printf '%s\n' "$@" > "$PKNOWN"; }
+# profiles_json JSON: profiles.json of the marketplace clone
+profiles_json() { printf '%s\n' "$1" > "$MP_DIR/profiles.json"; }
 # offers CLONE NAME...: the marketplace clone CLONE lists the plugins NAME...
 offers() {
   local clone="$1"; shift
@@ -615,4 +623,269 @@ claude plugin update gamma@my-claude-skills" "claude calls"
   assert_status 0
   refute grep -qE "command not found|unbound variable" "$LOG"
   assert_not_exists "$KNOWN"
+}
+
+# --- recorded profiles (install.sh --profile) -----------------------------------------------------------
+
+# the clone offers alpha..epsilon; Claude Code has alpha and gamma; profile core holds alpha, beta, delta and
+# profile other gamma and epsilon; this config dir follows core and has seen alpha, beta and gamma
+profile_fixture() {
+  offers "$MP_DIR" alpha beta gamma delta epsilon
+  profiles_json '{"profiles": {"core": ["alpha", "beta", "delta"], "other": ["gamma", "epsilon"]}, "unrelated": 1}'
+  follow core
+  snapshot alpha beta gamma
+  profile_snapshot alpha beta
+}
+
+@test "update-plugins: with a recorded profile, a new plugin of it is installed and a new one outside it is listed as available, once" {
+  profile_fixture
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  assert_eq "$(grep '^claude plugin install' "$FAKE_CALLS")" "claude plugin install delta@my-claude-skills" "installs"
+  grep -qxF "new plugin: delta" "$LOG"
+  grep -qxF "available (outside profiles core): epsilon" "$LOG"
+  assert_eq "$(grep -c '^available' "$LOG")" 1 "available lines"
+  assert_file_content "$KNOWN" $'alpha\nbeta\ngamma\ndelta\nepsilon\n'
+  assert_file_content "$PKNOWN" $'alpha\nbeta\ndelta\n'
+  assert_file_content "$PROFILES" $'core\n'
+
+  : > "$FAKE_CALLS"; : > "$LOG"
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  refute grep -q "plugin install" "$FAKE_CALLS"
+  refute grep -q "^available" "$LOG"
+}
+
+@test "update-plugins: a plugin that profiles.json moves into a recorded profile counts as new, one that moves out stays" {
+  profile_fixture
+  offers "$MP_DIR" alpha beta gamma
+  profiles_json '{"profiles": {"core": ["alpha"], "other": ["beta", "gamma"]}}'
+  installed alpha beta gamma
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  refute grep -q "plugin install" "$FAKE_CALLS"   # beta moved out of core: still installed, still updated
+  grep -qxF "claude plugin update beta@my-claude-skills" "$FAKE_CALLS"
+  assert_file_content "$PKNOWN" $'alpha\nbeta\n'   # snapshots only grow
+
+  # gamma (known, never in core) moves into core: new for this config dir
+  profiles_json '{"profiles": {"core": ["alpha", "gamma"], "other": ["beta"]}}'
+  installed alpha beta
+  : > "$FAKE_CALLS"
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  assert_eq "$(grep '^claude plugin install' "$FAKE_CALLS")" "claude plugin install gamma@my-claude-skills" "installs"
+  grep -qxF "new plugin: gamma" "$LOG"
+  assert_file_content "$PKNOWN" $'alpha\ngamma\nbeta\n'
+
+  # moves out and back in: not new again
+  profiles_json '{"profiles": {"core": ["alpha"], "other": ["beta", "gamma"]}}'
+  run_update "$T/fake-claude-only:$T/sys" --force
+  profiles_json '{"profiles": {"core": ["alpha", "gamma"], "other": ["beta"]}}'
+  installed alpha beta   # the user uninstalled gamma meanwhile
+  : > "$FAKE_CALLS"
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  refute grep -q "plugin install" "$FAKE_CALLS"
+}
+
+@test "update-plugins: with a recorded profile, a plugin of it that was uninstalled stays out and a failed install is retried" {
+  profile_fixture
+  profile_snapshot alpha beta delta   # beta and delta are known members that are not installed
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  refute grep -q "plugin install" "$FAKE_CALLS"
+
+  profile_snapshot alpha beta
+  FAKE_CLAUDE_INSTALL_FAIL="delta" run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  grep -qxF "install failed: delta (retried next run)" "$LOG"
+  assert_file_content "$PKNOWN" $'alpha\nbeta\n'
+  : > "$FAKE_CALLS"
+  run_update "$T/fake-claude-only:$T/sys" --force
+  grep -qxF "claude plugin install delta@my-claude-skills" "$FAKE_CALLS"
+  assert_file_content "$PKNOWN" $'alpha\nbeta\ndelta\n'
+}
+
+@test "update-plugins: a recorded profile without a snapshot of its plugins records them and installs none" {
+  profile_fixture
+  rm "$PKNOWN"
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  refute grep -q "plugin install" "$FAKE_CALLS"
+  grep -qxF "no profile snapshot yet: recording the 3 plugins of profiles core, installing none" "$LOG"
+  assert_file_content "$PKNOWN" $'alpha\nbeta\ndelta\n'
+}
+
+@test "update-plugins: an empty snapshot of a recorded profile's plugins is a snapshot, so its members that are not installed are new" {
+  profile_fixture
+  : > "$PKNOWN"   # install.sh left it empty: every plugin of the profile failed to install
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  assert_eq "$(grep '^claude plugin install' "$FAKE_CALLS")" "claude plugin install beta@my-claude-skills
+claude plugin install delta@my-claude-skills" "installs"
+  grep -qxF "new plugin: beta" "$LOG"
+  refute grep -q "no profile snapshot yet" "$LOG"
+  assert_file_content "$PKNOWN" $'alpha\nbeta\ndelta\n'
+
+  # they fail again: the snapshot stays empty, so the next run retries them
+  : > "$PKNOWN"; : > "$FAKE_CALLS"
+  FAKE_CLAUDE_INSTALL_FAIL="beta" run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  grep -qxF "install failed: beta (retried next run)" "$LOG"
+  assert_file_content "$PKNOWN" $'alpha\ndelta\n'
+}
+
+@test "update-plugins: a recorded profile that profiles.json lacks is named; without profiles.json nothing new is installed" {
+  profile_fixture
+  follow core gone
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  grep -qxF "recorded profile(s) not in profiles.json: gone" "$LOG"
+  grep -qxF "claude plugin install delta@my-claude-skills" "$FAKE_CALLS"   # core still counts
+
+  rm "$MP_DIR/profiles.json"
+  profile_snapshot alpha beta
+  snapshot alpha gamma
+  : > "$FAKE_CALLS"
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  grep -qxF "profiles.json of the marketplace clone is missing or unreadable: installing no new plugins (profiles: core,gone)" "$LOG"
+  refute grep -q "plugin install" "$FAKE_CALLS"
+  grep -qxF "claude plugin update alpha@my-claude-skills" "$FAKE_CALLS"
+  assert_file_content "$KNOWN" $'alpha\ngamma\n'
+  grep -qxF "done" "$LOG"
+}
+
+@test "update-plugins: when none of the recorded profiles is in profiles.json, nothing new is installed or recorded" {
+  profile_fixture
+  follow gone renamed
+  snapshot alpha gamma
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  assert_eq "$(grep -c '^recorded profile' "$LOG")" 1 "log lines about it"
+  grep -qxF "recorded profile(s) not in profiles.json: gone,renamed: installing no new plugins" "$LOG"
+  refute grep -q "plugin install" "$FAKE_CALLS"
+  refute grep -q "^available" "$LOG"
+  grep -qxF "claude plugin update alpha@my-claude-skills" "$FAKE_CALLS"   # installed plugins are still updated
+  assert_file_content "$KNOWN" $'alpha\ngamma\n'   # beta, delta and epsilon stay undecided
+  assert_file_content "$PKNOWN" $'alpha\nbeta\n'
+
+  # the profile comes back (or is re-recorded): the undecided plugins are decided then
+  follow core
+  : > "$FAKE_CALLS"; : > "$LOG"
+  run_update "$T/fake-claude-only:$T/sys" --force
+  grep -qxF "new plugin: delta" "$LOG"
+  grep -qxF "available (outside profiles core): epsilon" "$LOG"
+}
+
+@test "update-plugins: no recorded profile is today's behaviour, whatever else is in the config dir" {
+  profile_fixture
+  rm "$PROFILES"
+  run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  assert_eq "$(grep '^claude plugin install' "$FAKE_CALLS")" "claude plugin install delta@my-claude-skills
+claude plugin install epsilon@my-claude-skills" "installs"
+  refute grep -q "^available" "$LOG"
+  assert_file_content "$PKNOWN" $'alpha\nbeta\n'   # untouched without a record
+}
+
+@test "update-plugins: every Claude config dir has its own recorded profiles" {
+  local cfg
+  for cfg in work personal; do
+    offers "$T/$cfg/plugins/marketplaces/my-claude-skills" alpha beta
+    printf '%s\n' alpha beta > "$T/$cfg/plugins/my-claude-skills-known-plugins"
+  done
+  printf '{"profiles": {"core": ["alpha"], "other": ["beta", "delta"]}}\n' > "$T/work/plugins/marketplaces/my-claude-skills/profiles.json"
+  printf 'core\n' > "$T/work/plugins/my-claude-skills-profiles"
+  printf 'alpha\n' > "$T/work/plugins/my-claude-skills-profile-plugins"
+  for cfg in work personal; do
+    offers "$T/$cfg/plugins/marketplaces/my-claude-skills" alpha beta delta
+    CLAUDE_CONFIG_DIR="$T/$cfg" run_update "$T/fake-claude-only:$T/sys" --force
+    assert_status 0
+  done
+  assert_eq "$(grep -c '^claude plugin install delta@my-claude-skills$' "$FAKE_CALLS")" 1 "installs of delta (personal only)"
+  grep -qxF "available (outside profiles core): delta" "$LOG"
+}
+
+@test "update-plugins: a failing plugin list installs nothing for a recorded profile either and keeps both snapshots" {
+  profile_fixture
+  FAKE_CLAUDE_LIST_RC=1 run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  refute grep -q "plugin install" "$FAKE_CALLS"
+  refute grep -q "^available" "$LOG"
+  assert_file_content "$KNOWN" $'alpha\nbeta\ngamma\n'
+  assert_file_content "$PKNOWN" $'alpha\nbeta\n'
+}
+
+@test "update-plugins: recorded profiles under bash 3.2 (set BASH32=/path/to/bash-3.2)" {
+  [ -n "${BASH32:-}" ] || skip "set BASH32=/path/to/bash-3.2 to run this"
+  profile_fixture
+  UPDATE_BASH="$BASH32" run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  grep -qxF "available (outside profiles core): epsilon" "$LOG"
+  assert_file_content "$PKNOWN" $'alpha\nbeta\ndelta\n'
+  refute grep -qE "command not found|unbound variable" "$LOG"
+
+  # nothing available and nothing installed: empty arrays under set -u
+  profiles_json '{"profiles": {"core": []}}'
+  UPDATE_BASH="$BASH32" run_update "$T/fake-claude-only:$T/sys" --force
+  assert_status 0
+  refute grep -qE "command not found|unbound variable" "$LOG"
+}
+
+@test "update-plugins.ps1: the same recorded-profile rules (pwsh, or \$PWSH)" {
+  local pwsh="${PWSH:-}"
+  [ -n "$pwsh" ] || pwsh=$(command -v pwsh) || tool_missing "pwsh not installed (set PWSH=/path/to/pwsh to run this)"
+  run_ps1() { run env PATH="$T/fake-claude-only:$T/sys" LOCALAPPDATA="$T/local" "$pwsh" -NoLogo -NoProfile -NonInteractive -File "$REPO_ROOT/scripts/update-plugins.ps1" -Force; }
+
+  # delta is new in core and installed, epsilon is new outside it and listed; beta is a known member that stays out
+  profile_fixture
+  run_ps1
+  assert_status 0
+  assert_eq "$(grep '^claude plugin install' "$FAKE_CALLS")" "claude plugin install delta@my-claude-skills" "installs"
+  assert_eq "$(cat "$PKNOWN")" $'alpha\nbeta\ndelta' "profile snapshot"
+  assert_eq "$(cat "$KNOWN")" $'alpha\nbeta\ngamma\ndelta\nepsilon' "snapshot"
+  grep -qxF "available (outside profiles core): epsilon" "$T/local/my-claude-skills/update.log"
+  : > "$FAKE_CALLS"
+  run_ps1
+  refute grep -q "plugin install" "$FAKE_CALLS"
+
+  # gamma moves into core: new for this config dir
+  profiles_json '{"profiles": {"core": ["alpha", "beta", "delta", "gamma"], "other": ["epsilon"]}}'
+  installed alpha delta
+  run_ps1
+  assert_eq "$(grep '^claude plugin install' "$FAKE_CALLS")" "claude plugin install gamma@my-claude-skills" "installs after the move"
+
+  # no snapshot of the profile's plugins: recorded, nothing installed; no record: today's behaviour
+  rm "$PKNOWN"; : > "$FAKE_CALLS"
+  run_ps1
+  refute grep -q "plugin install" "$FAKE_CALLS"
+  assert_eq "$(cat "$PKNOWN")" $'alpha\nbeta\ngamma\ndelta' "recorded"
+  rm "$PROFILES" "$KNOWN"; snapshot alpha beta gamma; : > "$FAKE_CALLS"
+  run_ps1
+  assert_eq "$(grep '^claude plugin install' "$FAKE_CALLS")" "claude plugin install epsilon@my-claude-skills" "installs without a record (delta is installed)"
+
+  # profiles.json missing: nothing new is installed
+  follow core; rm "$MP_DIR/profiles.json"; snapshot alpha gamma; : > "$FAKE_CALLS"
+  run_ps1
+  assert_status 0
+  refute grep -q "plugin install" "$FAKE_CALLS"
+  grep -qF "profiles.json of the marketplace clone is missing or unreadable: installing no new plugins (profiles: core)" "$T/local/my-claude-skills/update.log"
+
+  # an empty snapshot of the profile's plugins is a snapshot (install.ps1: every plugin of the profile failed): its members that are not installed are new
+  profiles_json '{"profiles": {"core": ["alpha", "beta"], "other": ["gamma"]}}'
+  installed alpha
+  : > "$PKNOWN"; : > "$FAKE_CALLS"
+  run_ps1
+  assert_status 0
+  assert_eq "$(grep '^claude plugin install' "$FAKE_CALLS")" "claude plugin install beta@my-claude-skills" "installs from an empty snapshot"
+  assert_eq "$(cat "$PKNOWN")" $'alpha\nbeta' "snapshot"
+
+  # none of the recorded profiles is in profiles.json: nothing new is installed or recorded
+  follow gone; snapshot alpha gamma; : > "$FAKE_CALLS"
+  run_ps1
+  assert_status 0
+  refute grep -q "plugin install" "$FAKE_CALLS"
+  grep -qF "recorded profile(s) not in profiles.json: gone: installing no new plugins" "$T/local/my-claude-skills/update.log"
+  assert_eq "$(cat "$KNOWN")" $'alpha\ngamma' "undecided plugins stay out of the snapshot"
 }
