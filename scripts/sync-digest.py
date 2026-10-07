@@ -404,8 +404,8 @@ def skills_section(base: Side, head: Side, limits: dict):
         hidden = max(len(rows) - limits["skills"], 0) + max(len(changed) - limits["changed"], 0)
         out += ["| Change | Skill | Description chars | Model-invocable |", "|---|---|--:|---|", *shown, *more(hidden)]
     out += [f"Model-invocable skills: {inv0} -> {inv1}. Their description characters (description plus when_to_use, "
-            f"each counted up to {sd.LISTING_CAP}; commands are not counted), which the skill listing budget is spent "
-            f"on: {budget}.", ""]
+            f"each counted up to {sd.LISTING_CAP}; commands are not counted), one part of what the skill listing budget "
+            f"is spent on (SKILLS.md, Listing cost, counts whole entries: names and 5 characters per entry too): {budget}.", ""]
     out += unread(base, head, lambda p: p.startswith("plugins/") and posixpath.basename(p) in ("SKILL.md", "plugin.json"))
     return out, (len(n.keys() - o.keys()), len(o.keys() - n.keys()), len(changed)), budget
 
