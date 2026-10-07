@@ -5,9 +5,20 @@ other checks may add warnings to the same fixtures.
 """
 import hashlib
 import json
+import os
 import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
 
 import pytest
+
+REPO = Path(__file__).resolve().parent.parent
+sys.dont_write_bytecode = True  # keep scripts/__pycache__ out of the working tree
+sys.path.insert(0, str(REPO / "scripts"))
+import skill_descriptions as sd  # noqa: E402
 
 SKILL = "plugins/alpha/skills/alpha-skill/SKILL.md"
 NOTES = "plugins/alpha/skills/alpha-skill/notes.md"
@@ -987,3 +998,441 @@ def test_reviewed_entry_outside_plugins_is_a_problem(repo):
     assert f"{REVIEWED}: '../outside.json' is not a path under plugins/" in res.problems
     assert f"{REVIEWED}: '/etc/hosts' is not a path under plugins/" in res.problems
 
+
+
+# --- skill listing budget (scripts/skill_descriptions.py, profiles.json listingBudget) ----------------------
+
+ALPHA_DESC = "Formats alpha reports. Use when the user asks for an alpha report."   # conftest.SKILL_MD
+BETA_DESC = "Runs the beta check. Use when the user asks to check beta."             # conftest.COMMAND_MD
+# an entry of the listing is "- plugin:name: text" plus a line break
+ALPHA = len("alpha:alpha-skill") + 5 + len(ALPHA_DESC)
+BETA = len("beta:check-beta") + 5 + len(BETA_DESC)
+LONG_DESC = ("Use when the user asks about long things. " + "Covers many details of long things. " * 16).strip()
+LONG_SKILL = f"---\nname: long-skill\ndescription: {LONG_DESC}\n---\nBody.\n"
+LONG = len("alpha:long-skill") + 5 + len(LONG_DESC)
+
+
+SMALL_DESC = "Use when the user asks about small things, for a short while."
+SMALL_SKILL = f"---\nname: small-skill\ndescription: {SMALL_DESC}\n---\n"
+SMALL = len("alpha:small-skill") + 5 + len(SMALL_DESC)
+
+
+def set_budgets(repo, **clients) -> None:
+    repo.edit_json("profiles.json", lambda d: d.__setitem__("listingBudget", {"$comment": "x", **clients}))
+    repo.gen_catalog()   # SKILLS.md shows the budgets
+
+
+def budget_lines(res) -> list[str]:
+    return [w for w in res.warnings if "[budget]" in w]
+
+
+def over(profile: str, cost: int, entries: int, chars: int, largest: str, label: str = "Copilot CLI", since: str = "",
+         largest_cost: int = None) -> str:
+    """The profile line; `largest_cost` is the cost of the largest plugin (the profile's own when it has one plugin)."""
+    return (f"profiles.json: [budget] profile '{profile}' costs {cost:,} listing characters (entries: {entries}), "
+            f"{round(100 * cost / chars)}% of the {chars:,}-character {label} budget, so descriptions may be cut"
+            f"{since}; largest plugin {largest} ({cost if largest_cost is None else largest_cost:,})")
+
+
+def add_local_plugin(repo, name: str, profile: str, skills: dict[str, str]) -> None:
+    """A marketplace plugin `name` in `profile` with the given {skill folder: SKILL.md text} (run gen_catalog after)."""
+    repo.edit_json(".claude-plugin/marketplace.json", lambda d: d["plugins"].append(
+        {"name": name, "source": f"./plugins/{name}", "description": f"{name} plugin"}))
+    repo.edit_json("profiles.json", lambda d: d["profiles"][profile].append(name))
+    repo.write_json(f"plugins/{name}/.claude-plugin/plugin.json", {"name": name})
+    for folder, text in skills.items():
+        repo.write(f"plugins/{name}/skills/{folder}/SKILL.md", text)
+
+
+def edge_skill(cost: int) -> str:
+    """A SKILL.md of plugin alpha, named edge, whose listing entry costs exactly `cost` characters."""
+    desc = ("Use when edges. " + "x" * cost)[:cost - len("alpha:edge") - 5]
+    return f"---\nname: edge\ndescription: {desc}\n---\n"
+
+
+def test_listing_budget_warns_once_per_profile_over_it_and_never_fails(repo):
+    set_budgets(repo, **{"copilot-cli": {"label": "Copilot CLI", "chars": 50, "profiles": ["core", "extra"]}})
+    res = repo.validate()
+    assert res.rc == 0, res
+    assert res.problems == []
+    assert budget_lines(res) == [over("core", ALPHA, 1, 50, "alpha"), over("extra", BETA, 1, 50, "beta")]
+    assert res.out.splitlines()[-1].endswith("listing budget: 2 warning(s)")
+
+
+def test_listing_budget_is_quiet_when_every_profile_fits_or_nothing_is_configured(repo):
+    assert budget_lines(repo.validate()) == []          # no listingBudget key at all
+    set_budgets(repo, **{"claude-code": {"chars": ALPHA, "profiles": ["core", "extra"]}})   # equal is within
+    res = repo.validate()
+    assert res.rc == 0, res
+    assert budget_lines(res) == []
+    assert res.out.splitlines()[-1].endswith("listing budget: 0 warning(s)")
+
+
+def test_listing_budget_checks_only_the_profiles_it_names_and_uses_the_client_as_label(repo):
+    set_budgets(repo, **{"copilot-cli": {"chars": 50, "profiles": ["extra"]}})
+    assert budget_lines(repo.validate()) == [over("extra", BETA, 1, 50, "beta", label="copilot-cli")]
+
+
+def test_listing_budget_line_names_the_largest_plugin_of_the_profile_with_its_own_cost(repo):
+    add_local_plugin(repo, "gamma", "core", {"small-skill": SMALL_SKILL})
+    set_budgets(repo, **{"copilot-cli": {"label": "Copilot CLI", "chars": 50, "profiles": ["core"]}})
+    assert SMALL < ALPHA
+    assert budget_lines(repo.validate()) == [over("core", ALPHA + SMALL, 2, 50, "alpha", largest_cost=ALPHA)]
+    repo.write("plugins/gamma/skills/long-skill/SKILL.md", LONG_SKILL)   # now the plugin listed second is the largest
+    repo.gen_catalog()
+    gamma = SMALL + len("gamma:long-skill") + 5 + len(LONG_DESC)
+    assert budget_lines(repo.validate()) == [over("core", ALPHA + gamma, 3, 50, "gamma", largest_cost=gamma)]
+
+
+def test_listing_budget_line_picks_the_plugin_that_sorts_last_among_equally_large_ones(repo):
+    add_local_plugin(repo, "gamma", "core", {"alpha-skill": repo.read(SKILL)})   # "gamma:alpha-skill" is as long as "alpha:alpha-skill"
+    set_budgets(repo, **{"copilot-cli": {"label": "Copilot CLI", "chars": 50, "profiles": ["core"]}})
+    assert budget_lines(repo.validate()) == [over("core", 2 * ALPHA, 2, 50, "gamma", largest_cost=ALPHA)]
+
+
+@pytest.mark.parametrize("budgets,problem", [
+    ([1], "profiles.json: listingBudget must be an object"),
+    ({"x": 5}, 'profiles.json: listingBudget.x must be an object with "chars" and "profiles"'),
+    ({"x": {"chars": 0, "profiles": ["core"]}}, "profiles.json: listingBudget.x.chars must be a positive integer"),
+    ({"x": {"chars": "15000", "profiles": ["core"]}}, "profiles.json: listingBudget.x.chars must be a positive integer"),
+    ({"x": {"chars": True, "profiles": ["core"]}}, "profiles.json: listingBudget.x.chars must be a positive integer"),
+    ({"x": {"chars": 5, "profiles": "core"}}, "profiles.json: listingBudget.x.profiles must be a non-empty list of profile names"),
+    ({"x": {"chars": 5, "profiles": []}}, "profiles.json: listingBudget.x.profiles must be a non-empty list of profile names"),
+    ({"x": {"chars": 5, "profiles": ["nope"]}}, "profiles.json: listingBudget.x names unknown profile 'nope'"),
+    ({"x": {"chars": 5, "profiles": ["core", "core"]}}, "profiles.json: listingBudget.x names profile 'core' twice"),
+])
+def test_malformed_listing_budget_is_a_problem_not_a_crash(repo, budgets, problem):
+    repo.edit_json("profiles.json", lambda d: d.__setitem__("listingBudget", budgets))
+    repo.gen_catalog()
+    res = repo.validate()
+    assert res.rc == 1, res
+    assert problem in res.problems
+    assert "Traceback" not in res.err, res
+
+
+def test_diff_reports_a_plugin_whose_listing_cost_grew_by_more_than_the_threshold(repo):
+    repo.write("plugins/alpha/skills/long-skill/SKILL.md", LONG_SKILL)
+    repo.gen_catalog()
+    res = repo.validate("--diff", "HEAD")
+    assert res.rc == 0, res
+    assert LONG > sd.GROWTH_WARN
+    assert (f"alpha: [budget] listing cost grew from {ALPHA:,} to {ALPHA + LONG:,} characters "
+            f"(+{LONG:,}, +{round(100 * LONG / ALPHA)}%) since HEAD "
+            f"(profile core: {ALPHA + LONG:,} characters in total)") in res.warnings
+    assert not [w for w in budget_lines(res) if w.startswith("beta:")]     # beta did not change
+    assert not [w for w in budget_lines(repo.validate()) if w.startswith("alpha:")]   # growth is a --diff warning
+
+
+def test_diff_ignores_growth_up_to_the_threshold_and_shrinking(repo):
+    repo.write("plugins/alpha/skills/small-skill/SKILL.md", SMALL_SKILL)
+    repo.gen_catalog()
+    assert SMALL <= sd.GROWTH_WARN
+    res = repo.validate("--diff", "HEAD")
+    assert budget_lines(res) == []
+    assert res.out.splitlines()[-1].endswith("listing budget: 0 warning(s)")
+    shutil.rmtree(repo.path("plugins/alpha/skills/alpha-skill"))
+    repo.gen_catalog()
+    res = repo.validate("--diff", "HEAD")
+    assert budget_lines(res) == []
+    assert res.out.splitlines()[-1].endswith("listing budget: 0 warning(s)")
+
+
+@pytest.mark.parametrize("cost,warned", [(sd.GROWTH_WARN, False), (sd.GROWTH_WARN + 1, True)])
+def test_diff_plugin_growth_threshold_is_exclusive(repo, cost, warned):
+    repo.write("plugins/alpha/skills/edge/SKILL.md", edge_skill(cost))
+    repo.gen_catalog()
+    assert sum(e.chars for e in sd.listing_entries(repo.root) if e.name == "edge") == cost
+    assert bool([w for w in budget_lines(repo.validate("--diff", "HEAD")) if w.startswith("alpha:")]) == warned
+
+
+@pytest.mark.parametrize("cost,warned", [(sd.GROWTH_WARN, False), (sd.GROWTH_WARN + 1, True)])
+def test_diff_profile_growth_threshold_is_exclusive(repo, cost, warned):
+    set_budgets(repo, **{"copilot-cli": {"label": "Copilot CLI", "chars": 50, "profiles": ["core"]}})   # over it at HEAD too
+    repo.write("plugins/alpha/skills/edge/SKILL.md", edge_skill(cost))
+    repo.gen_catalog()
+    assert sum(e.chars for e in sd.listing_entries(repo.root) if e.name == "edge") == cost
+    lines = [w for w in budget_lines(repo.validate("--diff", "HEAD")) if w.startswith("profiles.json")]
+    assert lines == ([over("core", ALPHA + cost, 2, 50, "alpha", since=f"; {ALPHA:,} at HEAD (+{cost:,})")]
+                     if warned else [])
+
+
+def test_diff_counts_a_new_plugin_from_zero(repo):
+    repo.edit_json(".claude-plugin/marketplace.json", lambda d: d["plugins"].append(
+        {"name": "gamma", "source": "./plugins/gamma", "description": "Gamma plugin"}))
+    repo.edit_json("profiles.json", lambda d: d["profiles"]["extra"].append("gamma"))
+    repo.write_json("plugins/gamma/.claude-plugin/plugin.json", {"name": "gamma"})
+    repo.write("plugins/gamma/skills/long-skill/SKILL.md", LONG_SKILL)
+    repo.gen_catalog()
+    new = len("gamma:long-skill") + 5 + len(LONG_DESC)
+    res = repo.validate("--diff", "HEAD")
+    assert res.rc == 0, res
+    assert (f"gamma: [budget] listing cost grew from 0 to {new:,} characters (+{new:,}) since HEAD "
+            f"(profile extra: {BETA + new:,} characters in total)") in res.warnings
+
+
+def test_diff_profile_line_needs_a_crossing_or_growth_over_the_threshold(repo):
+    set_budgets(repo, **{"copilot-cli": {"label": "Copilot CLI", "chars": 50, "profiles": ["core"]}})
+    assert budget_lines(repo.validate("--diff", "HEAD")) == []          # over the budget, but unchanged
+    repo.write("plugins/alpha/skills/small-skill/SKILL.md", SMALL_SKILL)
+    repo.gen_catalog()
+    assert SMALL <= sd.GROWTH_WARN
+    assert budget_lines(repo.validate("--diff", "HEAD")) == []          # over the budget, grew by no more than the threshold
+    repo.write("plugins/alpha/skills/long-skill/SKILL.md", LONG_SKILL)
+    repo.gen_catalog()
+    now = ALPHA + SMALL + LONG
+    assert [w for w in budget_lines(repo.validate("--diff", "HEAD")) if w.startswith("profiles.json")] == [
+        over("core", now, 3, 50, "alpha", since=f"; {ALPHA:,} at HEAD (+{now - ALPHA:,})")]
+
+
+@pytest.mark.parametrize("slack", [0, 20])   # exactly at the budget at REF, and below it
+def test_diff_profile_line_when_a_small_growth_crosses_the_budget(repo, slack):
+    set_budgets(repo, **{"copilot-cli": {"label": "Copilot CLI", "chars": ALPHA + slack, "profiles": ["core"]}})
+    assert budget_lines(repo.validate("--diff", "HEAD")) == []          # within the budget
+    repo.write("plugins/alpha/skills/small-skill/SKILL.md", SMALL_SKILL)
+    repo.gen_catalog()
+    assert slack < SMALL <= sd.GROWTH_WARN
+    assert budget_lines(repo.validate("--diff", "HEAD")) == [
+        over("core", ALPHA + SMALL, 2, ALPHA + slack, "alpha", since=f"; {ALPHA:,} at HEAD (+{SMALL:,})")]
+
+
+def test_diff_against_a_ref_without_plugins_counts_everything_as_new(repo):
+    repo.write("plugins/alpha/skills/long-skill/SKILL.md", LONG_SKILL)
+    repo.gen_catalog()
+    repo.commit("long skill")
+    empty = repo.git("commit-tree", "-m", "empty", "4b825dc642cb6eb9a060e54bf8d69288fbee4904").strip()
+    res = repo.validate("--diff", empty)
+    assert res.rc == 0, res
+    assert "Traceback" not in res.err, res
+    assert (f"alpha: [budget] listing cost grew from 0 to {ALPHA + LONG:,} characters (+{ALPHA + LONG:,}) since {empty} "
+            f"(profile core: {ALPHA + LONG:,} characters in total)") in res.warnings
+
+
+@pytest.mark.parametrize("rng", ["HEAD~1..HEAD", "HEAD~1...HEAD"])
+def test_diff_with_a_range_compares_nothing_and_does_not_crash(repo, rng):
+    repo.write("plugins/alpha/skills/long-skill/SKILL.md", LONG_SKILL)
+    repo.gen_catalog()
+    repo.commit("long skill")
+    res = repo.validate("--diff", rng)
+    assert res.rc == 0, res
+    assert "Traceback" not in res.err, res
+    assert budget_lines(res) == [f"profiles.json: [budget] listing cost not compared with '{rng}': it is not one "
+                                 f"commit or tree (a range?), so growth since it is not checked"]
+    last = res.out.splitlines()[-1]
+    assert last.startswith("✓ ") and last.endswith("listing budget: 1 warning(s)")
+
+
+def test_a_dangling_command_file_does_not_crash_the_budget_check(repo):
+    set_budgets(repo, **{"copilot-cli": {"label": "Copilot CLI", "chars": 50, "profiles": ["extra"]}})
+    try:
+        repo.path("plugins/beta/commands/gone.md").symlink_to("missing.md")
+    except (OSError, NotImplementedError):
+        pytest.skip("cannot create symlinks here")
+    res = repo.validate()
+    assert "Traceback" not in res.err, res
+    assert res.rc == 1, res
+    assert any(p.startswith("scripts/gen-catalog.py failed") for p in res.problems), res   # reported, not crashed
+    assert budget_lines(res) == [over("extra", BETA, 1, 50, "beta")]      # the readable entries are still counted
+
+
+@pytest.mark.parametrize("length,warned", [(1536, False), (1537, True)])
+def test_a_description_over_the_listing_cap_is_reported_in_full_and_diff_runs(repo, length, warned):
+    desc = ("Use when the user asks for a very long report. " + "x" * length)[:length]
+    repo.write(SKILL, f"---\nname: alpha-skill\ndescription: {desc}\n---\nBody.\n")
+    repo.gen_catalog()
+    cap = [w for w in repo.validate().warnings if "Claude Code cuts the listing at 1536" in w]
+    assert bool(cap) == warned
+    assert bool([w for w in repo.validate("--diff", "HEAD").warnings if "Claude Code cuts the listing at 1536" in w]) == warned
+
+
+# --- the listing helpers of scripts/skill_descriptions.py ---------------------------------------------------
+
+def make_plugin(root: Path, name: str = "p") -> Path:
+    plugin = root / "plugins" / name
+    (plugin / ".claude-plugin").mkdir(parents=True)
+    (plugin / ".claude-plugin/plugin.json").write_text(json.dumps({"name": name}), encoding="utf-8")
+    return plugin
+
+
+def md(path: Path, frontmatter: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"---\n{frontmatter}\n---\nBody.\n", encoding="utf-8")
+
+
+def test_listing_text_joins_when_to_use_and_cuts_at_the_listing_cap():
+    assert sd.listing_text("a  b\n c", "") == "a b c"
+    assert sd.listing_text("Does x.", "Use when y.") == "Does x. - Use when y."
+    assert sd.listing_text("x" * sd.LISTING_CAP) == "x" * sd.LISTING_CAP
+    cut = sd.listing_text("x" * (sd.LISTING_CAP + 1))
+    assert cut == "x" * (sd.LISTING_CAP - 1) + "…" and len(cut) == sd.LISTING_CAP
+    assert len(sd.listing_text("d", "w" * 2000)) == sd.LISTING_CAP
+
+
+def test_plugin_entries_cover_skills_and_commands_but_not_the_hidden_ones(tmp_path):
+    plugin = make_plugin(tmp_path)
+    md(plugin / "skills/shown/SKILL.md", "name: shown\ndescription: Use when shown.\nwhen_to_use: And also later.")
+    md(plugin / "skills/hidden/SKILL.md", "name: hidden\ndescription: Not listed.\ndisable-model-invocation: true")
+    md(plugin / "skills/no-name/SKILL.md", "description: Named after its folder.")
+    md(plugin / "commands/run.md", "description: Runs it.")
+    md(plugin / "commands/sub/deep.md", "name: deeper\ndescription: Nested.")
+    md(plugin / "commands/off.md", "description: Hidden command.\ndisable-model-invocation: 'true'")
+    md(plugin / "agents/reviewer.md", "name: reviewer\ndescription: An agent is not in the listing.")
+    got = sd.plugin_entries(plugin, "p", tmp_path)
+    assert sorted((e.qualified, e.kind, e.path) for e in got) == [
+        ("p:deeper", "command", "plugins/p/commands/sub/deep.md"),
+        ("p:no-name", "skill", "plugins/p/skills/no-name/SKILL.md"),
+        ("p:run", "command", "plugins/p/commands/run.md"),
+        ("p:shown", "skill", "plugins/p/skills/shown/SKILL.md"),
+    ]
+    shown = next(e for e in got if e.name == "shown")
+    assert shown.text == "Use when shown. - And also later."
+    assert shown.chars == len("p:shown") + 5 + len("Use when shown. - And also later.")
+    assert shown.name_chars == len("p:shown") + 3
+
+
+def test_plugin_entries_follow_the_manifest_skill_list(tmp_path):
+    plugin = make_plugin(tmp_path)
+    (plugin / ".claude-plugin/plugin.json").write_text(json.dumps({"name": "p", "skills": ["./skills/listed"]}))
+    md(plugin / "skills/listed/SKILL.md", "name: listed\ndescription: Listed.")
+    md(plugin / "skills/unlisted/SKILL.md", "name: unlisted\ndescription: Not listed.")
+    assert [e.name for e in sd.plugin_entries(plugin, "p", tmp_path)] == ["listed"]
+
+
+def test_costs_add_up_per_plugin_and_per_profile(tmp_path):
+    for name in ("a", "b"):
+        md(make_plugin(tmp_path, name) / "skills/s/SKILL.md", "name: s\ndescription: Does it.")
+    md(tmp_path / "plugins/a/commands/c.md", "description: Runs it.")
+    entries = sd.listing_entries(tmp_path)
+    costs = sd.plugin_costs(entries)
+    s_chars = len("a:s") + 5 + len("Does it.")
+    c_chars = len("a:c") + 5 + len("Runs it.")
+    assert costs["a"] == sd.Cost(skills=1, commands=1, chars=s_chars + c_chars, names=len("a:s") + 3 + len("a:c") + 3)
+    assert costs["b"].chars == len("b:s") + 5 + len("Does it.") and costs["b"].entries == 1
+    both = sd.profile_costs(costs, {"x": ["a", "b", "external"], "y": []})
+    assert both["x"].chars == costs["a"].chars + costs["b"].chars and both["x"].entries == 3   # unknown plugin: 0
+    assert both["y"] == sd.Cost()
+
+
+def test_parse_budgets_keeps_the_valid_entries_in_file_order(tmp_path):
+    prof = {"profiles": {"core": ["a"], "extra": ["b"]}, "listingBudget": {
+        "$comment": "ignored",
+        "zeta": {"chars": 100, "profiles": ["core"], "label": "Zeta CLI", "note": "extra keys are fine"},
+        "bad": {"chars": -1, "profiles": ["core"]},
+        "alpha": {"chars": 50, "profiles": ["core", "extra"], "label": "  "},
+        "twice": {"chars": 50, "profiles": ["core", "core"]},
+    }}
+    budgets, problems = sd.parse_budgets(prof)
+    assert budgets == [sd.Budget("zeta", "Zeta CLI", 100, ("core",)), sd.Budget("alpha", "alpha", 50, ("core", "extra"))]
+    assert problems == ["profiles.json: listingBudget.bad.chars must be a positive integer",
+                        "profiles.json: listingBudget.twice names profile 'core' twice"]
+    assert sd.parse_budgets({"profiles": {}}) == ([], []) and sd.parse_budgets(None) == ([], [])
+
+
+@pytest.fixture
+def helper_git_env(git_env, monkeypatch):
+    """The helpers of skill_descriptions run git themselves: give them no outer repository and no user git config."""
+    for k in set(os.environ) - set(git_env):
+        monkeypatch.delenv(k)
+    for k, v in git_env.items():
+        monkeypatch.setenv(k, v)
+
+
+def test_entries_at_ref_read_the_commit_not_the_working_tree(repo, helper_git_env):
+    repo.write("plugins/alpha/skills/long-skill/SKILL.md", LONG_SKILL)     # untracked: not at HEAD
+    repo.write("plugins/alpha/skills/alpha-skill/notes.md", "# not a skill\n")
+    shutil.rmtree(repo.path("plugins/beta"))                                # deleted in the working tree only
+    at_head = sd.entries_at_ref(repo.root, "HEAD")
+    assert sorted(e.qualified for e in at_head) == ["alpha:alpha-skill", "beta:check-beta"]
+    assert sum(e.chars for e in at_head) == ALPHA + BETA
+    assert sorted(e.qualified for e in sd.listing_entries(repo.root)) == ["alpha:alpha-skill", "alpha:long-skill"]
+    with pytest.raises(subprocess.CalledProcessError):
+        sd.entries_at_ref(repo.root, "no-such-ref")
+
+
+def test_entries_at_ref_ignores_entries_that_climb_out_of_its_temp_dir(repo, helper_git_env, monkeypatch, tmp_path):
+    """A tree fetched without fsck can hold entries named "..": reading one must never write outside the temp tree."""
+    base = tmp_path / "tmpbase"
+    base.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(base))
+
+    def git(*args: str, data: bytes = b"") -> str:
+        return subprocess.run(["git", *args], cwd=repo.root, capture_output=True, check=True,
+                              input=data).stdout.decode().strip()
+
+    def tree(name: str, sha: str, mode: str = "40000") -> str:
+        raw = f"{mode} {name}".encode() + b"\0" + bytes.fromhex(sha)   # one raw entry: git mktree would refuse the name
+        return git("hash-object", "-t", "tree", "-w", "--literally", "--stdin", data=raw)
+
+    blob = git("hash-object", "-w", "--stdin", data=b"---\nname: pwn\ndescription: Use when pwned.\n---\n")
+    node = tree("pwn.md", blob, "100644")
+    for name in ("..", "..", "..", "..", "commands", "p", "plugins"):   # plugins/p/commands/../../../../pwn.md
+        node = tree(name, node)
+    commit = git("commit-tree", "-m", "evil", node)
+    assert git("ls-tree", "-r", "--name-only", commit) == "plugins/p/commands/../../../../pwn.md"
+    assert sd.entries_at_ref(repo.root, commit) == []
+    assert list(base.iterdir()) == []          # nothing next to, above or below the (removed) temp dir
+
+
+# --- the real repository ------------------------------------------------------------------------------------
+
+def test_real_repo_budgets_are_valid_and_cover_the_copilot_default_profiles():
+    prof = sd.load_profiles(REPO)
+    budgets, problems = sd.parse_budgets(prof)
+    assert problems == []
+    copilot = next(b for b in budgets if b.client == "copilot-cli")
+    assert set(prof["copilotDefault"]) <= set(copilot.profiles)
+    assert set(copilot.profiles) | {p for b in budgets for p in b.profiles} <= set(prof["profiles"])
+
+
+def test_real_repo_listing_budget_warnings_are_one_summary_line_per_profile():
+    prof = sd.load_profiles(REPO)
+    budgets, _ = sd.parse_budgets(prof)
+    costs = sd.profile_costs(sd.plugin_costs(sd.listing_entries(REPO)), prof["profiles"])
+    expected = sum(1 for b in budgets for p in b.profiles if costs[p].chars > b.chars)
+    lines = sd.budget_warnings(REPO, None, prof)
+    assert len(lines) == expected <= 4, lines
+    assert all(w.startswith("profiles.json: [budget] profile '") for w in lines), lines   # never one line per skill
+
+
+# --- installers never read the new key -------------------------------------------------------------------------
+
+READERS = ("install.sh", "install.ps1", "install-copilot.sh", "install-copilot.ps1",
+           "scripts/update-plugins.sh", "scripts/update-plugins.ps1")
+
+
+@pytest.mark.parametrize("rel", READERS)
+def test_no_installer_or_updater_mentions_the_listing_budget(rel):
+    assert "listingBudget" not in (REPO / rel).read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(sys.platform == "win32" or not shutil.which("bash") or not shutil.which("jq"),
+                    reason="runs install-copilot.sh: needs bash and jq")
+def test_install_copilot_selects_the_same_plugins_with_and_without_the_listing_budget_key(tmp_path):
+    real = json.loads((REPO / "profiles.json").read_text(encoding="utf-8"))
+    assert "listingBudget" in real
+    plain = {k: v for k, v in real.items() if k != "listingBudget"}
+    fake = tmp_path / "fake"
+    fake.mkdir()
+    for name, body in {"copilot": 'echo "copilot $*" >> "$FAKE_CALLS"\n[ "$*" = --version ] && echo "GitHub Copilot CLI 1.0.80"\nexit 0\n',
+                       "curl": "exit 22\n", "git": "exit 0\n"}.items():
+        (fake / name).write_text("#!/bin/sh\n" + body, encoding="utf-8")
+        (fake / name).chmod(stat.S_IRWXU)
+
+    def installs(label: str, profiles: dict) -> list[str]:
+        home = tmp_path / label
+        checkout = home / "checkout"
+        (checkout / ".claude-plugin").mkdir(parents=True)
+        shutil.copy2(REPO / "install-copilot.sh", checkout / "install-copilot.sh")
+        (checkout / ".claude-plugin/marketplace.json").write_text('{"name": "my-claude-skills", "plugins": []}')
+        (checkout / "profiles.json").write_text(json.dumps(profiles), encoding="utf-8")
+        calls = home / "calls.log"
+        env = {**os.environ, "PATH": f"{fake}{os.pathsep}{os.environ['PATH']}", "HOME": str(home),
+               "COPILOT_HOME": str(home / "copilot"), "TMPDIR": str(home), "FAKE_CALLS": str(calls)}
+        for profile_args in ([], ["--profile", "cloud,dotnet,claude-only"]):
+            res = subprocess.run(["bash", str(checkout / "install-copilot.sh"), *profile_args], env=env,
+                                 capture_output=True, text=True, encoding="utf-8")
+            assert res.returncode == 0, res.stdout + res.stderr
+        return [x for x in calls.read_text(encoding="utf-8").splitlines() if x.startswith("copilot plugin install ")]
+
+    with_key, without_key = installs("with", real), installs("without", plain)
+    assert with_key == without_key
+    assert len(with_key) == len(real["profiles"]["cloud"]) * 2 + len(real["profiles"]["dotnet"])

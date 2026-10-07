@@ -37,5 +37,25 @@
   },
   "copilotDefault": [
     "cloud"
-  ]
+  ],
+  "listingBudget": {
+    "$comment": "Skill-listing budgets in characters (README, Listing budget). Claude Code lists every skill and command of the installed plugins as \"- plugin:name: description\" lines and drops descriptions past its budget (read from 2.1.292); Copilot CLI is assumed to do the same, only its budget variable is verified. scripts/validate.py warns for each profile named here whose listing cost (SKILLS.md, Listing cost, counted the Claude Code way) is over the budget and never fails because of it; label names the client in messages and tables. A profile named under no client is not checked: add a new profile under its client. A malformed entry here is a problem (exit 1, also with --warn-only). copilot-cli: 15000 is the default of SKILL_CHAR_BUDGET (docs/ANALYSE.md copilot-cli-3, Copilot CLI 1.0.88), not re-verified. claude-code: 30000 is 1% of a 1M-token window at 3 characters per token (Claude Code 2.1.292 counts 4 for older models: 40000; a 200K window gives 6000 to 8000); skillListingBudgetFraction changes it. The installers read only profiles and copilotDefault.",
+    "copilot-cli": {
+      "label": "Copilot CLI",
+      "chars": 15000,
+      "profiles": [
+        "cloud"
+      ]
+    },
+    "claude-code": {
+      "label": "Claude Code",
+      "chars": 30000,
+      "profiles": [
+        "cloud",
+        "dotnet",
+        "extras",
+        "claude-only"
+      ]
+    }
+  }
 }

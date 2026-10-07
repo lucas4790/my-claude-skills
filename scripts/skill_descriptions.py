@@ -16,6 +16,10 @@ so three things make routing unreliable, and each gets a warning:
 Skills with `disable-model-invocation: true` are never routed by the model, so only the length
 limit applies to them.
 
+The second half of the module is the listing cost: how many characters of the model's context the
+skills and commands of a plugin or profile take (SKILLS.md, "Listing cost"), the budgets of
+profiles.json `listingBudget` and the warnings validate.py prints for them.
+
 Run directly to print the report for the whole repo, the top overlapping pairs, and counts:
     python3 scripts/skill_descriptions.py [--diff REF] [--top N]
 """
@@ -26,6 +30,7 @@ import itertools
 import json
 import re
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -292,6 +297,278 @@ def routing_warnings(root: Path = ROOT, ref: str | None = None, skills: list[Ski
             out.append(f"{a.path} ~ {b.path}: [overlap] {a.name} and {b.name} share {score:.0%} of their "
                        f"distinctive description words ({words}) and neither names the other; "
                        f"add a \"Not for ... (use ...)\" clause")
+    return out
+
+
+# --- listing cost -----------------------------------------------------------------------------
+# What the installed plugins put into the model's context in every session. Claude Code lists each
+# model-invocable skill and plugin command as one line, "- plugin:name: description" (description,
+# then " - " and when_to_use, cut at LISTING_CAP), joins the lines with line breaks and fits them into a
+# budget of window tokens x 3 or 4 characters x 1% (setting skillListingBudgetFraction): over it, the
+# descriptions of the least used skills are dropped and only "- plugin:name" stays. Agents are not in it.
+# That is read from Claude Code 2.1.292. Copilot CLI has a budget variable (SKILL_CHAR_BUDGET); its listing
+# format and what it does over the budget are not verified, so its figures use the same counting rule.
+# Simplified: only commands/ is read (not a `commands` path of plugin.json), a command in a subfolder keeps
+# its file name (no namespace), the "name (alias)" Claude Code adds to two equal names is not counted, and a
+# length is in code points (Claude Code counts UTF-16 units), so a few characters per entry can differ.
+
+ENTRY_OVERHEAD = 5       # "- " before the name, ": " after it, a line break after the entry
+NAME_ONLY_OVERHEAD = 3   # "- " and the line break: what an entry keeps when its description is dropped
+GROWTH_WARN = 500        # --diff: a plugin whose cost grows by more than this is reported (an average skill costs ~530)
+
+
+@dataclass(frozen=True)
+class Entry:
+    plugin: str
+    name: str
+    kind: str      # "skill" or "command"
+    path: str      # relative to the repo root (posix)
+    text: str      # what follows "- plugin:name: ", already cut at LISTING_CAP
+
+    @property
+    def qualified(self) -> str:
+        return f"{self.plugin}:{self.name}"
+
+    @property
+    def chars(self) -> int:
+        return len(self.qualified) + ENTRY_OVERHEAD + len(self.text)
+
+    @property
+    def name_chars(self) -> int:
+        return len(self.qualified) + NAME_ONLY_OVERHEAD
+
+
+@dataclass(frozen=True)
+class Cost:
+    skills: int = 0
+    commands: int = 0
+    chars: int = 0
+    names: int = 0
+
+    def __add__(self, other: "Cost") -> "Cost":
+        return Cost(self.skills + other.skills, self.commands + other.commands,
+                    self.chars + other.chars, self.names + other.names)
+
+    @property
+    def entries(self) -> int:
+        return self.skills + self.commands
+
+
+def listing_text(description: str, when_to_use: str = "") -> str:
+    """The text after the name in the listing: Claude Code's `description - when_to_use`, cut at LISTING_CAP
+    characters with an ellipsis. (Skill.routing_text joins with a space; the length checks keep using it.)"""
+    text = " ".join(f"{description} - {when_to_use}".split()) if when_to_use.strip() else " ".join(description.split())
+    return text if len(text) <= LISTING_CAP else text[:LISTING_CAP - 1] + "\u2026"
+
+
+def plugin_entries(plugin_dir: Path, plugin: str, root: Path = ROOT) -> list[Entry]:
+    """The listing entries of one plugin directory: its skills (skill_files) and its commands/*.md, minus
+    everything with `disable-model-invocation: true` (never listed). A command is named after its file."""
+    found = [(f, "skill") for f in skill_files(plugin_dir)]
+    commands = plugin_dir / "commands"
+    if commands.is_dir():
+        found += [(f, "command") for f in sorted(commands.rglob("*.md"))]
+    out = []
+    for f, kind in found:
+        try:
+            fm = parse_frontmatter(f.read_text(encoding="utf-8", errors="replace"))
+        except OSError:  # a dangling or unreadable file (gen-catalog.py reports it): the cost leaves it out
+            continue
+        if is_true(fm.get("disable-model-invocation")):
+            continue
+        name = (fm.get("name") or (f.parent.name if kind == "skill" else f.stem)).strip()
+        out.append(Entry(plugin, name, kind, f.relative_to(root).as_posix(),
+                         listing_text(fm.get("description", ""), fm.get("when_to_use", ""))))
+    return out
+
+
+def listing_entries(root: Path = ROOT) -> list[Entry]:
+    """Every listing entry of the local plugins (plugins/<dir> with a .claude-plugin/plugin.json)."""
+    return [e for pdir in plugin_dirs(root) for e in plugin_entries(pdir, plugin_name(pdir), root)]
+
+
+def plugin_costs(entries: list[Entry]) -> dict[str, Cost]:
+    out: dict[str, Cost] = {}
+    for e in entries:
+        out[e.plugin] = out.get(e.plugin, Cost()) + Cost(int(e.kind == "skill"), int(e.kind == "command"),
+                                                         e.chars, e.name_chars)
+    return out
+
+
+def profile_costs(costs: dict[str, Cost], profiles: dict[str, list[str]]) -> dict[str, Cost]:
+    out = {}
+    for name, members in profiles.items():
+        total = Cost()
+        for m in members:
+            total = total + costs.get(m, Cost())
+        out[name] = total
+    return out
+
+
+def load_profiles(root: Path = ROOT) -> dict | None:
+    """profiles.json as a dict, or None when it is missing, invalid or not an object (validate.py reports that)."""
+    try:
+        data = json.loads((root / "profiles.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def profile_members(prof: dict | None) -> dict[str, list[str]]:
+    """{profile: [plugin names]} of profiles.json; anything that is not an object of lists of names is left out."""
+    raw = prof.get("profiles") if isinstance(prof, dict) else None
+    if not isinstance(raw, dict):
+        return {}
+    return {k: [m for m in v if isinstance(m, str)] for k, v in raw.items() if isinstance(v, list)}
+
+
+@dataclass(frozen=True)
+class Budget:
+    client: str
+    label: str
+    chars: int
+    profiles: tuple[str, ...]
+
+
+def parse_budgets(prof: dict | None) -> tuple[list[Budget], list[str]]:
+    """The valid entries of profiles.json `listingBudget` ({client: {"chars": N, "profiles": [...], "label": ..}},
+    "$comment" ignored) in file order, and one problem text per invalid entry (validate.py reports them)."""
+    raw = (prof or {}).get("listingBudget")
+    if raw is None:
+        return [], []
+    if not isinstance(raw, dict):
+        return [], ["profiles.json: listingBudget must be an object"]
+    known = profile_members(prof)
+    out, problems = [], []
+    for client, cfg in raw.items():
+        if client.startswith("$"):
+            continue
+        where = f"profiles.json: listingBudget.{client}"
+        if not isinstance(cfg, dict):
+            problems.append(f'{where} must be an object with "chars" and "profiles"')
+            continue
+        chars, names = cfg.get("chars"), cfg.get("profiles")
+        ok = True
+        if isinstance(chars, bool) or not isinstance(chars, int) or chars <= 0:
+            problems.append(f"{where}.chars must be a positive integer")
+            ok = False
+        if not isinstance(names, list) or not names or not all(isinstance(n, str) for n in names):
+            problems.append(f"{where}.profiles must be a non-empty list of profile names")
+            ok = False
+        else:
+            seen: set[str] = set()
+            for n in names:
+                if n not in known:
+                    problems.append(f"{where} names unknown profile {n!r}")
+                    ok = False
+                elif n in seen:   # a typo for another profile would leave that one unchecked
+                    problems.append(f"{where} names profile {n!r} twice")
+                    ok = False
+                seen.add(n)
+        if ok:
+            label = cfg.get("label")
+            out.append(Budget(client, label if isinstance(label, str) and label.strip() else client, chars, tuple(names)))
+    return out, problems
+
+
+def names_tree(root: Path, ref: str) -> bool:
+    """True when REF names one commit or tree. A range (A..B, A...B) is fine for `git diff` but has no tree to read."""
+    return subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{tree}}"], cwd=root,
+                          capture_output=True).returncode == 0
+
+
+def entries_at_ref(root: Path, ref: str) -> list[Entry]:
+    """The listing entries of the plugins as committed at REF (a ref that has no plugins/ gives none).
+    Reads the blobs with git ls-tree and one git cat-file --batch, never a checkout, into a temp tree that
+    the same loaders read. Raises subprocess.CalledProcessError when git fails (a bad ref)."""
+    want = re.compile(r"^plugins/[^/]+/\.claude-plugin/plugin\.json$|(?:^|/)SKILL\.md$|^plugins/[^/]+/commands/.+\.md$")
+
+    def git(*a: str, data: bytes | None = None) -> bytes:
+        return subprocess.run(["git", *a], cwd=root, capture_output=True, check=True, input=data).stdout
+
+    items = []
+    for rec in git("ls-tree", "-r", "-z", ref, "--", "plugins/").split(b"\0"):
+        meta, _, path = rec.partition(b"\t")
+        parts = meta.split(b" ")
+        rel = path.decode("utf-8", "surrogateescape")
+        # a tree can hold entries named ".." (hand-made objects): never write outside the temp tree
+        if (len(parts) == 3 and parts[1] == b"blob" and parts[0] in (b"100644", b"100755") and want.search(rel)
+                and not {"", ".", ".."} & set(rel.replace("\\", "/").split("/"))):
+            items.append((rel, parts[2]))
+    if not items:
+        return []
+    blobs = git("cat-file", "--batch", data=b"".join(sha + b"\n" for _rel, sha in items))
+    with tempfile.TemporaryDirectory() as tmp:
+        pos = 0
+        for rel, _sha in items:
+            end = blobs.index(b"\n", pos)
+            head = blobs[pos:end].split(b" ")
+            if head[-1] == b"missing":
+                pos = end + 1
+                continue
+            size = int(head[2])
+            try:
+                dest = Path(tmp) / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(blobs[end + 1:end + 1 + size])
+            except (OSError, ValueError):  # a name this system cannot hold: leave the file out
+                pass
+            pos = end + 1 + size + 1
+        return listing_entries(Path(tmp))
+
+
+def _pct(n: int, d: int) -> str:
+    return f"{round(100 * n / d)}%"
+
+
+def budget_warnings(root: Path = ROOT, ref: str | None = None, prof: dict | None = None,
+                    entries: list[Entry] | None = None) -> list[str]:
+    """validate.py's listing-budget warnings, one line each (without the leading marker).
+
+    Without `ref`: one line per (budget, profile) whose cost is over the budget. With `ref`: the same
+    line only for a profile that is over its budget now and was within it at REF or grew by more than
+    GROWTH_WARN since, plus one line per plugin whose cost grew by more than GROWTH_WARN (a plugin
+    that is new since REF counts from 0). Profile membership is the one in `prof` on both sides. A REF that
+    is not one commit or tree (a range) has no listing to compare with: one line says so and nothing else is checked."""
+    if ref and not names_tree(root, ref):
+        return [f"profiles.json: [budget] listing cost not compared with '{ref}': it is not one commit or tree "
+                f"(a range?), so growth since it is not checked"]
+    prof = load_profiles(root) if prof is None else prof
+    entries = listing_entries(root) if entries is None else entries
+    now = plugin_costs(entries)
+    profiles = profile_members(prof)
+    budgets, _problems = parse_budgets(prof)
+    before = plugin_costs(entries_at_ref(root, ref)) if ref else None
+    now_p = profile_costs(now, profiles)
+    before_p = profile_costs(before, profiles) if before is not None else None
+    home = {m: name for name, members in profiles.items() for m in members}
+    out = []
+    for b in budgets:
+        for name in b.profiles:
+            cost = now_p.get(name, Cost())
+            if cost.chars <= b.chars:
+                continue
+            note = ""
+            if before_p is not None:
+                was = before_p.get(name, Cost()).chars
+                grew = cost.chars - was
+                if was > b.chars and grew <= GROWTH_WARN:
+                    continue
+                note = f"; {was:,} at {ref} ({grew:+,})"
+            top = max((m for m in profiles.get(name, []) if m in now), key=lambda m: (now[m].chars, m), default=None)
+            largest = f"; largest plugin {top} ({now[top].chars:,})" if top else ""
+            out.append(f"profiles.json: [budget] profile '{name}' costs {cost.chars:,} listing characters "
+                       f"(entries: {cost.entries}), {_pct(cost.chars, b.chars)} of the {b.chars:,}-character {b.label} "
+                       f"budget, so descriptions may be cut{note}{largest}")
+    if before is not None:
+        for plugin in sorted(now):
+            was, cost = before.get(plugin, Cost()).chars, now[plugin].chars
+            if cost - was <= GROWTH_WARN:
+                continue
+            pct = f", +{_pct(cost - was, was)}" if was else ""
+            where = f" (profile {home[plugin]}: {now_p[home[plugin]].chars:,} characters in total)" if plugin in home else ""
+            out.append(f"{plugin}: [budget] listing cost grew from {was:,} to {cost:,} characters "
+                       f"(+{cost - was:,}{pct}) since {ref}{where}")
     return out
 
 

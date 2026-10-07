@@ -279,6 +279,33 @@ See [SKILLS.md](SKILLS.md) for the full catalog of every skill, command and agen
 
 `caveman` is referenced directly from upstream (not vendored) because it is a full plugin with runtime hooks and a split MIT/BSL license. It is pinned to an exact commit `sha`; `scripts/bump-pinned.sh` proposes updates via PR.
 
+### Listing budget
+
+Every installed plugin costs context in every session, used or not: Claude Code lists each skill and command as one line, `- plugin:name: description`, and fits the whole listing into a character budget. Copilot CLI has a budget too (`SKILL_CHAR_BUDGET`), but its listing format and what it does over the budget were not verified, so the Copilot figures here apply Claude Code's counting rule. [SKILLS.md](SKILLS.md), section "Listing cost", counts it per profile and per plugin (`python3 scripts/gen-catalog.py` regenerates it).
+
+| Client | Budget | Source |
+|---|---|---|
+| Claude Code | 1% of the context window, in characters, 8,000 when the window is unknown; each entry is cut at 1,536 characters. Claude Code 2.1.292 multiplies the window (tokens) by 4 characters for older models and 3 for newer ones: 30,000 to 40,000 for a 1M-token window, 6,000 to 8,000 for 200K | the 1%, 8,000 and 1,536 are documented; the 3 and 4 were read from the 2.1.292 binary |
+| Copilot CLI | 15,000 characters (`SKILL_CHAR_BUDGET`) | the variable exists in 1.0.92; the 15,000 is the default found in 1.0.88 (`docs/ANALYSE.md`, copilot-cli-3) and was not re-verified; the listing format and the effect of going over are not verified |
+
+Over the budget Claude Code keeps every name and drops descriptions, those of the skills you use least first, so a skill that lost its description is found by name only. `skillOverrides` does not apply to plugin skills: the plugin set is the lever. Bundled skills, your own skills and other plugins share the same budget, so a profile that fits here can still be cut.
+
+The tables in SKILLS.md: *Characters* is the cost of the entries including the line break after each, *Names only* what is left when every description is dropped, and "157% of 15,000" the share of a budget in [`profiles.json`](profiles.json) `listingBudget` (Copilot CLI 15,000 for `cloud`, the Copilot default; Claude Code 30,000, a 1M-token window, for every profile). An entry is its qualified name, 5 characters of line overhead and its text, so these numbers (and the `[budget]` lines) are larger than the sum of the description lengths. Skills with `disable-model-invocation: true` cost nothing, agents are not counted, and `caveman` (referenced from upstream) is not measured. The tables change with every description, so two pull requests that each change one conflict in SKILLS.md: run `python3 scripts/gen-catalog.py` and commit the result (the daily sync rebuilds its pull requests from `main` the next day).
+
+`scripts/validate.py` prints `[budget]` warnings: one line per profile over a budget (with `--diff` only when it crossed the budget or grew by more than 500 characters since the base) and, with `--diff`, one line per plugin whose cost grew by more than 500 characters, about one skill. They never change the exit code and are a cost to weigh, not a security finding; the sync job copies them into the body of a sync pull request, where "since HEAD" means the base branch. `--diff` with a range (`A..B`) has no single listing to compare with and prints one line saying so. A malformed `listingBudget` is a `✗` problem (exit 1, also with `--warn-only`), and a profile that is under no client of `listingBudget` is not checked: add a new profile there. A skill whose description plus `when_to_use` is over 1,536 characters (counted with a space between them) gets the `[description]` warning; commands are not checked for length.
+
+To keep the cost down:
+
+- Install only the plugins you need (see [Install](#install), with its Profiles table), and in a work repo enable only those you use there (`settings/project-plugins.json`).
+- Raise the Claude Code budget in `~/.claude/settings.json`; every turn then carries a larger listing:
+
+  ```json
+  { "skillListingBudgetFraction": 0.03 }
+  ```
+
+  The fraction is the listing characters ÷ (window tokens × 4): the `cloud` profile (about 23.6K characters) needs 0.03 on a 200K window, 0.04 on a model that counts 3 characters per token. `SLASH_COMMAND_TOOL_CHAR_BUDGET` sets a fixed character count instead; Copilot CLI has `SKILL_CHAR_BUDGET`.
+- `/doctor` estimates the listing cost and its biggest contributors; `/skill-doctor` (Claude Code 2.1.252 and later) shows what each skill costs and which ones you never use. Turn a plugin off with `/plugin`.
+
 ## How syncing works
 
 - `sources.json` lists each upstream repo, the ref to track, a `trust` tier, and which paths to copy where.
@@ -424,7 +451,7 @@ The model can only load skills: every other tool is removed (`--tools Skill`), n
 
 `.github/workflows/skill-evals.yml` runs it every Monday and on demand (inputs: model, filter, runs, listing budget, strict) with the `ANTHROPIC_API_KEY` secret, skips with a notice when the secret is not set, and writes the table to the run summary. It never runs on pull requests; those only run the offline checks: `tests/evals/` and the description warnings of `scripts/validate.py`.
 
-**Skill listing budget.** Claude Code fits every skill description into about 1% of the context window. With every plugin of this repo installed the listing is ~58k characters against a 30k budget, so descriptions are cut and some skills stop loading (in the evals azure-boards, azure-private-link and run-tests loaded only with full descriptions). Install a profile instead of everything, or raise the budget in `~/.claude/settings.json`: `"skillListingBudgetFraction": 0.03`.
+**Skill listing budget.** Claude Code fits every skill description into about 1% of the context window. With every plugin of this repo installed the listing is ~58k characters against a 30k budget, so descriptions are cut and some skills stop loading (in the evals azure-boards, azure-private-link and run-tests loaded only with full descriptions). Install a profile instead of everything, or raise the budget in `~/.claude/settings.json`: `"skillListingBudgetFraction": 0.03`. See [Listing budget](#listing-budget).
 
 ## Licensing
 
