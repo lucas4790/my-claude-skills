@@ -401,6 +401,34 @@ cases:
     forbid: [nuget-trusted-publishing, azure-artifacts]
     tags: [dotnet, nuget]
 
+  # --- C# coding guidelines vs modern C# features ---------------------------------------------------
+  - id: review-csharp-against-guidelines
+    prompt: >-
+      Review OrderService.cs against our coding guidelines: methods that are too long, magic numbers,
+      naming, and anything that catches a generic Exception.
+    expect: [coding-guidelines]
+    forbid: [modern-csharp-coding-standards]
+    tags: [dotnet, review]
+
+  - id: write-class-following-guidelines
+    prompt: >-
+      Write a C# InvoiceCalculator class that follows our team coding guidelines: internal sealed,
+      small methods, no magic numbers, collections never null.
+    expect: [coding-guidelines]
+    accept: [modern-csharp-coding-standards]
+    forbid: [type-design-performance]
+    tags: [dotnet]
+    note: sealed-by-default is a team rule here, not a performance question
+
+  - id: csharp-records-pattern-matching
+    prompt: >-
+      How do I rewrite this C# DTO as a record and replace the type-checking if/else chain with
+      pattern matching?
+    expect: [modern-csharp-coding-standards]
+    forbid: [coding-guidelines]
+    tags: [dotnet]
+    note: modern C# feature advice is the look-alike skill, not the team guidelines
+
   # --- Generic scripting and docs: negative controls and non-Azure skills -------------------------
   - id: bash-kube-contexts
     prompt: >-

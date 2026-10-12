@@ -43,10 +43,6 @@
           "to": "plugins/commit-commands"
         },
         {
-          "from": "plugins/claude-security",
-          "to": "plugins/claude-security"
-        },
-        {
           "from": "plugins/code-modernization",
           "to": "plugins/code-modernization"
         },

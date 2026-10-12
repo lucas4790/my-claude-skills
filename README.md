@@ -96,9 +96,9 @@ lists the other useful settings. With VS Code on Windows and Remote-WSL, run the
 | Profile | Plugins | Copilot default |
 |---|---|---|
 | `cloud` | terraform, azure-agent-skills, pyright-lsp, component-documentation, mattpocock-skills, powershell, feature-dev, spec-kit, yaml-lsp | yes |
-| `dotnet` | dotnet, dotnet-aspnetcore, dotnet-test, dotnet-data, dotnet-nuget, dotnet-advanced, csharp-patterns | no |
-| `extras` | anthropic-skills, codebase-onboarding, agent-browser, caveman (skipped on native Windows: POSIX-only hooks) | no |
-| `claude-only` | claude-security, commit-commands, code-modernization, pr-review-toolkit, yaml-hooks | never (name them explicitly to force) |
+| `dotnet` | dotnet, dotnet-aspnetcore, dotnet-test, dotnet-data, dotnet-nuget, dotnet-advanced, csharp-patterns, coding-guidelines | no |
+| `extras` | skill-builders, codebase-onboarding, agent-browser, caveman (skipped on native Windows: POSIX-only hooks) | no |
+| `claude-only` | commit-commands, code-modernization, pr-review-toolkit, yaml-hooks | never (name them explicitly to force) |
 
 `claude-only` plugins depend on Claude Code features (Workflow engine, `` !`cmd` `` injection, `$ARGUMENTS`,
 Claude-only hook events). Use them from Claude Code, or from VS Code's **Claude** session target, which reads
@@ -182,7 +182,7 @@ that change history, config or remotes (`git push`, `reset`, `clean`, `config`, 
 also in their `git -C <dir> …` form, and the same rules for the PowerShell tool, where `git -c` asks only for
 `core.hooksPath` and `hook.*` because PowerShell rules ignore case) plus two `env` pins. Ask rules win over allow rules **and over a skill's
 `allowed-tools`**, and match past a leading `VAR=value`, so Claude still asks before these even inside a skill that
-pre-approves `Bash(git *)`, as `claude-security` does. Since 0.12.0 Claude may start that skill on its own. The
+pre-approves `Bash(git *)`, as `claude-security` (installed from `claude-plugins-official`, see below) does. Since 0.12.0 Claude may start that skill on its own. The
 `env` pins keep `code-modernization`'s function-hook module off (`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=0`, even if
 Anthropic's rollout flag enables it) and turn off its usage counts (`CODE_MODERNIZATION_TELEMETRY=0`). Side
 effect: `/commit-push-pr` now asks before pushing. It also switches off AI attribution (`attribution`: no co-author trailers, PR footers or session links; see
@@ -208,11 +208,10 @@ See [SKILLS.md](SKILLS.md) for the full catalog of every skill, command and agen
 
 | Plugin | Upstream | Contents |
 |---|---|---|
-| `anthropic-skills` | [anthropics/skills](https://github.com/anthropics/skills) | 3 curated skills: mcp-builder, skill-creator, webapp-testing |
+| `skill-builders` | [anthropics/skills](https://github.com/anthropics/skills) | 3 curated skills: mcp-builder, skill-creator, webapp-testing |
 | `pr-review-toolkit` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | `/review-pr` command + six review agents (bugs, silent failures, tests, comments, types, simplification) |
 | `feature-dev` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | `/feature-dev` command + code-explorer, code-architect, code-reviewer agents |
 | `commit-commands` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | `/commit`, `/commit-push-pr` and related git workflow commands |
-| `claude-security` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | deep vulnerability scanning with verified findings and patches |
 | `code-modernization` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | structured legacy-codebase modernization workflow and review agents |
 | `dotnet` | [dotnet/skills](https://github.com/dotnet/skills) (official Microsoft) | Roslyn C# language server (via `dnx`, needs .NET 10 SDK on PATH) + core .NET skills |
 | `dotnet-aspnetcore` | [dotnet/skills](https://github.com/dotnet/skills) (official Microsoft) | ASP.NET Core skills: middleware, endpoints, real-time communication, API patterns |
@@ -222,6 +221,7 @@ See [SKILLS.md](SKILLS.md) for the full catalog of every skill, command and agen
 | `dotnet-advanced` | [dotnet/skills](https://github.com/dotnet/skills) (official Microsoft) | advanced .NET and C#: file-based C# scripts, P/Invoke, vectorization, NuGet trusted publishing |
 | `azure-agent-skills` | [MicrosoftDocs/agent-skills](https://github.com/MicrosoftDocs/agent-skills) (official Microsoft) | 32 curated Azure skills — DevOps (Azure DevOps, Pipelines, Repos, Artifacts, Boards, ACR), platform (AKS, Key Vault, RBAC, Monitor, Managed Grafana, Policy, ARM, Cost, Logic Apps, Well-Architected, OpenTelemetry, Functions) and networking (VNet, DNS, Private Link, NAT, LB, App Gateway, WAF, Front Door, Firewall, Network Watcher, Bastion, VPN, DDoS). Structured Microsoft Learn indexes, not command recipes: they tell the model what to look up and fetch the live docs through the [Microsoft Learn MCP server](https://learn.microsoft.com/training/support/mcp), which the plugin bundles (`microsoftdocs`, `https://learn.microsoft.com/api/mcp`: read-only, no sign-in; Claude Code exposes it as `mcp__plugin_azure-agent-skills_microsoftdocs__*`, and the skills' `mcp_microsoftdocs:*` references resolve to it) |
 | `csharp-patterns` | [Aaronontheweb/dotnet-skills](https://github.com/Aaronontheweb/dotnet-skills) | 12 curated C# design skills: coding standards, concurrency, nullable, API/type design, config, DI, serialization, project structure, packages, Testcontainers, AOT |
+| `coding-guidelines` | repo-owned | team C# coding guidelines: rules of thumb (least surprise, KISS, YAGNI, DRY) and rules for class and member design, naming, maintainability (7 statements per method, `internal sealed` by default, no magic numbers), exceptions and events, async vs `Task.Run`, framework usage, comments and layout; for writing and reviewing code, with `.editorconfig` hints |
 | `powershell` | [Misaka-Mikoto-Tech/agent-skills](https://github.com/Misaka-Mikoto-Tech/agent-skills), [github/awesome-copilot](https://github.com/github/awesome-copilot) | safe native-command invocation, quoting, escaping, encoding, `Start-Process` rules; Pester 6 testing guidelines (github/awesome-copilot), synced from awesome-copilot with local patches (`patches/pester.patch`) |
 | `mattpocock-skills` | [mattpocock/skills](https://github.com/mattpocock/skills) | 24 skills (17 engineering, 7 productivity): grill-me / grill-with-docs, to-spec, to-tickets, tdd, domain-modeling, triage, implement, handoff… (`code-review` excluded in favour of `pr-review-toolkit`); run `setup-matt-pocock-skills` once per repo |
 | `agent-browser` | [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) | browser automation CLI skill (navigate, forms, screenshots, extraction, QA); `install.sh` sets up the CLI + Chrome |
@@ -233,6 +233,23 @@ See [SKILLS.md](SKILLS.md) for the full catalog of every skill, command and agen
 | `yaml-lsp` | repo-owned ([redhat-developer/yaml-language-server](https://github.com/redhat-developer/yaml-language-server)) | YAML language server: syntax errors, SchemaStore schemas by file name (GitHub Actions, Azure Pipelines, GitLab CI, docker-compose, Kustomize, Helm `Chart.yaml`), schemas per file via modelines, no "Unresolved tag" errors for CloudFormation, GitLab `!reference` and Ansible `!vault`; `install.sh` installs `yaml-language-server`. `.claude-plugin/plugin.json` (Claude Code, with server `settings`) and root `plugin.json` (Copilot CLI, `fileExtensions`, no settings) |
 | `yaml-hooks` | repo-owned | Claude Code `PostToolUse` hook: runs `yamllint` after every `.yaml`/`.yml` Write/Edit and adds the errors to Claude's context; the project's `.yamllint` wins over a relaxed default; Helm templates skipped; silent without `yamllint` (`install.sh` installs it), with a `yamllint` found only through a relative `PATH` entry, and for files over 256 KiB; says it is inactive when yamllint is older than 1.30, rejects the config, crashes (a config it cannot load, a file that is not UTF-8) or runs past its time limit |
 | `caveman` | [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) | terse "caveman mode" that cuts ~65% of output tokens; `/caveman` commands + skills |
+
+**Renamed and removed plugins.** Claude Code's validator reserves plugin names that look like Anthropic's own
+(`claude-…`, `anthropic-…`), so `anthropic-skills` is now `skill-builders` (same three skills, same `plugins/anthropic-skills` folder), and `claude-security`
+is no longer in this marketplace. Renaming `claude-security` would break it: its agents, hooks and workflow refer to
+themselves as `claude-security:…`. Install it from Anthropic's own marketplace instead:
+
+```bash
+claude plugin install claude-security@claude-plugins-official
+```
+
+On a machine that installed the old names, remove them once (the updater installs `skill-builders` as a new plugin
+and never removes plugins):
+
+```bash
+claude plugin uninstall anthropic-skills@my-claude-skills
+claude plugin uninstall claude-security@my-claude-skills
+```
 
 **YAML** (`yaml-lsp`, `yaml-hooks`): the language server picks schemas from [SchemaStore](https://www.schemastore.org/) by file name and downloads the catalog and schemas on first use. Kubernetes manifests are not mapped by folder: yaml-language-server 1.24 flags every valid core `apiVersion: v1` object (ConfigMap, Service, ...) with "Matches multiple schemas when only one must validate" under a `kubernetes` mapping ([#998](https://github.com/redhat-developer/yaml-language-server/issues/998)), treats Helm `values.yaml` as a manifest, and reports "Unable to load schema" for CRDs missing from the catalog. Put a modeline on the first line of a manifest instead, e.g. `# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/v1.34.1-standalone-strict/deployment-apps-v1.json`, or for a CRD `https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/<group>/<kind>_<version>.json`. Helm templates with `{{ }}` blocks are not YAML: the language server reports syntax errors in them (it cannot skip files), the yamllint hook skips them. Claude Code starts no plugin language servers in cloud sessions; the hook runs there too. `YAML_HOOKS_WARNINGS=1` (e.g. in `settings.json` `env`) makes the hook list yamllint warnings as well as errors. The hook needs yamllint 1.30 or newer: its default config uses the `anchors` rule (new in 1.30), and with the project's own `.yamllint` it asks `yamllint --list-files` (new in 1.29) which files that config ignores. With an older yamllint, a config yamllint rejects, a yamllint that crashes (a config it cannot load, a file that is not UTF-8) or one that runs past its time limit (15 s for the lint, 5 s each for `--list-files` and `--version`, below the hook's 30 s timeout; a yamllint wrapper that does not `exec` the real one can outlast it), the hook adds one line saying it is inactive and why. Text from yamllint reaches Claude marked as data, not instructions: at most 20 lines of 300 bytes. `install.sh` replaces an older yamllint through pipx or uv and `install.ps1` through uv; without them they warn. In Copilot the server runs without the settings above (Copilot has no `settings` field), so CloudFormation and GitLab tags may show as unresolved.
 

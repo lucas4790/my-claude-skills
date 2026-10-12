@@ -1,0 +1,8 @@
+{
+  "name": "coding-guidelines",
+  "description": "Team C# coding guidelines: rules of thumb (least surprise, KISS, YAGNI, DRY) and concrete rules for class and member design, naming, maintainability, exceptions and events, async, framework usage, comments and layout, for writing and reviewing code",
+  "author": {
+    "name": "Lucas",
+    "url": "https://github.com/lucas4790"
+  }
+}

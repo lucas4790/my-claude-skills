@@ -9,7 +9,7 @@
   },
   "plugins": [
     {
-      "name": "anthropic-skills",
+      "name": "skill-builders",
       "source": "./plugins/anthropic-skills",
       "description": "Curated skills from anthropics/skills: mcp-builder, skill-creator, webapp-testing",
       "author": {
@@ -47,16 +47,6 @@
       },
       "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/commit-commands",
       "category": "productivity"
-    },
-    {
-      "name": "claude-security",
-      "source": "./plugins/claude-security",
-      "description": "Deep vulnerability scanning of your own code at a chosen effort tier, with every finding challenged before it is reported, and verified patches you apply when you choose",
-      "author": {
-        "name": "Anthropic"
-      },
-      "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/claude-security",
-      "category": "security"
     },
     {
       "name": "code-modernization",
@@ -147,6 +137,16 @@
         "url": "https://github.com/Aaronontheweb"
       },
       "homepage": "https://github.com/Aaronontheweb/dotnet-skills",
+      "category": "development"
+    },
+    {
+      "name": "coding-guidelines",
+      "source": "./plugins/coding-guidelines",
+      "description": "Repo-owned skill: team C# coding guidelines (least surprise, KISS, YAGNI, DRY; class and member design, naming, maintainability, exceptions and events, async, framework usage, comments, layout) for writing and reviewing code",
+      "author": {
+        "name": "Lucas",
+        "url": "https://github.com/lucas4790"
+      },
       "category": "development"
     },
     {
