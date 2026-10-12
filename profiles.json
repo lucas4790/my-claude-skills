@@ -19,7 +19,8 @@
       "dotnet-data",
       "dotnet-nuget",
       "dotnet-advanced",
-      "csharp-patterns"
+      "csharp-patterns",
+      "coding-guidelines"
     ],
     "extras": [
       "anthropic-skills",

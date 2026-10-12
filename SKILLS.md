@@ -288,6 +288,16 @@ Curated C#/.NET design skills from Aaronontheweb/dotnet-skills: coding standards
 | [`testcontainers-integration-tests`](plugins/csharp-patterns/skills/testcontainers-integration-tests/SKILL.md) | Write integration tests using TestContainers for .NET with xUnit. Covers infrastructure testing with real databases, message queues, and caches in Docker containers instead of mocks. |
 | [`type-design-performance`](plugins/csharp-patterns/skills/type-design-performance/SKILL.md) | Design .NET types for performance. Seal classes, use readonly structs, prefer static pure functions, avoid premature enumeration, and choose the right collection types. |
 
+## `coding-guidelines`
+
+Repo-owned skill: team C# coding guidelines (least surprise, KISS, YAGNI, DRY; class and member design, naming, maintainability, exceptions and events, async, framework usage, comments, layout) for writing and reviewing code
+
+### Skills
+
+| Name | What it does |
+|---|---|
+| [`coding-guidelines`](plugins/coding-guidelines/skills/coding-guidelines/SKILL.md) | Use when writing, refactoring or reviewing C# code that must follow the team's coding guidelines — rules of thumb (least surprise, KISS, YAGNI, DRY) plus concrete rules for class and member design, naming,… |
+
 ## `powershell`
 
 PowerShell skills: safe native-command invocation, quoting, escaping, encoding and Start-Process rules (Misaka-Mikoto-Tech/agent-skills); Pester 6 testing guidelines (github/awesome-copilot)

@@ -13,7 +13,7 @@ VS Code. Most of `plugins/` is **vendored** from upstream repos listed in `sourc
   `scripts/sync.sh --only <source>` instead. Which paths are vendored: every `copy[].to` in `sources.json`.
 - To change a vendored file, never edit it: edit `patches/<name>.patch` (regenerate as in README,
   "Patching vendored files"). `sync.sh` applies it after every sync.
-- Repo-owned files you may edit: `plugins/component-documentation/`, `plugins/spec-kit/`, `plugins/yaml-lsp/`,
+- Repo-owned files you may edit: `plugins/coding-guidelines/`, `plugins/component-documentation/`, `plugins/spec-kit/`, `plugins/yaml-lsp/`,
   `plugins/yaml-hooks/`, `patches/`, `tests/`,
   every `plugins/*/.claude-plugin/plugin.json` that `sources.json` does not copy,
   `plugins/pyright-lsp/plugin.json` (Copilot manifest), `profiles.json`, `settings/`, `scripts/`, installers, docs.

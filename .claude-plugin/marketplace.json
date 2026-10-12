@@ -150,6 +150,16 @@
       "category": "development"
     },
     {
+      "name": "coding-guidelines",
+      "source": "./plugins/coding-guidelines",
+      "description": "Repo-owned skill: team C# coding guidelines (least surprise, KISS, YAGNI, DRY; class and member design, naming, maintainability, exceptions and events, async, framework usage, comments, layout) for writing and reviewing code",
+      "author": {
+        "name": "Lucas",
+        "url": "https://github.com/lucas4790"
+      },
+      "category": "development"
+    },
+    {
       "name": "powershell",
       "source": "./plugins/powershell",
       "description": "PowerShell skills: safe native-command invocation, quoting, escaping, encoding and Start-Process rules (Misaka-Mikoto-Tech/agent-skills); Pester 6 testing guidelines (github/awesome-copilot)",
