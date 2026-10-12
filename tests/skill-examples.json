@@ -58,11 +58,11 @@
       "$comment": "GitHub Actions YAML for integration tests with containers.",
       "mode": "report"
     },
-    "plugins/anthropic-skills/skills/webapp-testing/SKILL.md": {
+    "plugins/skill-builders/skills/webapp-testing/SKILL.md": {
       "$comment": "Python (Playwright) and bash; compiled, not run (needs a browser and a web server).",
       "mode": "report"
     },
-    "plugins/anthropic-skills/skills/skill-creator/SKILL.md": {
+    "plugins/skill-builders/skills/skill-creator/SKILL.md": {
       "$comment": "JSON formats (evals, grading, benchmark) and bash commands for writing skills.",
       "mode": "report"
     }

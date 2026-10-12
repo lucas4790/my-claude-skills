@@ -9,8 +9,8 @@
   },
   "plugins": [
     {
-      "name": "anthropic-skills",
-      "source": "./plugins/anthropic-skills",
+      "name": "skill-builders",
+      "source": "./plugins/skill-builders",
       "description": "Curated skills from anthropics/skills: mcp-builder, skill-creator, webapp-testing",
       "author": {
         "name": "Anthropic"
@@ -47,16 +47,6 @@
       },
       "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/commit-commands",
       "category": "productivity"
-    },
-    {
-      "name": "claude-security",
-      "source": "./plugins/claude-security",
-      "description": "Deep vulnerability scanning of your own code at a chosen effort tier, with every finding challenged before it is reported, and verified patches you apply when you choose",
-      "author": {
-        "name": "Anthropic"
-      },
-      "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/claude-security",
-      "category": "security"
     },
     {
       "name": "code-modernization",

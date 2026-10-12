@@ -1,5 +1,5 @@
 {
-  "name": "anthropic-skills",
+  "name": "skill-builders",
   "description": "Curated skills from anthropics/skills (MCP building, skill authoring, web app testing), kept in sync automatically",
   "author": {
     "name": "Anthropic"

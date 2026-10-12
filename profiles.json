@@ -23,13 +23,12 @@
       "coding-guidelines"
     ],
     "extras": [
-      "anthropic-skills",
+      "skill-builders",
       "codebase-onboarding",
       "agent-browser",
       "caveman"
     ],
     "claude-only": [
-      "claude-security",
       "commit-commands",
       "code-modernization",
       "pr-review-toolkit",
