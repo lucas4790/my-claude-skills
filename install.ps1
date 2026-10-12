@@ -26,6 +26,23 @@ param()   # the parameters are the scriptblock's below: here, irm | iex would se
     [CmdletBinding()]
     param([string[]] $Plugin)
     $ErrorActionPreference = 'Stop'
+    # Windows PowerShell 5.1 started from PowerShell 7 (a pwsh terminal, Claude Code's `!` prompt) inherits
+    # pwsh's module directories first in PSModulePath, and then fails to autoload its own modules from them
+    # ("Get-ExecutionPolicy ... the module could not be loaded"), which broke the uv installer. Keep only
+    # the other directories; pwsh adds its own back when it starts. Harmless if it stays in a 5.1 session
+    # under irm | iex: pwsh's modules cannot load in 5.1 anyway.
+    if ($PSVersionTable.PSEdition -ne 'Core' -and $env:PSModulePath) {
+        $pwshModuleDirs = @(
+            (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'PowerShell\Modules'),
+            (Join-Path $env:ProgramFiles 'PowerShell\Modules'),
+            (Join-Path $env:ProgramFiles 'PowerShell\*\Modules'),
+            '*\WindowsApps\Microsoft.PowerShell_*'
+        )
+        $env:PSModulePath = (@($env:PSModulePath -split ';') | Where-Object {
+            $dir = $_.TrimEnd('\')
+            $dir -and -not ($pwshModuleDirs | Where-Object { $dir -like $_ })
+        }) -join ';'
+    }
     $repo = 'lucas4790/my-claude-skills'
     $name = 'my-claude-skills'
     $manifestUrl = "https://raw.githubusercontent.com/$repo/main/.claude-plugin/marketplace.json"

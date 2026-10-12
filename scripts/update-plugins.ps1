@@ -15,6 +15,21 @@
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'Log lines')]
 param([switch] $Force)
 
+# Windows PowerShell 5.1 started from PowerShell 7 inherits pwsh's module directories first in PSModulePath
+# and then cannot autoload its own modules (Get-FileHash, Start-Transcript); see install.ps1.
+if ($PSVersionTable.PSEdition -ne 'Core' -and $env:PSModulePath) {
+    $pwshModuleDirs = @(
+        (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'PowerShell\Modules'),
+        (Join-Path $env:ProgramFiles 'PowerShell\Modules'),
+        (Join-Path $env:ProgramFiles 'PowerShell\*\Modules'),
+        '*\WindowsApps\Microsoft.PowerShell_*'
+    )
+    $env:PSModulePath = (@($env:PSModulePath -split ';') | Where-Object {
+        $dir = $_.TrimEnd('\')
+        $dir -and -not ($pwshModuleDirs | Where-Object { $dir -like $_ })
+    }) -join ';'
+}
+
 $name = 'my-claude-skills'
 $cache = Join-Path $env:LOCALAPPDATA $name
 $log = Join-Path $cache 'update.log'
