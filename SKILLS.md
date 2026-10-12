@@ -10,9 +10,9 @@ Curated skills from anthropics/skills: mcp-builder, skill-creator, webapp-testin
 
 | Name | What it does |
 |---|---|
-| [`mcp-builder`](plugins/skill-builders/skills/mcp-builder/SKILL.md) | Guide for creating high-quality MCP (Model Context Protocol) servers that enable LLMs to interact with external services through well-designed tools. Use when building MCP servers to integrate external APIs or services,… |
-| [`skill-creator`](plugins/skill-builders/skills/skill-creator/SKILL.md) | Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill… |
-| [`webapp-testing`](plugins/skill-builders/skills/webapp-testing/SKILL.md) | Toolkit for interacting with and testing local web applications using Playwright. Supports verifying frontend functionality, debugging UI behavior, capturing browser screenshots, and viewing browser logs. |
+| [`mcp-builder`](plugins/anthropic-skills/skills/mcp-builder/SKILL.md) | Guide for creating high-quality MCP (Model Context Protocol) servers that enable LLMs to interact with external services through well-designed tools. Use when building MCP servers to integrate external APIs or services,… |
+| [`skill-creator`](plugins/anthropic-skills/skills/skill-creator/SKILL.md) | Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill… |
+| [`webapp-testing`](plugins/anthropic-skills/skills/webapp-testing/SKILL.md) | Toolkit for interacting with and testing local web applications using Playwright. Supports verifying frontend functionality, debugging UI behavior, capturing browser screenshots, and viewing browser logs. |
 
 ## `feature-dev`
 

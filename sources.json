@@ -8,19 +8,19 @@
       "copy": [
         {
           "from": "skills/mcp-builder",
-          "to": "plugins/skill-builders/skills/mcp-builder"
+          "to": "plugins/anthropic-skills/skills/mcp-builder"
         },
         {
           "from": "skills/skill-creator",
-          "to": "plugins/skill-builders/skills/skill-creator"
+          "to": "plugins/anthropic-skills/skills/skill-creator"
         },
         {
           "from": "skills/webapp-testing",
-          "to": "plugins/skill-builders/skills/webapp-testing"
+          "to": "plugins/anthropic-skills/skills/webapp-testing"
         },
         {
           "from": "THIRD_PARTY_NOTICES.md",
-          "to": "plugins/skill-builders/THIRD_PARTY_NOTICES.md"
+          "to": "plugins/anthropic-skills/THIRD_PARTY_NOTICES.md"
         }
       ]
     },

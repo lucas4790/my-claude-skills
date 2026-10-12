@@ -10,7 +10,7 @@
   "plugins": [
     {
       "name": "skill-builders",
-      "source": "./plugins/skill-builders",
+      "source": "./plugins/anthropic-skills",
       "description": "Curated skills from anthropics/skills: mcp-builder, skill-creator, webapp-testing",
       "author": {
         "name": "Anthropic"

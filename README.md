@@ -235,7 +235,7 @@ See [SKILLS.md](SKILLS.md) for the full catalog of every skill, command and agen
 | `caveman` | [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) | terse "caveman mode" that cuts ~65% of output tokens; `/caveman` commands + skills |
 
 **Renamed and removed plugins.** Claude Code's validator reserves plugin names that look like Anthropic's own
-(`claude-…`, `anthropic-…`), so `anthropic-skills` is now `skill-builders` (same three skills), and `claude-security`
+(`claude-…`, `anthropic-…`), so `anthropic-skills` is now `skill-builders` (same three skills, same `plugins/anthropic-skills` folder), and `claude-security`
 is no longer in this marketplace. Renaming `claude-security` would break it: its agents, hooks and workflow refer to
 themselves as `claude-security:…`. Install it from Anthropic's own marketplace instead:
 
