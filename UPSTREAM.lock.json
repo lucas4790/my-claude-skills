@@ -14,7 +14,7 @@
   "awesome-copilot": {
     "ref": "main",
     "repo": "https://github.com/github/awesome-copilot.git",
-    "sha": "82701c24b99488536ca399ff4789a458b7a05db7",
+    "sha": "70ddff7fab9d4d49743d221b56d761cff58048d0",
     "trust": "low"
   },
   "claude-plugins-official": {
@@ -56,7 +56,7 @@
   "stannard-dotnet-skills": {
     "ref": "master",
     "repo": "https://github.com/Aaronontheweb/dotnet-skills.git",
-    "sha": "29878f27d700f26ed5deefe1c61b206042e5aa25",
+    "sha": "ac0deb2f531ff5090718cb0069c73ba3f9f95f69",
     "trust": "low"
   }
 }
