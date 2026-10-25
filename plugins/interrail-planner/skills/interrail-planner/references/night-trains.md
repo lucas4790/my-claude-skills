@@ -55,7 +55,7 @@ planned for 2028 (https://www.europeansleeper.eu/barcelona).
 | Paris - Foix - Latour-de-Carol | daily |
 | Paris - Nîmes - Montpellier - Perpignan - Cerbère | daily in summer, on some days the rest of the year (SNCF Connect showed a 26 Oct 2026 run, Austerlitz 21:25 - Cerbère 09:16); check the date |
 | Paris - Bayonne - Pau - Lourdes - Tarbes | daily |
-| Paris - Marseille - Toulon - Cannes - Nice | daily |
+| Paris - Marseille - Toulon - Cannes - Nice | daily (IC 5781: Austerlitz 20:57, Marseille-Blancarde 06:34, Nice 09:09 on Oct 2026 sample dates; https://www.sncf-connect.com/en-en/train/timetables/paris/nice) |
 | Paris - Rodez - Albi, Paris - Aurillac, Paris - Briançon | not daily |
 
 Source: https://www.interrail.com/en/plan-your-trip/tips-and-tricks/trains-europe/night-trains/intercites-de-nuit

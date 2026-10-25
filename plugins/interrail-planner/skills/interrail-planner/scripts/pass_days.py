@@ -376,7 +376,9 @@ def evaluate(pass_info: PassInfo, legs: list[Leg], options: Options | None = Non
              today: date | None = None) -> Report:
     opts = options or Options()
     rep = Report(today=today or date.today())
-    for leg in sorted(legs, key=lambda l: (l.day, l.dep)):
+    # Stable sort on date only: legs of one day keep the order of the file, so a
+    # leg without a dep time is not moved in front of earlier legs that have one.
+    for leg in sorted(legs, key=lambda l: l.day):
         if leg.own_ticket:
             rep.own_ticket_legs.append(leg)
             continue

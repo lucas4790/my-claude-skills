@@ -126,6 +126,10 @@ https://www.interrail.com/en/plan-your-trip/tips-and-tricks/trains-europe/railwa
   (https://www.renfe.com/es/es/inspirate/rutas/cordoba-sevilla,
   https://www.renfe.com/es/es/inspirate/rutas/sevilla-granada,
   https://www.renfe.com/es/es/inspirate/rutas/cordoba-granada).
+- Sevilla-Granada: in 2026 storm damage around Antequera led to bus
+  replacements and fewer Sevilla-Córdoba-Granada trains
+  (https://grupo.renfe.com/es/es/sala-de-prensa/noticias/2026/02/renfe-ajusta-horarios-avant-sevilla-malaga).
+  Check the actual date; fallback is via Córdoba (two AVE legs, same travel day).
 - Expect high demand Madrid-Andalucía around Christmas; Renfe usually adds
   capacity but publishes no holiday cuts in advance.
 

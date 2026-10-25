@@ -289,3 +289,11 @@ def test_cli_today_flag_and_tracker_table(pd, tmp_path, capsys):
     # Without --today the script uses today's date and still runs.
     assert pd.main([str(f)]) == 0
     assert "Reservation tracker (today " in capsys.readouterr().out
+
+
+def test_legs_of_one_day_keep_file_order(pd):
+    # A leg without dep time must not jump ahead of an earlier leg that has one.
+    legs = [leg("2027-01-05", "Barcelona", "Paris", "ES", "FR", dep="09:26"),
+            leg("2027-01-05", "Paris", "Rotterdam", "FR", "NL")]
+    _, rep = make(pd, legs)
+    assert [l.origin for l in rep.travel_days[date(2027, 1, 5)]] == ["Barcelona", "Paris"]
