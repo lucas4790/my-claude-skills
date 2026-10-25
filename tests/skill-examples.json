@@ -65,6 +65,12 @@
     "plugins/anthropic-skills/skills/skill-creator/SKILL.md": {
       "$comment": "JSON formats (evals, grading, benchmark) and bash commands for writing skills.",
       "mode": "report"
+    },
+    "plugins/kubernetes-helm/skills/kubernetes-troubleshooting/SKILL.md": {
+      "mode": "enforce"
+    },
+    "plugins/kubernetes-helm/skills/helm-charts/SKILL.md": {
+      "mode": "enforce"
     }
   }
 }

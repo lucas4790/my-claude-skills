@@ -4,6 +4,7 @@
     "cloud": [
       "terraform",
       "azure-agent-skills",
+      "kubernetes-helm",
       "pyright-lsp",
       "component-documentation",
       "mattpocock-skills",

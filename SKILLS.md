@@ -274,6 +274,17 @@ Repo-owned skill: team C# coding guidelines (least surprise, KISS, YAGNI, DRY; c
 |---|---|
 | [`coding-guidelines`](plugins/coding-guidelines/skills/coding-guidelines/SKILL.md) | Use when writing, refactoring or reviewing C# code that must follow the team's coding guidelines — rules of thumb (least surprise, KISS, YAGNI, DRY) plus concrete rules for class and member design, naming,… |
 
+## `kubernetes-helm`
+
+Repo-owned skills: read-only-first Kubernetes troubleshooting (CrashLoopBackOff, Pending, ImagePullBackOff, stuck rollouts) and Helm charts (lint, template, upgrade --atomic, releases stuck in pending-upgrade, common upgrade errors)
+
+### Skills
+
+| Name | What it does |
+|---|---|
+| [`helm-charts`](plugins/kubernetes-helm/skills/helm-charts/SKILL.md) | Use when writing, reviewing, linting, rendering, upgrading or debugging Helm charts and releases - values and templates, helm lint and helm template checks, upgrade --atomic, a release stuck in pending-upgrade or… |
+| [`kubernetes-troubleshooting`](plugins/kubernetes-helm/skills/kubernetes-troubleshooting/SKILL.md) | Use when a Kubernetes workload is not healthy on any cluster - CrashLoopBackOff, ImagePullBackOff, Pending, OOMKilled, failing probes, a rollout that never finishes, or a kubectl one-liner to find broken pods. Read-only… |
+
 ## `powershell`
 
 PowerShell skills: safe native-command invocation, quoting, escaping, encoding and Start-Process rules (Misaka-Mikoto-Tech/agent-skills); Pester 6 testing guidelines (github/awesome-copilot)
