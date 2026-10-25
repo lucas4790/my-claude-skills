@@ -1,0 +1,9 @@
+# Keeps the SHA-pinned actions in .github/workflows current. Dependabot rewrites the pinned SHA and the
+# "# vN" comment next to it, and opens a pull request for you to review and merge.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
