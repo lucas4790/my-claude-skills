@@ -98,6 +98,7 @@ lists the other useful settings. With VS Code on Windows and Remote-WSL, run the
 | `cloud` | terraform, azure-agent-skills, pyright-lsp, component-documentation, mattpocock-skills, powershell, feature-dev, spec-kit, yaml-lsp | yes |
 | `dotnet` | dotnet, dotnet-aspnetcore, dotnet-test, dotnet-data, dotnet-nuget, dotnet-advanced, csharp-patterns, coding-guidelines | no |
 | `extras` | skill-builders, codebase-onboarding, agent-browser, caveman (skipped on native Windows: POSIX-only hooks) | no |
+| `travel` | interrail-planner | no |
 | `claude-only` | commit-commands, code-modernization, pr-review-toolkit, yaml-hooks | never (name them explicitly to force) |
 
 `claude-only` plugins depend on Claude Code features (Workflow engine, `` !`cmd` `` injection, `$ARGUMENTS`,

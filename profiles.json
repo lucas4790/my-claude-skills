@@ -28,6 +28,9 @@
       "agent-browser",
       "caveman"
     ],
+    "travel": [
+      "interrail-planner"
+    ],
     "claude-only": [
       "commit-commands",
       "code-modernization",
