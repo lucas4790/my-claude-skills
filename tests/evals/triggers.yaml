@@ -469,3 +469,31 @@ cases:
     expect: [codebase-onboarding]
     forbid: [component-documentation]
     tags: [docs]
+
+  # --- Travel: Interrail planner --------------------------------------------------------------
+  - id: interrail-route-pass-days
+    prompt: >-
+      We have an Interrail Global Pass, 10 days in 2 months, 1st class. Going from Utrecht to
+      Madrid and Granada around Christmas and back early January. How many travel days do we
+      need and which trains do we have to reserve now?
+    expect: [interrail-planner]
+    forbid: [agent-browser]
+    tags: [travel]
+    note: planning and counting from the references; no browser automation needed
+
+  - id: interrail-night-train-day
+    prompt: >-
+      If I take the night train from Paris to Latour-de-Carol with my rail pass and change to
+      the local train to Barcelona in the morning, is that one travel day or two?
+    expect: [interrail-planner]
+    forbid: [agent-browser]
+    tags: [travel]
+
+  - id: single-train-ticket-no-pass
+    prompt: >-
+      What's the cheapest way to get a train ticket from Amsterdam to Berlin next Friday? Just
+      a normal ticket, no rail pass.
+    expect: []
+    forbid: [interrail-planner]
+    tags: [travel, negative]
+    note: point-to-point ticket without a pass; the planner's description says not for this

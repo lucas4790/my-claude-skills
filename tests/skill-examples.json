@@ -35,6 +35,9 @@
     "plugins/component-documentation/skills/component-documentation/SKILL.md": {
       "mode": "enforce"
     },
+    "plugins/interrail-planner/skills/interrail-planner/SKILL.md": {
+      "mode": "enforce"
+    },
     "plugins/spec-kit/skills/spec-kit/SKILL.md": {
       "mode": "enforce"
     },

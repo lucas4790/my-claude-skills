@@ -350,6 +350,16 @@ Repo-owned skill: writes complete operational documentation for one infrastructu
 |---|---|
 | [`component-documentation`](plugins/component-documentation/skills/component-documentation/SKILL.md) | Analyze a platform component and produce complete operational documentation — purpose, architecture, deployment order, configuration per environment, availability, monitoring, backup and recovery, runbook procedures,… |
 
+## `interrail-planner`
+
+Repo-owned skill: plans European rail trips with an Interrail pass - travel-day counting (night trains, home-country rule, validity) with a tested script, pass day versus separate ticket, mandatory and quota-limited seat reservations with booking deadlines, night trains and a trip document, based on official Interrail and operator rules
+
+### Skills
+
+| Name | What it does |
+|---|---|
+| [`interrail-planner`](plugins/interrail-planner/skills/interrail-planner/SKILL.md) | Use when planning a European rail trip with an Interrail Global or One Country Pass - counting travel days, deciding pass day versus separate ticket, night trains, the home-country rule, which trains need… |
+
 ## `codebase-onboarding`
 
 Generate a DeepWiki-style, source-linked, diagram-rich wiki for any repository to learn how its code works (eabait/codebase-onboarding-skill; optional `pip install -r scripts/requirements.txt` for deeper analysis)

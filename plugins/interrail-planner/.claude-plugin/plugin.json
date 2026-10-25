@@ -1,0 +1,5 @@
+{
+  "name": "interrail-planner",
+  "description": "Plans European rail trips with an Interrail pass: travel-day counting (night trains, home-country rule, validity), pass day versus separate ticket, mandatory and quota-limited seat reservations with booking deadlines, night trains and a trip document, based on the official Interrail and operator rules",
+  "author": { "name": "Lucas", "url": "https://github.com/lucas4790" }
+}
