@@ -131,6 +131,8 @@ https://www.interrail.com/en/plan-your-trip/tips-and-tricks/trains-europe/railwa
 
 ## Germany, Switzerland, Italy
 
+- Italy and the Riviera crossing in detail: `italy.md`.
+
 - DB: reservations bookable up to 6 months (some 3)
   (https://int.bahn.de/en/faq/reservation-interrail).
 - Trenitalia: Frecce reservations up to 2 months (3 for some trains)

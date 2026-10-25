@@ -185,3 +185,31 @@ All checked on 25 Oct 2026 by research limited to interrail.com (interrail.eu re
 
 - https://www.uk.travelski.com/instit-terms-and-conditions
 
+
+## Added for Italy and timetable lookup (checked 25 Oct 2026)
+
+- https://help.interrail.com/hc/en-001/articles/10850370568861-Timetable-Information-and-how-to-use
+- https://help.interrail.com/hc/en-001/articles/15873067026205-Contacting-the-railway-companies
+- https://help.interrail.com/hc/en-001/articles/9047394672413-Station-gates-How-to-Pass
+- https://int.bahn.de/en
+- https://int.bahn.de/en/booking-information/new-timetable
+- https://int.bahn.de/en/offers/international-rail-companies
+- https://trenitalia.fr/info-trafic/
+- https://trenitalia.fr/voyager-avec-trenitalia/nos-trains-et-lignes/les-horaires/
+- https://www.interrail.com/en/plan-your-trip/interrail-timetable
+- https://www.interrail.com/en/support/reservations/number-of-seats-left-in-a-train
+- https://www.rfi.it/content/dam/rfi/news-e-media/infomobilit%C3%A0/poq-genova/poq-genova-2/LH%20Ventimiglia%20-%20Milano.pdf
+- https://www.rfi.it/it/news-e-media/infomobilita/avvisi/2026/9/15/linee--genova---milano.html
+- https://www.sncf-connect.com/en-en/tgv-inoui-italy
+- https://www.sncf-connect.com/en-en/train/timetables/milan/nice
+- https://www.sncf-connect.com/en-en/train/timetables/ventimiglia/nice
+- https://www.sncf-voyageurs.com/fr/presse/sncf-voyageurs-relance-sa-liaison-directe-en-tgv-inoui-entre-paris-les-alpes-turin-et-milan-des-aujourdhui/
+- https://www.ter.sncf.com/sud-provence-alpes-cote-d-azur/se-deplacer/info-trafic/travaux/nice-monaco-vintimille-nice-breil-tende
+- https://www.ter.sncf.com/sud-provence-alpes-cote-d-azur/trajet-nice-menton
+- https://www.trenitalia.com/content/dam/trenitalia/allegati/info/condizioni-generali-di-trasporto/parte-ii-trasporto-nazionale/Parte_II-Trasporto_Nazionale.pdf
+- https://www.trenitalia.com/content/dam/trenitalia/allegati/modifiche-al-servizio/2026-01/Treni%20straordinari%20Capodanno%20v.1.pdf
+- https://www.trenitalia.com/content/dam/trenitalia/allegati/offerte/interrail/IT-Interrail_Pass_Guide_2025.pdf
+- https://www.trenitalia.com/en/connections/intercity-notte.html
+- https://www.trenitalia.com/it/abbonamenti-pass-e-carnet/pass-interrail.html
+- https://www.trenitalia.com/it/informazioni/lavori-programmati.html
+- https://www.trenitalia.com/it/informazioni/treni-garantiti-incasodisciopero.html
