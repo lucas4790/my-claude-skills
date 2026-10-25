@@ -15,7 +15,7 @@ import pytest
 GUARDRAILS = Path(__file__).resolve().parent.parent / "settings" / "claude-guardrails.json"
 ASK = json.loads(GUARDRAILS.read_text(encoding="utf-8"))["permissions"]["ask"]
 RULE = re.compile(r"^(Bash|PowerShell)\((.*)\)$")
-INFRA = ("kubectl ", "helm ", "terraform ")
+INFRA = ("kubectl ", "helm ", "terraform ", "tofu ")
 
 
 def parse(rule: str) -> tuple[str, str]:
@@ -52,14 +52,6 @@ def test_every_infra_rule_is_mirrored_for_powershell():
     assert bash and bash == ps
 
 
-def test_every_infra_subcommand_rule_has_a_global_flags_twin():
-    for tool, pattern in map(parse, ASK):
-        prog, _, rest = pattern.partition(" ")
-        if pattern.startswith(INFRA) and not rest.startswith("*"):
-            twin = f"{tool}({prog} * {rest})"
-            assert twin in ASK, f"{tool}({pattern}) has no global-flags twin {twin}"
-
-
 # --- what asks ----------------------------------------------------------------------------------------
 
 ASKS = [
@@ -75,6 +67,24 @@ ASKS = [
     "kubectl drain aks-node-1 --ignore-daemonsets",
     "kubectl taint nodes n1 dedicated=gpu:NoSchedule",
     "kubectl rollout undo deploy/api",
+    "kubectl rollout pause deploy/api",
+    "kubectl -n prod rollout resume deploy/api",
+    "kubectl create ns team-a",
+    "kubectl -n prod create secret generic x --from-literal=a=b",
+    "kubectl run debug --image=busybox",
+    "kubectl set image deploy/api api=img:2",
+    "kubectl expose deploy api --port=80",
+    "kubectl autoscale deploy api --max=5",
+    "kubectl annotate pod x a=b",
+    "kubectl label ns prod env=prod --overwrite",
+    "kubectl cordon aks-node-1",
+    "kubectl uncordon aks-node-1",
+    "kubectl exec -it web-0 -- sh",
+    "kubectl -n prod exec web-0 -- rm -rf /data",
+    "kubectl cp web-0:/etc/passwd ./passwd",
+    "kubectl debug node/n1 -it --image=busybox",
+    "kubectl config use-context prod-aks",
+    "kubectl certificate approve csr-1",
     "kubectl -n prod rollout restart deploy/api",
     "helm uninstall ingress-nginx -n ingress",
     "helm delete my-release",
@@ -83,6 +93,7 @@ ASKS = [
     "helm upgrade --install api ./chart",
     "helm -n prod upgrade api ./chart",
     "helm rollback api 3",
+    "helm repo add bitnami https://charts.bitnami.com/bitnami",
     "terraform apply",
     "terraform apply -auto-approve",
     "terraform apply tfplan",
@@ -99,6 +110,16 @@ ASKS = [
     "terraform -chdir=envs/prod state mv a b",
     "terraform state push terraform.tfstate",
     "terraform workspace delete feature-x",
+    "terraform workspace select prod",
+    "terraform workspace new feature-x",
+    "terraform refresh",
+    "terraform -chdir=envs/prod refresh",
+    "terraform state replace-provider a b",
+    "tofu apply",
+    "tofu -chdir=envs/prod apply -auto-approve",
+    "tofu destroy",
+    "tofu import a b",
+    "tofu workspace select prod",
 ]
 
 DOES_NOT_ASK = [
@@ -110,9 +131,17 @@ DOES_NOT_ASK = [
     "kubectl config set-context --current --namespace=prod",
     "kubectl rollout status deploy/api",
     "kubectl rollout history deploy/api",
+    "kubectl get pods -l app=delete-me",
+    "kubectl get deploy scale",
+    "kubectl get pods -o name",
+    "kubectl config get-contexts",
+    "kubectl config current-context",
     "helm list -A",
     "helm template api ./chart",
     "helm lint ./chart",
+    "helm get values api",
+    "helm get values install",
+    "helm repo list",
     "terraform plan",
     "terraform plan -destroy",
     "terraform -chdir=envs/prod plan -out tfplan",
@@ -122,11 +151,18 @@ DOES_NOT_ASK = [
     "terraform state show module.aks",
     "terraform workspace list",
     "terraform output -json",
+    "terraform plan -out apply.tfplan",
+    "terraform plan -var env=destroy",
+    "terraform workspace show",
+    "tofu plan",
+    "tofu state list",
 ]
 
 KNOWN_OVER_ASK = [
-    "kubectl auth can-i delete pods",           # read-only, but `delete` follows other words
+    "kubectl auth can-i delete pods",           # read-only, but the verb follows other words
     "helm diff upgrade api ./chart",            # helm-diff plugin: shows the upgrade, changes nothing
+    "terraform state show import foo",          # a resource address that happens to be named like a verb
+    "terraform output apply",
 ]
 
 

@@ -180,7 +180,7 @@ Changes to either list are part of reviewing this repo: a PR that adds a rule he
 [`settings/claude-guardrails.json`](settings/claude-guardrails.json) adds `permissions.ask` rules for git commands
 that change history, config or remotes (`git push`, `reset`, `clean`, `config`, `git -c …`, `remote add`/`set-url`,
 also in their `git -C <dir> …` form, and the same rules for the PowerShell tool, where `git -c` asks only for
-`core.hooksPath` and `hook.*` because PowerShell rules ignore case), the same for kubectl, helm and terraform
+`core.hooksPath` and `hook.*` because PowerShell rules ignore case), the same for kubectl, helm, terraform and tofu
 commands that change cluster, release or infrastructure state (below), plus two `env` pins. Ask rules win over allow rules **and over a skill's
 `allowed-tools`**, and match past a leading `VAR=value`, so Claude still asks before these even inside a skill that
 pre-approves `Bash(git *)`, as `claude-security` (installed from `claude-plugins-official`, see below) does. Since 0.12.0 Claude may start that skill on its own. The
@@ -189,18 +189,19 @@ Anthropic's rollout flag enables it) and turn off its usage counts (`CODE_MODERN
 effect: `/commit-push-pr` now asks before pushing. It also switches off AI attribution (`attribution`: no co-author trailers, PR footers or session links; see
 [`docs/ATTRIBUTION.md`](docs/ATTRIBUTION.md)).
 
-The infra rules, each also with global flags before the subcommand (`kubectl -n prod delete …`,
-`helm --kube-context prod uninstall …`, `terraform -chdir=envs/prod apply`), for Bash and PowerShell:
+The infra rules cover Bash and PowerShell. A rule like `kubectl *delete *` also matches global flags before the
+subcommand (`kubectl -n prod delete …`, `helm --kube-context prod uninstall …`, `terraform -chdir=envs/prod apply`):
 
 | Tool | Asks before |
 |---|---|
-| `kubectl` | `delete`, `apply`, `replace`, `patch`, `edit`, `scale`, `drain`, `taint`, `rollout undo`, `rollout restart` |
-| `helm` | `uninstall`, `delete`, `install`, `upgrade`, `rollback` |
-| `terraform` | `apply`, `destroy`, `import`, `taint`, `untaint`, `force-unlock`, `state rm`/`mv`/`push`, `workspace delete` |
+| `kubectl` | `delete`, `apply`, `replace`, `patch`, `edit`, `create`, `run`, `set`, `expose`, `autoscale`, `annotate`, `label`, `scale`, `drain`, `cordon`, `uncordon`, `taint`, `exec`, `cp`, `debug`, `rollout undo`/`restart`/`pause`/`resume`, `config use-context` (it retargets every later command at another cluster), `certificate approve`/`deny` |
+| `helm` | `uninstall`, `delete`, `install`, `upgrade`, `rollback`, `repo add` |
+| `terraform`, `tofu` | `apply`, `destroy`, `import`, `refresh`, `taint`, `untaint`, `force-unlock`, `state rm`/`mv`/`push`/`replace-provider`, `workspace select`/`new`/`delete` |
 
 Read-only commands (`get`, `describe`, `diff`, `logs`, `helm template`/`lint`, `terraform plan`/`validate`/`state list`)
-don't ask. Because a rule like `kubectl * delete *` matches the word anywhere after `kubectl`, `kubectl auth can-i delete …`
-and `helm diff upgrade …` ask too. An alias (`k delete`), a wrapper script or `tofu` is not caught.
+don't ask. A rule matches its verb as a separate word anywhere after the program name, so a few read-only commands
+ask too: `kubectl auth can-i delete …`, `helm diff upgrade …` (plugin), `terraform state show import …` and
+`terraform output apply`. Not covered: aliases (`k delete`), wrapper scripts, `kustomize`, `flux`, `argocd`, `az aks`.
 [`tests/test_settings_guardrails.py`](tests/test_settings_guardrails.py) lists which commands ask and which don't.
 
 Merge (union for `ask`, existing `env` values win, `attribution` is set):
