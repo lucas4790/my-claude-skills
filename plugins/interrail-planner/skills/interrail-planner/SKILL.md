@@ -50,6 +50,13 @@ If a separate preference profile or trip document exists, read it first.
 - For each leg, look up the train type and check it against
   `references/reservations-by-country.md`: is the pass valid on it, is a
   reservation mandatory, what does it cost, is it quota-limited?
+- Look trains up as in `references/timetable-lookup.md`: Interrail timetable
+  for reservation and pass coverage, the operator's journey planner for times,
+  type and running days, on the real travel date.
+- Never fill in a train type, number or time from memory. If no official page
+  can be read, ask the traveller to check in the Rail Planner app and mark the
+  leg "unverified" in the plan.
+- Check 24/25/31 Dec and 1 Jan legs on their own date; holiday running differs.
 - Prefer routes where the pass is valid and reservations are cheap or not
   needed. Flag trains where the pass is not valid (for example Avlo, OUIGO
   España, Italo, Flixtrain) and offer an alternative.
@@ -66,14 +73,18 @@ Write the legs to an itinerary file and run the counter:
 python3 scripts/pass_days.py itinerary.json
 ```
 
-Itinerary format (JSON; YAML works if PyYAML is installed):
+Itinerary format (JSON; YAML works if PyYAML is installed). Everything except
+`pass.days`, `pass.start` and each leg's `date`, `from` and `to` is optional:
 
 ```yaml
+travellers: 2
+channel: interrail
 pass:
   days: 10
   start: "2026-12-19"
   months: 2
   home: NL
+  pass_price: 700
 legs:
   - date: "2026-12-19"
     dep: "20:15"
@@ -83,6 +94,8 @@ legs:
     to_country: IT
     night: true
     reservation: required
+    fee: 74
+    quota: true
   - date: "2026-12-24"
     dep: "11:00"
     arr: "11:45"
@@ -91,24 +104,35 @@ legs:
     to: Sevilla
     to_country: ES
     own_ticket: true
+    ticket_price: 12
 ```
 
+Per leg, `window_days` (booking window) or `sales_open` (date) feeds the
+reservation tracker; `--today YYYY-MM-DD` sets the reference date.
+
 The script prints one row per travel day and lists errors (too many days,
-outside validity, night train on the last day, home-country rule broken),
-warnings (unbooked mandatory reservations, a pass leg after midnight following
-a night train, night train home) and hints (short travel days). Rules and their
-sources: `references/pass-rules.md`.
+outside validity, night train on the last day, more than one outbound or
+inbound home-country journey, a domestic pass leg at home), warnings (unbooked
+mandatory reservations, night train home), notes (onward connection after a
+night train, short travel days), a cost section (reservation and booking fees
+for all travellers, value per travel day versus own tickets) and a reservation
+tracker with sales-open and book-by dates. Rules and their sources:
+`references/pass-rules.md`.
 
 ### 4. Pass day or separate ticket
 
 For every travel day the script flags as short, and whenever the count is
 tight, compare: the price of a separate ticket (look it up) against the value
 of the travel day (pass price divided by travel days) plus the reservation fee
-it would need anyway. Recommend one, with the numbers.
+it would need anyway. Recommend one, with the numbers. Put `pass_price` and
+each candidate's `ticket_price` in the itinerary and the script does the
+comparison.
 
 ### 5. Reservation tracker
 
-One row per reservation, sorted by the date it must be booked:
+Start from the script's tracker (give each reserved leg its `fee`, `quota` and
+`window_days` or `sales_open` from the references) and add train, channel and
+class. One row per reservation, sorted by the date it must be booked:
 
 | Leg | Train | Mandatory | Fee (class) | Quota | Sales open | Book by | Channel | Status |
 |---|---|---|---|---|---|---|---|---|
@@ -157,6 +181,10 @@ trip material (their document tool or a file).
   quotas, booking windows and channels for NL, BE, FR, ES, DE, CH, IT, Eurostar
 - `references/night-trains.md` - night trains from the Benelux and in France,
   fares for pass holders, booking
+- `references/timetable-lookup.md` - which timetable to trust, lookup steps
+  per leg, blocked or unpublished timetables, holiday dates, recording
+- `references/italy.md` - Italy and the Riviera crossing: train types,
+  reservations, fees
 - `references/practical.md` - Rail Planner app, ticket checks, delays and
   missed connections, sold-out alternatives, luggage
 - `references/trip-doc-template.md` - structure of the trip document
