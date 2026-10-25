@@ -5,7 +5,8 @@
     "url": "https://github.com/lucas4790"
   },
   "metadata": {
-    "description": "Lucas's curated Claude Code skills and plugins, auto-synced daily from upstream"
+    "description": "Lucas's curated Claude Code skills and plugins, auto-synced daily from upstream",
+    "version": "0.1.0"
   },
   "plugins": [
     {
