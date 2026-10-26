@@ -163,6 +163,33 @@ the Azure DevOps MCP server and dev.azure.com REST calls.
 - The pipelines are generated from `ado-pr-guard.sh`, `patterns.ere` and `match.awk` by `gen.py` (`python3 gen.py --check` in CI);
   tests run the guard and every pipeline step against a mock of the Azure DevOps REST API.
 
+### Environment variables
+
+Local (git hooks and Claude Code hooks):
+
+| Variable | Used by | Meaning |
+|---|---|---|
+| `ATTRIBUTION_GUARD_MODE` | `attribution-guard.sh` | `strip` or `reject`; overrides `git config attributionguard.mode`. `pre-push` always rejects. |
+| `ATTRIBUTION_GUARD_SKIP_CLAUDE` | `install.sh` | Set to `1` to skip registering the Claude Code hook. `install.ps1` sets it because it registers the hook itself. |
+
+Azure DevOps pipelines (`ado-pr-guard.sh`; the generated pipelines set them, you rarely do):
+
+| Variable | Meaning |
+|---|---|
+| `COLLECTION_URI`, `PROJECT_ID`, `REPO_ID`, `PR_ID`, `SYSTEM_ACCESSTOKEN` | Required. The pull request to check and the token to read it. `PR_ID` must be a number and the IDs must be GUIDs, otherwise the guard stops with exit 2. |
+| `ATTRIB_RE` or `PATTERN_FILE` | The attribution pattern (one ERE line), inline or from a file. Taken from the target branch, never from the PR. |
+| `GUARD_GIT_RANGE` | A range such as `HEAD^1..HEAD^2`: read commit messages from the local merge-commit checkout instead of the REST API. Needs `git`. |
+| `GUARD_SANITIZE` | `1` removes attribution lines from the PR description and re-checks. |
+| `GUARD_STATUS` | `1` posts the PR status `attribution-guard/no-ai-attribution` (pending, then the result). |
+| `GUARD_TARGET_URL` | Link shown on that status (the pipeline run). |
+| `GUARD_ALLOW_VENDOR_COMMITTER` | `1` makes a vendor *committer* a warning instead of an error. |
+| `GUARD_REPOS` | Layer 2 status and sweep pipelines: the `PROJECT_ID/REPO_ID` pairs they handle. Replace the zero GUIDs when you copy the pipelines. |
+| `GUARD_RERUN` | Internal retry counter. When the pull request changes while it is being checked, the guard re-runs itself, at most 3 times. Do not set it. |
+
+`setup-azure-devops.sh` also reads `ORG_NAME`, `WORK_PROJECT`, `WORK_REPO`, `AUTHOR_EMAIL_PATTERNS`, `REVIEWER`,
+`BRANCH` (default `main`), `GUARD_PROJECT` (enables layer 2), `GUARD_REPO` (default `attribution-guard`) and
+`DRY_RUN`. Exit codes of the guard: 0 clean, 1 attribution found, 2 could not check (fails closed).
+
 ## Existing history
 
 - PR descriptions and comments: step 3 of the one-time steps. PRs #12 and #13 keep the app badge; only GitHub Support can delete a PR.
