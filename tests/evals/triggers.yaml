@@ -317,7 +317,7 @@ cases:
       Get-AzResourceGroup aan, dus die moet gemockt worden, en ik wil ook testen dat hij niets
       teruggeeft als alle groepen een owner tag hebben.
     expect: [pester]
-    forbid: [powershell-safe-invocation, code-testing-agent]
+    forbid: [powershell-safe-invocation, code-testing]
     tags: [powershell, pester, dutch]
 
   - id: ps-native-arg-quoting
@@ -352,7 +352,7 @@ cases:
       I want integration tests for our repository layer against a real SQL Server in Docker instead
       of the EF Core InMemory provider. xUnit, one container per test class. How do I set that up?
     expect: [testcontainers-integration-tests]
-    accept: [code-testing-agent, tdd]
+    accept: [code-testing, tdd]
     forbid: [run-tests, writing-mstest-tests, optimizing-ef-core-queries]
     tags: [dotnet, tests]
 
@@ -362,14 +362,14 @@ cases:
       Rewrite it properly and tell me which MSTEST analyzer would flag it.
     expect: [writing-mstest-tests]
     accept: [assertion-quality]
-    forbid: [testcontainers-integration-tests, run-tests, code-testing-agent]
+    forbid: [testcontainers-integration-tests, run-tests, code-testing]
     tags: [dotnet, tests]
 
   - id: xunit-write-unit-tests
     prompt: >-
       Write xUnit unit tests for PriceCalculator.ApplyDiscount, covering negative amounts and a
       discount above 100%.
-    expect: [code-testing-agent]
+    expect: [code-testing]
     accept: [tdd]
     forbid: [writing-mstest-tests, testcontainers-integration-tests, pester, run-tests]
     tags: [dotnet, tests]
@@ -389,7 +389,7 @@ cases:
       hang in CI at teardown. How do I debug the fixture?
     expect: []
     accept: [diagnosing-bugs]
-    forbid: [testcontainers-integration-tests, run-tests, code-testing-agent, writing-mstest-tests]
+    forbid: [testcontainers-integration-tests, run-tests, code-testing, writing-mstest-tests]
     tags: [python, tests, negative]
 
   - id: nuget-central-versions
