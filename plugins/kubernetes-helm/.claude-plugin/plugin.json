@@ -1,0 +1,8 @@
+{
+  "name": "kubernetes-helm",
+  "description": "Plain Kubernetes and Helm for cloud engineers: a read-only-first troubleshooting routine for failing pods and stuck rollouts, and a checklist for writing, linting, rendering, upgrading and unsticking Helm charts",
+  "author": {
+    "name": "Lucas",
+    "url": "https://github.com/lucas4790"
+  }
+}

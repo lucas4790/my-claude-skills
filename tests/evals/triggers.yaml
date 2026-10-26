@@ -22,10 +22,10 @@ cases:
     prompt: >-
       my pod keeps going into CrashLoopBackOff since I bumped the image tag, kubectl logs --previous
       only shows "exec format error". what's going on and how do I fix it?
-    expect: []
+    expect: [kubernetes-troubleshooting]
     accept: [diagnosing-bugs]
-    forbid: [azure-kubernetes-service, azure-container-registry]
-    tags: [kubernetes, negative]
+    forbid: [azure-kubernetes-service, azure-container-registry, helm-charts]
+    tags: [kubernetes]
     note: plain Kubernetes (arm64 vs amd64 image); nothing AKS-specific
 
   - id: helm-upgrade-stuck
@@ -33,17 +33,20 @@ cases:
       helm upgrade of our ingress-nginx release fails with "UPGRADE FAILED: another operation
       (install/upgrade/rollback) is in progress". How do I get the release out of pending-upgrade
       without uninstalling it?
-    expect: []
+    expect: [helm-charts]
+    accept: [kubernetes-troubleshooting]
     forbid: [azure-kubernetes-service, azure-application-gateway]
-    tags: [kubernetes, helm, negative]
+    tags: [kubernetes, helm]
 
   - id: kubectl-not-running-pods
     prompt: >-
       kubectl one-liner (jsonpath or custom-columns) to list every pod in all namespaces that is not
       Running or Succeeded, with node name and restart count, sorted by restarts
     expect: []
+    accept: [kubernetes-troubleshooting]
     forbid: [azure-kubernetes-service]
     tags: [kubernetes, negative]
+    note: a plain kubectl query; kubernetes-troubleshooting may load but is not needed
 
   - id: aks-upgrade-nodepools
     prompt: >-
