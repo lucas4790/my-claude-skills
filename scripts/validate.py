@@ -365,8 +365,13 @@ else:
         if m not in names:
             problems.append(f"profiles.json: {m!r} is not a marketplace plugin")
     # the installers' defaults: install-copilot.sh/.ps1 use copilotDefault, install.sh/.ps1 claudeDefault
+    # (both required: without one, that installer would select nothing by default)
     for key in ("copilotDefault", "claudeDefault"):
-        for d in prof.get(key, []):
+        default = prof.get(key)
+        if not isinstance(default, list) or not default or not all(isinstance(d, str) for d in default):
+            problems.append(f"profiles.json: {key} must be a non-empty list of profile names")
+            continue
+        for d in default:
             if d not in (prof.get("profiles") or {}):
                 problems.append(f"profiles.json: {key} names unknown profile {d!r}")
 

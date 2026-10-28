@@ -11,7 +11,7 @@
       -Plugin NAME, ...    install only these plugins; also positional (.\install.ps1 dotnet, powershell).
                            -Profile and -All are then ignored.
       -Profile NAME, ...   install the plugins of these profiles in profiles.json; also -Profiles, "a,b" in one
-                           string. Default: the profiles in $env:MY_CLAUDE_SKILLS_PROFILE (comma-separated), else
+                           string. Default: the profiles in $env:MY_CLAUDE_SKILLS_CLAUDE_PROFILE (comma-separated), else
                            "claudeDefault" (cloud, claude-only). Claude Code cuts skill descriptions beyond
                            ~6k tokens to their names, so more plugins make skills trigger worse (see README).
       -All                 install every plugin in the marketplace.
@@ -21,7 +21,7 @@
     .\install.ps1 -All                 # every plugin in the marketplace
     .\install.ps1 dotnet, powershell   # only these
     irm https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/install.ps1 | iex
-    $env:MY_CLAUDE_SKILLS_PROFILE = 'cloud,dotnet'; irm .../install.ps1 | iex
+    $env:MY_CLAUDE_SKILLS_CLAUDE_PROFILE = 'cloud,dotnet'; irm .../install.ps1 | iex
     & ([scriptblock]::Create((irm .../install.ps1))) -All
 #>
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'Interactive installer; progress lines are for the console')]
@@ -106,13 +106,13 @@ param()   # the parameters are the scriptblock's below: here, irm | iex would se
             $pj = if ($localProfiles -and (Test-Path $localProfiles)) { Get-Content $localProfiles -Raw | ConvertFrom-Json }
                   else { Invoke-RestMethod -Uri "$rawBase/profiles.json" }
             if (-not $Profiles) {
-                $Profiles = if ($env:MY_CLAUDE_SKILLS_PROFILE) { $env:MY_CLAUDE_SKILLS_PROFILE -split ',' } else { $pj.claudeDefault }
+                $Profiles = if ($env:MY_CLAUDE_SKILLS_CLAUDE_PROFILE) { $env:MY_CLAUDE_SKILLS_CLAUDE_PROFILE -split ',' } else { $pj.claudeDefault }
             }
-            $Profiles = @($Profiles | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            $Profiles = @($Profiles | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -Unique)
             $unknown = @($Profiles | Where-Object { -not $pj.profiles.PSObject.Properties[$_] })
             if ($unknown) { throw "unknown profile(s): $($unknown -join ', ') (see profiles.json)" }
             $Plugin = @($Profiles | ForEach-Object { $pj.profiles.$_ })
-            Write-Host ("==> profiles $($Profiles -join ', ') ($($Plugin.Count) plugin(s)); -All or -Profile dotnet for more; " +
+            Write-Host ("==> profiles $($Profiles -join ', ') ($($Plugin.Count) plugin(s)); -All or -Profile NAME for more; " +
                 'more than ~6k tokens of skill descriptions get truncated (see README)')
         }
     }

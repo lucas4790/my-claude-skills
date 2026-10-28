@@ -149,6 +149,21 @@ def test_unknown_profile_in_claude_default(repo):
     assert not any("copilotDefault" in p for p in res.problems), res.problems
 
 
+@pytest.mark.parametrize("key", ["copilotDefault", "claudeDefault"])
+@pytest.mark.parametrize("value", ["missing", [], "core", [1]])
+def test_installer_default_must_be_a_non_empty_list(repo, key, value):
+    def edit(d):
+        if value == "missing":
+            del d[key]
+        else:
+            d[key] = value
+    repo.edit_json("profiles.json", edit)
+    res = repo.validate()
+    assert res.rc == 1, res
+    assert f"profiles.json: {key} must be a non-empty list of profile names" in res.problems
+    assert not any("names unknown profile" in p for p in res.problems), res.problems
+
+
 @pytest.mark.parametrize("content", [None, "{not json"])
 def test_missing_or_invalid_profiles_json(repo, content):
     if content is None:

@@ -298,7 +298,7 @@ session_start_count() { jq '[.hooks.SessionStart[]? | select(.hooks[0].command =
   grep -qxF "claude plugin marketplace add lucas4790/my-claude-skills" "$FAKE_CALLS"
   assert_eq "$(grep '^claude plugin install' "$FAKE_CALLS")" "claude plugin install alpha@my-claude-skills
 claude plugin install beta@my-claude-skills" "installs"
-  assert_line "==> profiles cloud, claude-only (2 plugin(s)); --all or --profile dotnet for more; more than ~6k tokens of skill descriptions get truncated (see README)"
+  assert_line "==> profiles cloud, claude-only (2 plugin(s)); --all or --profile NAME for more; more than ~6k tokens of skill descriptions get truncated (see README)"
   refute grep -q "^curl" "$FAKE_CALLS"   # profiles.json of the checkout
   cmp "$REPO_ROOT/scripts/update-plugins.sh" "$XDG_DATA_HOME/my-claude-skills/update-plugins.sh"
   assert_eq "$(session_start_count "$CLAUDE_CONFIG_DIR/settings.json")" "1" "hooks"
@@ -350,12 +350,29 @@ claude plugin install beta@my-claude-skills" "installs"
   run_install --profile dotnet
   assert_status 0
   assert_eq "$(claude_installs)" "gamma " "--profile dotnet"
-  assert_line "==> profiles dotnet (1 plugin(s)); --all or --profile dotnet for more; more than ~6k tokens of skill descriptions get truncated (see README)"
+  assert_line "==> profiles dotnet (1 plugin(s)); --all or --profile NAME for more; more than ~6k tokens of skill descriptions get truncated (see README)"
 
   : > "$FAKE_CALLS"
   run_install --profile=dotnet,cloud
   assert_status 0
   assert_eq "$(claude_installs)" "gamma alpha " "--profile=dotnet,cloud"
+
+  # spaces around names (as install.ps1 accepts), empty and repeated names
+  : > "$FAKE_CALLS"
+  run_install --profile ' dotnet , cloud,,dotnet'
+  assert_status 0
+  assert_eq "$(claude_installs)" "gamma alpha " "--profile with spaces and a repeat"
+  assert_line "==> profiles dotnet, cloud (2 plugin(s)); --all or --profile NAME for more; more than ~6k tokens of skill descriptions get truncated (see README)"
+
+  # the same variable as install.ps1 (for curl | bash); --profile wins over it
+  : > "$FAKE_CALLS"
+  MY_CLAUDE_SKILLS_CLAUDE_PROFILE=dotnet run_install
+  assert_status 0
+  assert_eq "$(claude_installs)" "gamma " "MY_CLAUDE_SKILLS_CLAUDE_PROFILE"
+  : > "$FAKE_CALLS"
+  MY_CLAUDE_SKILLS_CLAUDE_PROFILE=dotnet run_install --profile cloud
+  assert_status 0
+  assert_eq "$(claude_installs)" "alpha " "--profile over the variable"
 
   : > "$FAKE_CALLS"
   run_install --all

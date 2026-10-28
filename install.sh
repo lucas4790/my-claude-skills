@@ -58,13 +58,15 @@ select_plugins() {
     echo "==> all ${#plugins[@]} plugin(s) in the marketplace"
   else
     pj=$(profiles_json) || die "could not read profiles.json"
-    if [ -n "$profile" ]; then sel=$(jq -cn --arg p "$profile" '$p | split(",")')
+    if [ -n "$profile" ]; then
+      # "cloud, dotnet" works like "cloud,dotnet"; empty and repeated names are dropped
+      sel=$(jq -cn --arg p "$profile" '[$p | split(",")[] | gsub("^\\s+|\\s+$"; "") | select(. != "")] | reduce .[] as $x ([]; if index([$x]) then . else . + [$x] end)')
     else sel=$(jq -c '.claudeDefault // []' <<<"$pj"); fi
     unknown=$(jq -r --argjson s "$sel" '. as $r | [$s[] as $x | select($r.profiles | has($x) | not) | $x] | join(" ")' <<<"$pj")
     [ -z "$unknown" ] || die "unknown profile(s): $unknown (see profiles.json)"
     while IFS= read -r p; do [ -n "$p" ] && plugins+=("$p"); done < <(
       jq -r --argjson s "$sel" '. as $r | $s[] | $r.profiles[.][]' <<<"$pj")
-    echo "==> profiles $(jq -r 'join(", ")' <<<"$sel") (${#plugins[@]} plugin(s)); --all or --profile dotnet for more;" \
+    echo "==> profiles $(jq -r 'join(", ")' <<<"$sel") (${#plugins[@]} plugin(s)); --all or --profile NAME for more;" \
       "more than ~6k tokens of skill descriptions get truncated (see README)"
   fi
   [ "${#plugins[@]}" -gt 0 ] || die "no plugins to install"
@@ -72,7 +74,7 @@ select_plugins() {
 
 # Everything runs from main, called on the last line: a download cut off halfway runs nothing.
 main() {
-  profile="" all="" explicit=() plugins=()
+  profile="${MY_CLAUDE_SKILLS_CLAUDE_PROFILE:-}" all="" explicit=() plugins=()
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --profile) [ "$#" -ge 2 ] || die "--profile needs a value (e.g. --profile cloud,dotnet)"; profile="$2"; shift 2 ;;
@@ -84,9 +86,10 @@ main() {
     esac
   done
   [ -z "$all" ] || [ -z "$profile" ] || die "--all and --profile exclude each other"
-  # With jq and curl already there, a wrong profile name stops the run before anything is installed;
+  # With jq (and curl, unless a checkout's profiles.json is enough) already there, a wrong profile name stops the run before anything is installed;
   # otherwise the list is read right after the base dependencies, which bring them.
-  if has jq && has curl; then select_plugins; fi
+  if has jq && { has curl || { [ -z "$all" ] && [ -n "$SRC" ] && [ -f "$HERE/.claude-plugin/marketplace.json" ] \
+    && [ -f "$HERE/profiles.json" ]; }; }; then select_plugins; fi
 
   # --- base dependencies ---------------------------------------------------------
   # git + curl: Claude Code and marketplace cloning; jq: manifest parsing; node/npm: caveman hooks, agent-browser

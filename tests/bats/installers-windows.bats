@@ -327,7 +327,7 @@ claude plugin install broken@my-claude-skills" "installs"
   run_ps file "$T/clone/install.ps1"   # no arguments: claudeDefault
   assert_line "exit=0"
   assert_eq "$(installs)" "alpha beta delta " "no arguments"
-  assert_line "==> profiles cloud, claude-only (3 plugin(s)); -All or -Profile dotnet for more; more than ~6k tokens of skill descriptions get truncated (see README)"
+  assert_line "==> profiles cloud, claude-only (3 plugin(s)); -All or -Profile NAME for more; more than ~6k tokens of skill descriptions get truncated (see README)"
   run_ps profile "$T/clone/install.ps1" dotnet cloud   # -Profile dotnet, cloud
   assert_eq "$(installs)" "gamma alpha beta " "-Profile"
   run_ps profiles "$T/clone/install.ps1" "dotnet,claude-only"   # -Profiles 'dotnet,claude-only'
@@ -342,10 +342,10 @@ claude plugin install broken@my-claude-skills" "installs"
   assert_eq "$(installs)" "epsilon " "-Plugin"
   refute_output_contains "==> profiles"
 
-  # irm | iex takes no arguments: the profiles come from $env:MY_CLAUDE_SKILLS_PROFILE
-  with_env MY_CLAUDE_SKILLS_PROFILE=dotnet
+  # irm | iex takes no arguments: the profiles come from $env:MY_CLAUDE_SKILLS_CLAUDE_PROFILE
+  with_env MY_CLAUDE_SKILLS_CLAUDE_PROFILE=dotnet
   run_ps file "$T/clone/install.ps1"
-  assert_eq "$(installs)" "gamma " "MY_CLAUDE_SKILLS_PROFILE"
+  assert_eq "$(installs)" "gamma " "MY_CLAUDE_SKILLS_CLAUDE_PROFILE"
 }
 
 @test "install.ps1 records the plugins for the updater without the failed ones, so the next update retries those" {
