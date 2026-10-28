@@ -1,6 +1,6 @@
 ---
 name: component-documentation
-description: Analyze a platform component and produce complete operational documentation — purpose, architecture, deployment order, configuration per environment, availability, monitoring, backup and recovery, runbook procedures, risks and ownership, with section packs for edge/ingress, telemetry, alerting, security tooling, cluster services and Terraform infrastructure. Use when asked to document, audit, review, explain or onboard someone onto any component of an infrastructure repository — an ingress or API gateway, a logging/metrics/profiling pipeline, an alerting setup, a security scanner, a certificate authority, a storage class, or a Terraform stack — even when the user only says "document this chart", "write up how X works", "how does traffic/data get here", "maak een INGRESS.md", "leg vast wat dit doet", or names a tool (Emissary, NGINX, Traefik, cert-manager, Loki, Prometheus, Alloy, Grafana, Pyroscope, OpenCost, Alertmanager, Falco, Trivy).
+description: Use when asked to document, audit or explain one component of an infrastructure repo (ingress/gateway, logging/metrics pipeline, alerting, security scanner, cert-manager, storage, a Terraform stack; e.g. NGINX, Traefik, Loki, Prometheus, Grafana, Falco, Trivy): purpose, architecture, deployment, config per environment, monitoring, backup, runbooks, risks, ownership. Also "document this chart", "maak een INGRESS.md". Not for onboarding onto a whole codebase (use codebase-onboarding) or fixing a chart (use helm-charts).
 ---
 
 # Platform Component Documentation

@@ -14,7 +14,7 @@ VS Code. Most of `plugins/` is **vendored** from upstream repos listed in `sourc
 - To change a vendored file, never edit it: edit `patches/<name>.patch` (regenerate as in README,
   "Patching vendored files"). `sync.sh` applies it after every sync.
 - Repo-owned files you may edit: `plugins/coding-guidelines/`, `plugins/component-documentation/`, `plugins/spec-kit/`, `plugins/yaml-lsp/`,
-  `plugins/yaml-hooks/`, `patches/`, `tests/`,
+  `plugins/yaml-hooks/`, `plugins/kubernetes-helm/`, `patches/`, `tests/`,
   every `plugins/*/.claude-plugin/plugin.json` that `sources.json` does not copy,
   `plugins/pyright-lsp/plugin.json` (Copilot manifest), `profiles.json`, `settings/`, `scripts/`, installers, docs.
 - Adding a plugin: `sources.json` entry → `plugins/<name>/.claude-plugin/plugin.json` if upstream has none →

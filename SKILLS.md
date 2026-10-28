@@ -363,7 +363,7 @@ Repo-owned skill: writes complete operational documentation for one infrastructu
 
 | Name | What it does |
 |---|---|
-| [`component-documentation`](plugins/component-documentation/skills/component-documentation/SKILL.md) | Analyze a platform component and produce complete operational documentation — purpose, architecture, deployment order, configuration per environment, availability, monitoring, backup and recovery, runbook procedures,… |
+| [`component-documentation`](plugins/component-documentation/skills/component-documentation/SKILL.md) | Use when asked to document, audit or explain one component of an infrastructure repo (ingress/gateway, logging/metrics pipeline, alerting, security scanner, cert-manager, storage, a Terraform stack; e.g. NGINX, Traefik,… |
 
 ## `codebase-onboarding`
 
