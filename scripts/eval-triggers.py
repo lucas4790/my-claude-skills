@@ -20,9 +20,12 @@ working directory; the variables that tie a nested `claude` to a parent session 
 CLAUDE_CODE_REMOTE_SESSION_ID, CLAUDECODE) are removed from its environment. The model can only load
 skills: --tools Skill removes every other built-in tool from its context, MCP tools are denied and no
 MCP server starts (--strict-mcp-config), --settings turns off hooks, skill shell injection and
-Claude Code's bundled skills, --permission-mode dontAsk, --restricted when the CLI has it (ignores
-user/project settings, user skills and claude.ai-synced skills), --max-turns and --max-budget-usd cap
-each run. Never --dangerously-skip-permissions.
+Claude Code's bundled skills, --permission-mode dontAsk, --restricted when the CLI has it (2.1.248+;
+ignores the user, project and local settings files and the user and project skills, while managed
+settings, --settings and the --plugin-dir plugins still load; checked on 2.1.312 from the init event),
+--max-turns and --max-budget-usd cap each run. Never --dangerously-skip-permissions. --restricted
+alone is not the tool limit (it keeps Write, Edit, Agent and WebSearch); --tools Skill is. A CLI
+without --restricted gets a warning, and the report says the runs were not restricted.
 
 Detection (verified on Claude Code 2.1.284): a skill load is an `assistant` event whose content has a
 `tool_use` block named "Skill" with input {"skill": "<plugin>:<name>"} (sometimes the bare alias),
@@ -90,6 +93,8 @@ LISTING_RX = re.compile(r"Skill listing over budget: (\d+) skills, (\d+) chars >
 AUTH_ERROR_RX = re.compile(r"invalid api key|please run /login|not logged in|authentication[_ ]failed|"
                            r"oauth token has expired|\b401\b", re.I)
 ID_RX = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+UNRESTRICTED_NOTE = ("this claude CLI has no --restricted (Claude Code 2.1.248+), so the runs also read this "
+                     "machine's user, project and local settings files and user skills")
 
 
 # --- cases ------------------------------------------------------------------------------------
@@ -679,6 +684,8 @@ def summary_line(s: dict) -> str:
     cost = f", ${s['cost_usd']:.2f} reported by {s['runs_with_cost']} run(s)" if s.get("runs_with_cost") else ""
     odd = [f"{n} {what}" for n, what in ((s.get("rejected_calls", 0), "Skill call(s) rejected by the CLI, not scored"),
                                          (s.get("bad_lines", 0), "unreadable stream line(s)")) if n]
+    if s.get("restricted") is False:
+        odd.append("not restricted: " + UNRESTRICTED_NOTE)
     return (f"{s['pass']}/{s['cases']} cases passed ({s['fail']} failed, {s['error']} errors, {s['skip']} skipped); "
             f"micro precision {_pct(s['precision'])}, recall {_pct(s['recall'])} (TP {s['tp']}, FP {s['fp']}, FN {s['fn']}); "
             f"{s['runs']} runs, {tok}{cost}; model {', '.join(s['models']) or '?'}" + "".join(f"; {x}" for x in odd))
@@ -837,6 +844,8 @@ def main(argv: list[str] | None = None) -> int:
     claude = shutil.which(args.claude) or (args.claude if Path(args.claude).exists() else None)
     if args.dry_run:
         supports = cli_supports(claude) if claude else {"--restricted", "--permission-prompts", "--debug-file"}
+        if "--restricted" not in supports:
+            print(f"⚠ eval-triggers: {UNRESTRICTED_NOTE}", file=sys.stderr)
         for c in runnable:
             cmd = build_command(args, plugin_paths, "<fresh-uuid>", supports)
             print(f"# {c.id}\nprintf '%s' {shlex.quote(c.prompt)} | env -u {' -u '.join(PARENT_SESSION_VARS)} "
@@ -859,6 +868,8 @@ def main(argv: list[str] | None = None) -> int:
                 fh.write(f"## Skill trigger evals\n\n{msg}\n")
         return 3 if args.require_credentials else 0
     supports = cli_supports(claude)
+    if "--restricted" not in supports:
+        print(f"⚠ eval-triggers: {UNRESTRICTED_NOTE}", file=sys.stderr)
     args.claude = claude
 
     jobs = [(c, i) for c in runnable for i in range(args.runs)]
@@ -912,6 +923,7 @@ def main(argv: list[str] | None = None) -> int:
             results.append(next(s for s in skipped if s.case.id == c.id))
     stats = skill_stats(results, index)
     summary = summarize(results, stats)
+    summary["restricted"] = "--restricted" in supports
     print(text_report(results, stats, summary, index))
     if args.json:
         args.json.write_text(json.dumps(json_report(results, stats, summary), indent=2) + "\n", encoding="utf-8")

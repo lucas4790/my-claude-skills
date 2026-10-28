@@ -389,7 +389,8 @@ FAKE_CLAUDE = textwrap.dedent("""\
         fh.write(json.dumps(sys.argv[1:]) + "\\n")
     args = sys.argv[1:]
     if args[:1] == ["--help"]:
-        print("  --restricted\\n  --permission-prompts <target>\\n  --debug-file <path>"); sys.exit(0)
+        print(os.environ.get("FAKE_HELP", "  --restricted\\n  --permission-prompts <target>\\n  --debug-file <path>"))
+        sys.exit(0)
     if "--debug-file" in args:
         with open(args[args.index("--debug-file") + 1], "w") as fh:
             fh.write("[WARN] Skill listing over budget: 121 skills, 57838 chars > 30000 budget — descriptions\\n")
@@ -474,6 +475,36 @@ def test_end_to_end_with_fake_cli(fake_cli, monkeypatch, capsys):
         assert all(a.startswith(str(ROOT / "plugins")) for a in (c[i + 1] for i, x in enumerate(c) if x == "--plugin-dir"))
         assert not any("PESTER" in a or "KUBECTL" in a for a in c)   # prompts go through stdin
     assert "5 runs" in capsys.readouterr().out
+
+
+@pytest.mark.skipif(os.name == "nt", reason="fake CLI is a shebang script")
+def test_cli_without_restricted_is_reported(fake_cli, monkeypatch, capsys):
+    """A CLI older than 2.1.248 runs without --restricted: the runner says so on stderr and in the
+    report instead of silently reading the machine's user and project settings."""
+    need_pyyaml()
+    exe, log, cases, tmp = fake_cli
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "dummy")
+    monkeypatch.setenv("FAKE_HELP", "  --debug-file <path>")
+    out_json, out_md = tmp / "out.json", tmp / "summary.md"
+    rc = et.main(["--cases", str(cases), "--claude", str(exe), "--filter", "^pester", "--timeout", "5",
+                  "--json", str(out_json), "--markdown", str(out_md), "--plugins", "powershell"])
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "no --restricted" in captured.err
+    assert "not restricted" in captured.out and "not restricted" in out_md.read_text()
+    assert json.loads(out_json.read_text())["summary"]["restricted"] is False
+    runs = [c for c in calls(log) if "-p" in c]
+    assert runs and not any("--restricted" in c for c in runs)
+    assert et.main(["--cases", str(cases), "--claude", str(exe), "--dry-run", "--filter", "^pester"]) == 0
+    captured = capsys.readouterr()
+    assert "no --restricted" in captured.err and "--restricted" not in captured.out
+    # a CLI that has it: no warning, and the summary records it
+    monkeypatch.delenv("FAKE_HELP")
+    assert et.main(["--cases", str(cases), "--claude", str(exe), "--filter", "^pester", "--timeout", "5",
+                    "--json", str(out_json), "--plugins", "powershell"]) == 0
+    captured = capsys.readouterr()
+    assert "no --restricted" not in captured.err and "not restricted" not in captured.out
+    assert json.loads(out_json.read_text())["summary"]["restricted"] is True
 
 
 @pytest.mark.skipif(os.name == "nt", reason="fake CLI is a shebang script")
