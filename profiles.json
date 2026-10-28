@@ -1,5 +1,5 @@
 {
-  "$comment": "Named plugin subsets for the installers. Every marketplace plugin belongs to exactly one profile (scripts/validate.py checks this). install-copilot.sh/.ps1 default to copilotDefault; install.sh/.ps1 (Claude Code) still install every plugin, or the names passed to them. claude-only plugins rely on Claude Code features (Workflow engine, !`cmd` injection, Claude-only hook events) and are skipped by install-copilot unless named explicitly.",
+  "$comment": "Named plugin subsets for the installers. Every marketplace plugin belongs to exactly one profile (scripts/validate.py checks this). install-copilot.sh/.ps1 default to copilotDefault; install.sh/.ps1 (Claude Code) default to claudeDefault (every plugin with --all / -All): Claude Code's skill listing has a budget, and with every plugin most skill descriptions get cut to their name. claude-only plugins rely on Claude Code features (Workflow engine, !`cmd` injection, Claude-only hook events) and are skipped by install-copilot unless named explicitly.",
   "profiles": {
     "cloud": [
       "terraform",
@@ -38,5 +38,9 @@
   },
   "copilotDefault": [
     "cloud"
+  ],
+  "claudeDefault": [
+    "cloud",
+    "claude-only"
   ]
 }

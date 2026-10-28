@@ -141,6 +141,14 @@ def test_unknown_profile_in_copilot_default(repo):
     assert "profiles.json: copilotDefault names unknown profile 'nope'" in res.problems
 
 
+def test_unknown_profile_in_claude_default(repo):
+    repo.edit_json("profiles.json", lambda d: d["claudeDefault"].append("nope"))
+    res = repo.validate()
+    assert res.rc == 1, res
+    assert "profiles.json: claudeDefault names unknown profile 'nope'" in res.problems
+    assert not any("copilotDefault" in p for p in res.problems), res.problems
+
+
 @pytest.mark.parametrize("content", [None, "{not json"])
 def test_missing_or_invalid_profiles_json(repo, content):
     if content is None:

@@ -2,19 +2,26 @@
 # Installs Claude Code if missing, adds the my-claude-skills marketplace, installs its plugins,
 # and installs the CLI tools some plugins depend on (agent-browser, uv, pwsh, .NET SDK, pyright,
 # yaml-language-server, yamllint).
-# Usage: install.sh [plugin ...]      (no args = every plugin in the marketplace)
+# Usage: install.sh                        (profiles in profiles.json "claudeDefault": cloud, claude-only)
+#        install.sh --profile cloud,dotnet
+#        install.sh --all                  (every plugin in the marketplace)
+#        install.sh terraform pyright-lsp  (only these plugins)
 #        curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/install.sh | bash
+#        curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/install.sh | bash -s -- --all
 set -euo pipefail
 
 REPO="lucas4790/my-claude-skills"
 NAME="my-claude-skills"
-MANIFEST_URL="https://raw.githubusercontent.com/$REPO/main/.claude-plugin/marketplace.json"
+RAW="https://raw.githubusercontent.com/$REPO/main"
+MANIFEST_URL="$RAW/.claude-plugin/marketplace.json"
 # The directory this script runs from (a checkout, or "/" under `curl | bash`). Resolved at top
 # level: inside a function BASH_SOURCE[0] would be "main" when the script is piped to bash.
-HERE="$(dirname "${BASH_SOURCE[0]:-/nonexistent}")"
+SRC="${BASH_SOURCE[0]:-}"
+HERE="$(dirname "${SRC:-/nonexistent}")"
 YAMLLINT_MIN="1.30"   # yaml-hooks' default config uses the anchors rule (1.30) and --list-files (1.29)
 
 warn() { echo "warning: $*" >&2; }
+die()  { echo "error: $*" >&2; exit 1; }
 has()  { command -v "$1" >/dev/null 2>&1; }
 selected() { printf '%s\n' "${plugins[@]}" | grep -qx "$1"; }
 # version_ge A B: true when dotted version A >= B
@@ -22,8 +29,65 @@ version_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -t. -k1,1n -k2,2n -k3,3n 
 # yamllint_version: the version of the yamllint on PATH, empty when there is none
 yamllint_version() { { yamllint --version 2>/dev/null || true; } | grep -oE '[0-9]+(\.[0-9]+)+' | head -1 || true; }
 
+# profiles.json of the checkout this script runs from, else of the repo's main branch. A checkout is
+# recognised by its marketplace manifest, so a stray profiles.json elsewhere is never used.
+profiles_json() {
+  if [ -n "$SRC" ] && [ -f "$HERE/.claude-plugin/marketplace.json" ] && [ -f "$HERE/profiles.json" ]; then
+    cat "$HERE/profiles.json"
+  else
+    curl -fsSL "$RAW/profiles.json"
+  fi
+}
+
+usage() {
+  if [ -n "$SRC" ] && [ -f "$SRC" ]; then sed -n '2,10p' "$SRC"
+  else echo "Usage: install.sh [--profile NAME[,NAME...] | --all] [plugin ...]  (profiles: $RAW/profiles.json)"; fi
+}
+
+# select_plugins: fills plugins from the named plugins, --all or the profiles (needs jq, and curl
+# outside a checkout or for --all). Exits 1 on an unknown profile, before any plugin is installed.
+select_plugins() {
+  local p names pj sel unknown
+  if [ "${#explicit[@]}" -gt 0 ]; then
+    plugins=("${explicit[@]}")
+  elif [ -n "$all" ]; then
+    # while-read, not mapfile: macOS still ships bash 3.2
+    names=$(curl -fsSL "$MANIFEST_URL" | jq -r '.plugins[].name') \
+      || die "could not read the plugin list from $MANIFEST_URL (or pass plugin names as arguments)"
+    while IFS= read -r p; do [ -n "$p" ] && plugins+=("$p"); done <<<"$names"
+    echo "==> all ${#plugins[@]} plugin(s) in the marketplace"
+  else
+    pj=$(profiles_json) || die "could not read profiles.json"
+    if [ -n "$profile" ]; then sel=$(jq -cn --arg p "$profile" '$p | split(",")')
+    else sel=$(jq -c '.claudeDefault // []' <<<"$pj"); fi
+    unknown=$(jq -r --argjson s "$sel" '. as $r | [$s[] as $x | select($r.profiles | has($x) | not) | $x] | join(" ")' <<<"$pj")
+    [ -z "$unknown" ] || die "unknown profile(s): $unknown (see profiles.json)"
+    while IFS= read -r p; do [ -n "$p" ] && plugins+=("$p"); done < <(
+      jq -r --argjson s "$sel" '. as $r | $s[] | $r.profiles[.][]' <<<"$pj")
+    echo "==> profiles $(jq -r 'join(", ")' <<<"$sel") (${#plugins[@]} plugin(s)); --all or --profile dotnet for more;" \
+      "more than ~6k tokens of skill descriptions get truncated (see README)"
+  fi
+  [ "${#plugins[@]}" -gt 0 ] || die "no plugins to install"
+}
+
 # Everything runs from main, called on the last line: a download cut off halfway runs nothing.
 main() {
+  profile="" all="" explicit=() plugins=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --profile) [ "$#" -ge 2 ] || die "--profile needs a value (e.g. --profile cloud,dotnet)"; profile="$2"; shift 2 ;;
+      --profile=*) profile="${1#--profile=}"; shift ;;
+      --all) all=1; shift ;;
+      -h|--help) usage; exit 0 ;;
+      -*) die "unknown option $1" ;;
+      *) explicit+=("$1"); shift ;;
+    esac
+  done
+  [ -z "$all" ] || [ -z "$profile" ] || die "--all and --profile exclude each other"
+  # With jq and curl already there, a wrong profile name stops the run before anything is installed;
+  # otherwise the list is read right after the base dependencies, which bring them.
+  if has jq && has curl; then select_plugins; fi
+
   # --- base dependencies ---------------------------------------------------------
   # git + curl: Claude Code and marketplace cloning; jq: manifest parsing; node/npm: caveman hooks, agent-browser
   pkg_install() {
@@ -44,6 +108,8 @@ main() {
     pkg_install "${missing[@]}" || { echo "error: could not install ${missing[*]}; install them manually and re-run" >&2; exit 1; }
   fi
   echo "==> base deps: git $(git --version | awk '{print $3}'), node $(node --version), jq $(jq --version)"
+  # plugin list, unless read above already (jq or curl was missing then)
+  [ "${#plugins[@]}" -gt 0 ] || select_plugins
 
   # --- desktop app check ---------------------------------------------------------
   # Plugins live in ~/.claude/plugins, which both the desktop app and the CLI read, so
@@ -80,18 +146,6 @@ main() {
     has claude || { echo "error: claude still not on PATH after install; open a new shell and re-run" >&2; exit 1; }
   fi
   echo "==> claude $(claude --version 2>/dev/null | head -1)"
-
-  # --- plugin list --------------------------------------------------------------
-  plugins=()
-  if [ "$#" -gt 0 ]; then
-    plugins=("$@")
-  else
-    # while-read, not mapfile: macOS still ships bash 3.2
-    names=$(curl -fsSL "$MANIFEST_URL" | jq -r '.plugins[].name') \
-      || { echo "error: could not read the plugin list from $MANIFEST_URL (or pass plugin names as arguments)" >&2; exit 1; }
-    while IFS= read -r p; do [ -n "$p" ] && plugins+=("$p"); done <<<"$names"
-  fi
-  [ "${#plugins[@]}" -gt 0 ] || { echo "error: no plugins to install" >&2; exit 1; }
 
   # --- marketplace + plugins ----------------------------------------------------
   if claude plugin marketplace list 2>/dev/null | grep -q "$NAME"; then

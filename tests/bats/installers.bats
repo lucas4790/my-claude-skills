@@ -234,11 +234,19 @@ installs() { grep '^copilot plugin install ' "$FAKE_CALLS" | sed 's/^copilot plu
 
 # --- install.sh against a fake claude ---------------------------------------------------------------
 
-# install_fixture: fake claude (installs all but $FAKE_CLAUDE_INSTALL_FAIL and lists them), git, node, npm
-# and curl (serves only the main branch's marketplace manifest, with alpha and beta) on $IPATH;
-# CLAUDE_CONFIG_DIR does not exist yet
+# install_fixture: $IC = a checkout-like copy of install.sh and scripts/update-plugins.sh with a fixture
+# profiles.json (claudeDefault: cloud = alpha, claude-only = beta; dotnet = gamma) and a marketplace
+# manifest; fake claude (installs all but $FAKE_CLAUDE_INSTALL_FAIL and lists them), git, node, npm and
+# curl (serves only the main branch's marketplace manifest, with alpha, beta and gamma, and its
+# profiles.json, whose claudeDefault is remote-one) on $IPATH; CLAUDE_CONFIG_DIR does not exist yet
 install_fixture() {
-  mkdir -p "$T/ifake" "$T/home" "$T/tmp"
+  IC="$T/icheckout"
+  mkdir -p "$T/ifake" "$T/home" "$T/tmp" "$IC/.claude-plugin" "$IC/scripts"
+  cp "$REPO_ROOT/install.sh" "$IC/"
+  cp "$REPO_ROOT/scripts/update-plugins.sh" "$IC/scripts/"
+  echo '{"name": "my-claude-skills", "plugins": []}' > "$IC/.claude-plugin/marketplace.json"
+  echo '{"profiles": {"cloud": ["alpha"], "dotnet": ["gamma"], "claude-only": ["beta"]},
+    "copilotDefault": ["cloud"], "claudeDefault": ["cloud", "claude-only"]}' > "$IC/profiles.json"
   export HOME="$T/home" CLAUDE_CONFIG_DIR="$T/claude" XDG_DATA_HOME="$T/data" XDG_CACHE_HOME="$T/cache" \
     XDG_CONFIG_HOME="$T/config" TMPDIR="$T/tmp" FAKE_CALLS="$T/calls.log" FAKE_INSTALLED="$T/installed" \
     MY_CLAUDE_SKILLS_ATTRIBUTION=keep
@@ -257,7 +265,8 @@ EOF
 #!/usr/bin/env bash
 echo "curl $*" >> "$FAKE_CALLS"
 case "$*" in
-  *"/main/.claude-plugin/marketplace.json") echo '{"plugins": [{"name": "alpha"}, {"name": "beta"}]}' ;;
+  *"/main/.claude-plugin/marketplace.json") echo '{"plugins": [{"name": "alpha"}, {"name": "beta"}, {"name": "gamma"}]}' ;;
+  *"/main/profiles.json") echo '{"profiles": {"cloud": ["remote-one"]}, "claudeDefault": ["cloud"]}' ;;
   *) exit 22 ;;
 esac
 EOF
@@ -277,17 +286,20 @@ offers() {
   printf '%s\n' "$@" | jq -R '{name: .}' | jq -s '{name: "my-claude-skills", plugins: .}' > "$clone/.claude-plugin/marketplace.json"
 }
 
-run_install() { run env PATH="$IPATH" "${INSTALL_BASH:-$BASH}" "$REPO_ROOT/install.sh" "$@"; }
+run_install() { run env PATH="$IPATH" "${INSTALL_BASH:-$BASH}" "$IC/install.sh" "$@"; }
+claude_installs() { grep '^claude plugin install ' "$FAKE_CALLS" | sed 's/^claude plugin install //; s/@my-claude-skills$//' | tr '\n' ' ' || true; }
 hook_cmd() { printf 'bash "%s"' "$XDG_DATA_HOME/my-claude-skills/update-plugins.sh"; }
 session_start_count() { jq '[.hooks.SessionStart[]? | select(.hooks[0].command == $c)] | length' --arg c "$(hook_cmd)" "$1"; }
 
-@test "install.sh: installs the manifest's plugins and registers the startup hook once, creating CLAUDE_CONFIG_DIR" {
+@test "install.sh: installs the claudeDefault profiles and registers the startup hook once, creating CLAUDE_CONFIG_DIR" {
   install_fixture
   run_install
   assert_status 0
   grep -qxF "claude plugin marketplace add lucas4790/my-claude-skills" "$FAKE_CALLS"
   assert_eq "$(grep '^claude plugin install' "$FAKE_CALLS")" "claude plugin install alpha@my-claude-skills
 claude plugin install beta@my-claude-skills" "installs"
+  assert_line "==> profiles cloud, claude-only (2 plugin(s)); --all or --profile dotnet for more; more than ~6k tokens of skill descriptions get truncated (see README)"
+  refute grep -q "^curl" "$FAKE_CALLS"   # profiles.json of the checkout
   cmp "$REPO_ROOT/scripts/update-plugins.sh" "$XDG_DATA_HOME/my-claude-skills/update-plugins.sh"
   assert_eq "$(session_start_count "$CLAUDE_CONFIG_DIR/settings.json")" "1" "hooks"
   jq -e '.hooks.SessionStart[0] | .matcher == "startup" and .hooks[0].async == true' "$CLAUDE_CONFIG_DIR/settings.json"
@@ -321,10 +333,101 @@ claude plugin install beta@my-claude-skills" "installs"
   assert_file_content "$KNOWN" $'alpha\ngamma\n'
 }
 
+@test "install.sh: --profile, --all and named plugins pick the plugins; the default ones that were not picked stay out on updates" {
+  install_fixture
+  offers alpha beta gamma
+  run_install
+  assert_status 0
+  assert_eq "$(claude_installs)" "alpha beta " "no arguments"
+  # gamma (dotnet) was not picked: known, so the updater leaves it out
+  assert_file_content "$KNOWN" $'alpha\nbeta\ngamma\n'
+  : > "$FAKE_CALLS"
+  run env PATH="$IPATH" bash "$XDG_DATA_HOME/my-claude-skills/update-plugins.sh" --force
+  assert_status 0
+  assert_eq "$(claude_installs)" "" "the updater's installs"
+
+  : > "$FAKE_CALLS"
+  run_install --profile dotnet
+  assert_status 0
+  assert_eq "$(claude_installs)" "gamma " "--profile dotnet"
+  assert_line "==> profiles dotnet (1 plugin(s)); --all or --profile dotnet for more; more than ~6k tokens of skill descriptions get truncated (see README)"
+
+  : > "$FAKE_CALLS"
+  run_install --profile=dotnet,cloud
+  assert_status 0
+  assert_eq "$(claude_installs)" "gamma alpha " "--profile=dotnet,cloud"
+
+  : > "$FAKE_CALLS"
+  run_install --all
+  assert_status 0
+  assert_eq "$(claude_installs)" "alpha beta gamma " "--all"
+  assert_line "==> all 3 plugin(s) in the marketplace"
+  grep -qF "curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/.claude-plugin/marketplace.json" "$FAKE_CALLS"
+
+  : > "$FAKE_CALLS"
+  run_install gamma delta
+  assert_status 0
+  assert_eq "$(claude_installs)" "gamma delta " "named plugins"
+  refute_output_contains "==> profiles"
+}
+
+@test "install.sh: an unknown profile or option, --profile without a value, or --all with --profile exits 1 before installing anything" {
+  install_fixture
+  run_install --profile cloud,nope
+  assert_status 1
+  assert_line "error: unknown profile(s): nope (see profiles.json)"
+
+  run_install --bogus
+  assert_status 1
+  assert_line "error: unknown option --bogus"
+
+  run_install --profile
+  assert_status 1
+  assert_line "error: --profile needs a value (e.g. --profile cloud,dotnet)"
+
+  run_install --all --profile cloud
+  assert_status 1
+  assert_line "error: --all and --profile exclude each other"
+
+  assert_not_exists "$FAKE_CALLS"   # not even claude --version
+  assert_not_exists "$CLAUDE_CONFIG_DIR"
+  assert_not_exists "$XDG_DATA_HOME"
+}
+
+@test "install.sh --help prints the usage and installs nothing" {
+  link_tools "$T/sys" bash sed dirname
+  HOME="$T/home" run env PATH="$T/sys" "$BASH" "$REPO_ROOT/install.sh" --help
+  assert_status 0
+  assert_output_contains "Usage: install.sh"
+  assert_output_contains "--profile cloud,dotnet"
+  assert_output_contains "--all"
+  refute_output_contains "set -euo"
+  assert_not_exists "$T/home"
+}
+
+@test "install.sh piped to bash reads profiles.json from the repo, never from the current directory" {
+  install_fixture
+  # the caller's directory is an old clone
+  mkdir -p "$T/old-clone/.claude-plugin"
+  echo '{"profiles": {"cloud": ["stale-plugin"]}, "claudeDefault": ["cloud"]}' > "$T/old-clone/profiles.json"
+  echo '{"name": "my-claude-skills", "plugins": []}' > "$T/old-clone/.claude-plugin/marketplace.json"
+  cd "$T/old-clone"
+  run env PATH="$IPATH" "$BASH" -s < "$IC/install.sh"
+  assert_status 0
+  assert_eq "$(claude_installs)" "remote-one " "installs"
+  grep -qF "curl -fsSL https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/profiles.json" "$FAKE_CALLS"
+
+  : > "$FAKE_CALLS"
+  run env PATH="$IPATH" "$BASH" -s -- --profile nope < "$IC/install.sh"
+  assert_status 1
+  assert_line "error: unknown profile(s): nope (see profiles.json)"
+  refute grep -q "^claude" "$FAKE_CALLS"
+}
+
 @test "install.sh: exits 1 with a message when the plugin list cannot be fetched" {
   install_fixture
   printf '#!/bin/sh\nexit 22\n' > "$T/ifake/curl"
-  run_install
+  run_install --all
   assert_status 1
   assert_output_contains "error: could not read the plugin list from"
   refute grep -q "plugin install" "$FAKE_CALLS"
@@ -438,6 +541,12 @@ PS1
   refute_output_contains "unbound variable"
   assert_eq "$(grep -c '^claude plugin install' "$FAKE_CALLS")" "2" "installs"
   assert_file_content "$KNOWN" $'alpha\nbeta\n'
+  INSTALL_BASH="$BASH32" run_install --profile=dotnet
+  assert_status 0
+  refute_output_contains "unbound variable"
+  INSTALL_BASH="$BASH32" run_install --all
+  assert_status 0
+  refute_output_contains "unbound variable"
 
   copilot_fixture
   run env PATH="$T/fake:$T/sys" "$BASH32" "$C/install-copilot.sh" --profile cloud,claude-only

@@ -136,7 +136,8 @@ def _base_layout(repo: FakeRepo) -> None:
     repo.write("plugins/alpha/skills/alpha-skill/SKILL.md", SKILL_MD)
     repo.write_json("plugins/beta/.claude-plugin/plugin.json", {"name": "beta"})
     repo.write("plugins/beta/commands/check-beta.md", COMMAND_MD)
-    repo.write_json("profiles.json", {"profiles": {"core": ["alpha"], "extra": ["beta"]}, "copilotDefault": ["core"]})
+    repo.write_json("profiles.json", {"profiles": {"core": ["alpha"], "extra": ["beta"]}, "copilotDefault": ["core"],
+                                     "claudeDefault": ["core", "extra"]})
 
 
 @pytest.fixture

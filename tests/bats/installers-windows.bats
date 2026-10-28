@@ -61,6 +61,7 @@ EOF
 #   driver.ps1 file SCRIPT [ARG...]      & SCRIPT ARG, ... (as .\install.ps1 dotnet, powershell); prints exit=<code>
 #   driver.ps1 plugin SCRIPT PLUGIN...   & SCRIPT -Plugin PLUGIN, ...; prints exit=<code>
 #   driver.ps1 profile SCRIPT NAME...    & SCRIPT -Profile NAME, ... (profiles also: -Profiles); prints exit=<code>
+#   driver.ps1 all SCRIPT                & SCRIPT -All; prints exit=<code>
 #   driver.ps1 iex SCRIPT                Get-Content -Raw SCRIPT | Invoke-Expression, as `irm | iex` does, from a
 #                                        caller that has its own $Profiles and $Plugin; then prints what the
 #                                        installer left in the session
@@ -91,7 +92,8 @@ $mode, $installer, $rest = $args
 if ($mode -ne 'iex') {
     $global:LASTEXITCODE = 0
     try {
-        if (-not $rest) { & $installer }
+        if ($mode -eq 'all') { & $installer -All }
+        elseif (-not $rest) { & $installer }
         elseif ($mode -eq 'file') { & $installer @($rest) }
         elseif ($mode -eq 'profile') { & $installer -Profile @($rest) }
         elseif ($mode -eq 'profiles') { & $installer -Profiles @($rest) }
@@ -135,6 +137,12 @@ with_env() { FAKE_ENV+=("$@"); }
 # our_hooks FILE: the SessionStart commands that run update-plugins.ps1, one per line
 our_hooks() {
   jq -r '.hooks.SessionStart[]?.hooks[]? | select(.command | test("update-plugins\\.ps1")) | .command' "$1"
+}
+
+# remote_profiles JSON: the profiles.json the stubbed Invoke-RestMethod serves for the main branch
+remote_profiles() {
+  echo "$1" > "$T/remote-profiles.json"
+  with_env FAKE_PROFILES="$T/remote-profiles.json"
 }
 
 manifest() {
@@ -242,7 +250,7 @@ PS1
   run "$PWSH_BIN" -NoLogo -NoProfile -NonInteractive -File "$T/help.ps1" \
     "$REPO_ROOT/install.ps1" "$REPO_ROOT/install-copilot.ps1" "$REPO_ROOT/scripts/update-plugins.ps1"
   assert_status 0
-  assert_line "install.ps1: Plugin described"
+  assert_line "install.ps1: Plugin described, Profiles described, All described"
   assert_line "install-copilot.ps1: Profiles described, Plugin described"
   assert_line "update-plugins.ps1: Force described"
   refute_output_contains "is not a parameter"
@@ -252,10 +260,11 @@ PS1
 
 @test "install.ps1 under irm | iex: a failed plugin is reported, the session stays open and keeps its settings" {
   base_fakes
-  manifest alpha broken
+  remote_profiles '{"profiles": {"cloud": ["alpha"], "claude-only": ["broken"], "dotnet": ["gamma"]}, "claudeDefault": ["cloud", "claude-only"]}'
   run_ps iex "$REPO_ROOT/install.ps1"
   assert_line "still in the session"
   assert_line "ErrorActionPreference=Continue"
+  assert_line "Profiles=[preset]"
   assert_line "Plugin=[preset]"
   assert_line "leaked variables=[]"
   assert_line "leaked functions=[]"
@@ -272,7 +281,7 @@ PS1
 
 @test "install.ps1 under irm | iex: answering no at the desktop-app prompt returns to the session" {
   base_fakes
-  manifest alpha
+  remote_profiles '{"profiles": {"cloud": ["alpha"]}, "claudeDefault": ["cloud"]}'
   with_env FAKE_DESKTOP=1 FAKE_REPLY=n
   run_ps iex "$REPO_ROOT/install.ps1"
   assert_line "Aborted at your request."
@@ -297,6 +306,46 @@ claude plugin install broken@my-claude-skills" "installs"
   run_ps plugin "$REPO_ROOT/install.ps1" alpha   # -Plugin alpha
   assert_line "exit=0"
   assert_eq "$(grep 'plugin install' "$FAKE_CALLS")" "claude plugin install alpha@my-claude-skills" "installs"
+}
+
+@test "install.ps1 installs the claudeDefault profiles by default, or -Profile/-Profiles, -All or named plugins; an unknown profile stops it before anything is installed" {
+  base_fakes
+  # a clone: the script next to its profiles.json
+  mkdir -p "$T/clone"
+  cp "$REPO_ROOT/install.ps1" "$T/clone/"
+  echo '{"claudeDefault": ["cloud", "claude-only"], "copilotDefault": ["cloud"],
+    "profiles": {"cloud": ["alpha", "beta"], "dotnet": ["gamma"], "claude-only": ["delta"]}}' > "$T/clone/profiles.json"
+  manifest alpha beta gamma delta epsilon
+  installs() { grep '^claude plugin install' "$FAKE_CALLS" | sed 's/^claude plugin install //; s/@my-claude-skills$//' | tr '\n' ' '; : > "$FAKE_CALLS"; }
+
+  run_ps profile "$T/clone/install.ps1" cloud nope
+  assert_line "threw: unknown profile(s): nope (see profiles.json)"
+  assert_not_exists "$FAKE_CALLS"   # not even git --version
+  assert_not_exists "$T/home/.claude"
+  assert_not_exists "$T/local/my-claude-skills"
+
+  run_ps file "$T/clone/install.ps1"   # no arguments: claudeDefault
+  assert_line "exit=0"
+  assert_eq "$(installs)" "alpha beta delta " "no arguments"
+  assert_line "==> profiles cloud, claude-only (3 plugin(s)); -All or -Profile dotnet for more; more than ~6k tokens of skill descriptions get truncated (see README)"
+  run_ps profile "$T/clone/install.ps1" dotnet cloud   # -Profile dotnet, cloud
+  assert_eq "$(installs)" "gamma alpha beta " "-Profile"
+  run_ps profiles "$T/clone/install.ps1" "dotnet,claude-only"   # -Profiles 'dotnet,claude-only'
+  assert_eq "$(installs)" "gamma delta " "-Profiles"
+  run_ps all "$T/clone/install.ps1"   # -All: the marketplace manifest
+  assert_line "exit=0"
+  assert_eq "$(installs)" "alpha beta gamma delta epsilon " "-All"
+  assert_line "==> all 5 plugin(s) in the marketplace"
+  run_ps file "$T/clone/install.ps1" epsilon gamma   # positional plugins, as before
+  assert_eq "$(installs)" "epsilon gamma " "positional"
+  run_ps plugin "$T/clone/install.ps1" epsilon   # -Plugin epsilon
+  assert_eq "$(installs)" "epsilon " "-Plugin"
+  refute_output_contains "==> profiles"
+
+  # irm | iex takes no arguments: the profiles come from $env:MY_CLAUDE_SKILLS_PROFILE
+  with_env MY_CLAUDE_SKILLS_PROFILE=dotnet
+  run_ps file "$T/clone/install.ps1"
+  assert_eq "$(installs)" "gamma " "MY_CLAUDE_SKILLS_PROFILE"
 }
 
 @test "install.ps1 records the plugins for the updater without the failed ones, so the next update retries those" {

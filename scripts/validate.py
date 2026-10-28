@@ -364,9 +364,11 @@ else:
     for m in seen:
         if m not in names:
             problems.append(f"profiles.json: {m!r} is not a marketplace plugin")
-    for d in prof.get("copilotDefault", []):
-        if d not in (prof.get("profiles") or {}):
-            problems.append(f"profiles.json: copilotDefault names unknown profile {d!r}")
+    # the installers' defaults: install-copilot.sh/.ps1 use copilotDefault, install.sh/.ps1 claudeDefault
+    for key in ("copilotDefault", "claudeDefault"):
+        for d in prof.get(key, []):
+            if d not in (prof.get("profiles") or {}):
+                problems.append(f"profiles.json: {key} names unknown profile {d!r}")
 
 for f in ROOT.glob("plugins/**/*"):
     if f.is_file() and f.stat().st_size > 5_000_000:

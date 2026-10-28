@@ -6,14 +6,23 @@
     and installs the tools some plugins depend on (git, Node.js, agent-browser, uv, PowerShell 7, .NET 10 SDK,
     pyright, yaml-language-server, yamllint).
 .DESCRIPTION
-    Parameter (it belongs to the script block inside, which keeps irm | iex out of the caller's session,
+    Parameters (they belong to the script block inside, which keeps irm | iex out of the caller's session,
     so Get-Help shows only the common parameters under PARAMETERS):
       -Plugin NAME, ...    install only these plugins; also positional (.\install.ps1 dotnet, powershell).
-                           Default: every plugin in the marketplace.
+                           -Profile and -All are then ignored.
+      -Profile NAME, ...   install the plugins of these profiles in profiles.json; also -Profiles, "a,b" in one
+                           string. Default: the profiles in $env:MY_CLAUDE_SKILLS_PROFILE (comma-separated), else
+                           "claudeDefault" (cloud, claude-only). Claude Code cuts skill descriptions beyond
+                           ~6k tokens to their names, so more plugins make skills trigger worse (see README).
+      -All                 install every plugin in the marketplace.
 .EXAMPLE
-    .\install.ps1                      # every plugin in the marketplace
+    .\install.ps1                      # profiles in profiles.json "claudeDefault" (cloud, claude-only)
+    .\install.ps1 -Profile cloud, dotnet
+    .\install.ps1 -All                 # every plugin in the marketplace
     .\install.ps1 dotnet, powershell   # only these
     irm https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/install.ps1 | iex
+    $env:MY_CLAUDE_SKILLS_PROFILE = 'cloud,dotnet'; irm .../install.ps1 | iex
+    & ([scriptblock]::Create((irm .../install.ps1))) -All
 #>
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'Interactive installer; progress lines are for the console')]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingInvokeExpression', '', Justification = 'Official Claude Code and uv installers are distributed as irm | iex')]
@@ -24,7 +33,7 @@ param()   # the parameters are the scriptblock's below: here, irm | iex would se
 # session. Run as a file (.\install.ps1), it exits 1 when a plugin failed.
 & {
     [CmdletBinding()]
-    param([string[]] $Plugin)
+    param([Parameter(Position = 0)] [string[]] $Plugin, [Alias('Profile')] [string[]] $Profiles, [switch] $All)
     $ErrorActionPreference = 'Stop'
     # Windows PowerShell 5.1 started from PowerShell 7 (a pwsh terminal, Claude Code's `!` prompt) inherits
     # pwsh's module directories first in PSModulePath, and then fails to autoload its own modules from them
@@ -45,7 +54,8 @@ param()   # the parameters are the scriptblock's below: here, irm | iex would se
     }
     $repo = 'lucas4790/my-claude-skills'
     $name = 'my-claude-skills'
-    $manifestUrl = "https://raw.githubusercontent.com/$repo/main/.claude-plugin/marketplace.json"
+    $rawBase = "https://raw.githubusercontent.com/$repo/main"
+    $manifestUrl = "$rawBase/.claude-plugin/marketplace.json"
     $minYamllint = [version] '1.30'   # the yaml-hooks hook needs the anchors rule and --list-files
     # The path of this script when it runs as a file (from a clone); $null under `irm | iex`
     $scriptFile = {}.File
@@ -83,6 +93,31 @@ param()   # the parameters are the scriptblock's below: here, irm | iex would se
     # UTF-8 without BOM on both Windows PowerShell 5.1 and PowerShell 7
     function Write-Utf8([string] $path, [string] $text) { [IO.File]::WriteAllText($path, $text, (New-Object Text.UTF8Encoding $false)) }
 
+    # --- plugin list ----------------------------------------------------------------
+    # Read before anything is installed, so a wrong profile name stops the run here. profiles.json comes
+    # from the clone this script runs from, else (irm | iex) from the repo's main branch.
+    if (-not $Plugin) {
+        if ($All -and $Profiles) { throw '-All and -Profile exclude each other' }
+        if ($All) {
+            $Plugin = @((Invoke-RestMethod -Uri $manifestUrl).plugins.name)
+            Write-Host "==> all $($Plugin.Count) plugin(s) in the marketplace"
+        } else {
+            $localProfiles = if ($here) { Join-Path $here 'profiles.json' } else { $null }
+            $pj = if ($localProfiles -and (Test-Path $localProfiles)) { Get-Content $localProfiles -Raw | ConvertFrom-Json }
+                  else { Invoke-RestMethod -Uri "$rawBase/profiles.json" }
+            if (-not $Profiles) {
+                $Profiles = if ($env:MY_CLAUDE_SKILLS_PROFILE) { $env:MY_CLAUDE_SKILLS_PROFILE -split ',' } else { $pj.claudeDefault }
+            }
+            $Profiles = @($Profiles | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            $unknown = @($Profiles | Where-Object { -not $pj.profiles.PSObject.Properties[$_] })
+            if ($unknown) { throw "unknown profile(s): $($unknown -join ', ') (see profiles.json)" }
+            $Plugin = @($Profiles | ForEach-Object { $pj.profiles.$_ })
+            Write-Host ("==> profiles $($Profiles -join ', ') ($($Plugin.Count) plugin(s)); -All or -Profile dotnet for more; " +
+                'more than ~6k tokens of skill descriptions get truncated (see README)')
+        }
+    }
+    if (-not $Plugin) { throw 'no plugins to install' }
+
     # --- base dependencies ------------------------------------------------------
     if (-not (Test-Cmd git))  { Install-Winget 'Git.Git' 'Git' }
     if (-not (Test-Cmd node)) { Install-Winget 'OpenJS.NodeJS.LTS' 'Node.js LTS' }
@@ -116,9 +151,6 @@ param()   # the parameters are the scriptblock's below: here, irm | iex would se
         if (-not (Test-Cmd claude)) { throw "claude still not on PATH after install; open a new terminal and re-run" }
     }
     Write-Host "==> claude $(Invoke-Quiet { & claude --version 2>$null } | Select-Object -First 1)"
-
-    # --- plugin list ----------------------------------------------------------------
-    if (-not $Plugin) { $Plugin = (Invoke-RestMethod -Uri $manifestUrl).plugins.name }
 
     # --- marketplace + plugins ------------------------------------------------------
     $existing = Invoke-Quiet { & claude plugin marketplace list 2>$null }
@@ -381,4 +413,4 @@ param()   # the parameters are the scriptblock's below: here, irm | iex would se
         Write-Warning "failed plugins: $($failed -join ', ') (see above)"
         if ($scriptFile) { exit 1 }
     }
-} @args   # the script's arguments (.\install.ps1 a, b or -Plugin a, b); none under irm | iex
+} @args   # the script's arguments (.\install.ps1 a, b, -Plugin a, b, -Profile a, b or -All); none under irm | iex

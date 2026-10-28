@@ -4,7 +4,8 @@ A Claude Code plugin marketplace with the skills and plugins I use, vendored fro
 
 ## Install
 
-One command installs the marketplace and every plugin in it:
+One command installs the marketplace and the plugins of the `claudeDefault` profiles in
+[`profiles.json`](profiles.json), `cloud` and `claude-only` (see **Profiles** below):
 
 ```bash
 # Linux / macOS / WSL
@@ -36,7 +37,11 @@ plugin-install command of its own, but reads the same `~/.claude/plugins` the CL
 one install reaches both. Set `MY_CLAUDE_SKILLS_YES=1` to skip that prompt (e.g. for automation); with no
 terminal to ask on (a piped run without a tty), `install.sh` stops and says so.
 
-Pass plugin names to install a subset (`./install.sh dotnet powershell`, `.\install.ps1 dotnet, powershell`); only that subset's tools are installed, and the auto-updater below keeps a subset a subset. Re-running is safe. `install.sh` and `.\install.ps1` exit 1 when a plugin failed to install; under `irm | iex` the script only warns and never closes the PowerShell window. Or do it by hand:
+Pick other profiles with `--profile` (`./install.sh --profile cloud,dotnet`, `curl ... | bash -s -- --profile cloud,dotnet`; `.\install.ps1 -Profile cloud, dotnet`, or `$env:MY_CLAUDE_SKILLS_PROFILE = 'cloud,dotnet'` before `irm | iex`), install every plugin with `--all` (`.\install.ps1 -All`; under `irm | iex`: `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/lucas4790/my-claude-skills/main/install.ps1))) -All`), or pass plugin names to install just those (`./install.sh dotnet powershell`, `.\install.ps1 dotnet, powershell`). An unknown profile or option stops the script before it installs anything. Only the chosen plugins' tools are installed, and the auto-updater below keeps a subset a subset.
+
+**Why not everything by default**: Claude Code lists every installed skill's description in each request, within a budget of 1% of the context window by default. Past it, descriptions are cut to the bare skill name and those skills trigger worse. With all plugins installed (~13.7k tokens of descriptions; `cloud` ~5.7k, `dotnet` ~6.1k, `extras` ~1.5k, `claude-only` ~0.4k) only 44 of 159 skills kept their description; the budget held ~6k tokens of them. So more than ~6k tokens of skill descriptions get truncated. With more plugins, raise the budget in `~/.claude/settings.json`, e.g. `"skillListingBudgetFraction": 0.03` (a fraction of the context window, default `0.01`; it costs that much more context on every turn).
+
+Re-running is safe. `install.sh` and `.\install.ps1` exit 1 when a plugin failed to install; under `irm | iex` the script only warns and never closes the PowerShell window. Or do it by hand:
 
 ```bash
 claude plugin marketplace add lucas4790/my-claude-skills
@@ -45,7 +50,7 @@ claude plugin install <plugin>@my-claude-skills
 
 The script also registers a `SessionStart` hook in `~/.claude/settings.json` (Windows: `%USERPROFILE%\.claude\settings.json`; `CLAUDE_CONFIG_DIR` if set) that runs its copy of `scripts/update-plugins.sh` / `.ps1` (the clone's when the installer runs from a clone, else `main`'s) in the background: it refreshes the marketplace, updates the installed plugins and installs only the plugins added to the marketplace since its previous run (it keeps the names it has seen in `plugins/my-claude-skills-known-plugins` in the Claude config dir, one list per config dir; the list only grows, so a plugin that leaves the marketplace and comes back is not reinstalled), so a subset install stays a subset and an uninstalled plugin stays uninstalled. The installers write that list: the marketplace's plugins minus any whose install failed, so the next update retries those. Where there is no list yet (installed before this change), the first run only records it, and when `claude plugin list` fails it only updates. It also refreshes its own copy from the marketplace clone (used from the next run). Throttled to once per 6 h per Claude config dir (`MY_CLAUDE_SKILLS_INTERVAL` seconds to change): the stamp is `plugins/my-claude-skills-last-run` in that config dir, next to its list, so a run in one config dir does not hold back another. The copy is in `~/.local/share/my-claude-skills/` and its log in `~/.cache/my-claude-skills/update.log` (shared by every config dir: each run starts with a line `=== <UTC time> <config dir>`); on Windows both are in `%LOCALAPPDATA%\my-claude-skills\`. Changes apply to the next session. Run it by hand with `--force` (`-Force` for the `.ps1`).
 
-**Upgrading an older install**: the installer copies the updater once, so a machine installed before the updater learned to refresh itself runs a frozen copy of the old one (it has no `known-plugins` in it). That copy never refreshes and still installs every marketplace plugin that is missing, so a subset grows to the full set and an uninstalled plugin comes back. Re-run the installer once (with the same plugin names if you installed a subset; it overwrites the copy and does not register the hook twice), or copy the marketplace clone's updater over the installed copy: `~/.claude/plugins/marketplaces/my-claude-skills/scripts/update-plugins.sh` to `~/.local/share/my-claude-skills/update-plugins.sh`, on Windows `%USERPROFILE%\.claude\plugins\marketplaces\my-claude-skills\scripts\update-plugins.ps1` to `%LOCALAPPDATA%\my-claude-skills\update-plugins.ps1`. Then uninstall the plugins you do not want: the new updater's first run records the marketplace's plugins as known and does not bring them back.
+**Upgrading an older install**: the installer copies the updater once, so a machine installed before the updater learned to refresh itself runs a frozen copy of the old one (it has no `known-plugins` in it). That copy never refreshes and still installs every marketplace plugin that is missing, so a subset grows to the full set and an uninstalled plugin comes back. Re-run the installer once (with the same plugin names, `--profile` or `--all` you installed with; it overwrites the copy and does not register the hook twice), or copy the marketplace clone's updater over the installed copy: `~/.claude/plugins/marketplaces/my-claude-skills/scripts/update-plugins.sh` to `~/.local/share/my-claude-skills/update-plugins.sh`, on Windows `%USERPROFILE%\.claude\plugins\marketplaces\my-claude-skills\scripts\update-plugins.ps1` to `%LOCALAPPDATA%\my-claude-skills\update-plugins.ps1`. Then uninstall the plugins you do not want: the new updater's first run records the marketplace's plugins as known and does not bring them back.
 
 ### No AI attribution
 
@@ -93,12 +98,14 @@ lists the other useful settings. With VS Code on Windows and Remote-WSL, run the
 
 **Profiles** ([`profiles.json`](profiles.json), every plugin in exactly one):
 
-| Profile | Plugins | Copilot default |
-|---|---|---|
-| `cloud` | terraform, azure-agent-skills, kubernetes-helm, pyright-lsp, component-documentation, mattpocock-skills, powershell, feature-dev, spec-kit, yaml-lsp | yes |
-| `dotnet` | dotnet, dotnet-aspnetcore, dotnet-test, dotnet-data, dotnet-nuget, dotnet-advanced, csharp-patterns, coding-guidelines | no |
-| `extras` | skill-builders, codebase-onboarding, agent-browser, caveman (skipped on native Windows: POSIX-only hooks) | no |
-| `claude-only` | commit-commands, code-modernization, pr-review-toolkit, yaml-hooks | never (name them explicitly to force) |
+| Profile | Plugins | Claude Code default (`install.sh`/`.ps1`) | Copilot default |
+|---|---|---|---|
+| `cloud` | terraform, azure-agent-skills, kubernetes-helm, pyright-lsp, component-documentation, mattpocock-skills, powershell, feature-dev, spec-kit, yaml-lsp | yes | yes |
+| `dotnet` | dotnet, dotnet-aspnetcore, dotnet-test, dotnet-data, dotnet-nuget, dotnet-advanced, csharp-patterns, coding-guidelines | no | no |
+| `extras` | skill-builders, codebase-onboarding, agent-browser, caveman (Copilot: skipped on native Windows, POSIX-only hooks) | no | no |
+| `claude-only` | commit-commands, code-modernization, pr-review-toolkit, yaml-hooks | yes | never (name them explicitly to force) |
+
+The defaults are `claudeDefault` and `copilotDefault` in `profiles.json`; `install.sh --all` / `install.ps1 -All` installs every profile.
 
 `claude-only` plugins depend on Claude Code features (Workflow engine, `` !`cmd` `` injection, `$ARGUMENTS`,
 Claude-only hook events). Use them from Claude Code, or from VS Code's **Claude** session target, which reads
