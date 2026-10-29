@@ -1,7 +1,8 @@
 #!/bin/bash
 # Cloud environment setup script for lucas4790/my-claude-skills (claude.ai/code, Anthropic-hosted, Ubuntu 24.04).
 #
-# Installs the tools AGENTS.md "Checks before a PR" needs that the base image lacks:
+# Turns off AI attribution in ~/.claude/settings.json (every session of the environment, any repository) and
+# installs the tools AGENTS.md "Checks before a PR" needs that the base image lacks:
 #   rsync, bats (>= 1.4), shellcheck, yamllint (>= 1.30), pytest + PyYAML for the python3 on PATH,
 #   git-filter-repo, pwsh, Pester (>= 6) and PSScriptAnalyzer (CurrentUser module path of root).
 #
@@ -114,8 +115,36 @@ module_step() { # name minimum-version url...
   say "$name: FAILED (no source reachable? see $LOG)"
 }
 
+# --- Claude Code user settings: no AI attribution in any repository of this environment --------------------
+# The repo's .claude/settings.json covers only this repository; ~/.claude/settings.json covers every cloud
+# session started in the environment. Merged into an existing file; a file that is not a JSON object is left alone.
+settings_step() {
+  local f=${CLAUDE_CONFIG_DIR:-${HOME:-/root}/.claude}/settings.json
+  mkdir -p "$(dirname "$f")" 2>/dev/null
+  if python3 -I - "$f" >>"$LOG" 2>&1 <<'PY'; then
+import json, os, sys
+path = sys.argv[1]
+data = {}
+if os.path.exists(path) and os.path.getsize(path) > 0:
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    if not isinstance(data, dict):
+        sys.exit("not a JSON object")
+data["attribution"] = {"commit": "", "pr": "", "sessionUrl": False}
+data["includeCoAuthoredBy"] = False  # the older setting, for older Claude Code versions
+with open(path, "w", encoding="utf-8") as fh:  # write in place: keeps a symlinked settings.json
+    json.dump(data, fh, indent=2)
+    fh.write("\n")
+PY
+    say "settings: AI attribution off in $f"
+  else
+    say "settings: FAILED to update $f (see $LOG)"
+  fi
+}
+
 start=$SECONDS
 say "log: $LOG"
+settings_step
 apt_step >"$T/apt.out" 2>&1 &
 pip_step >"$T/pip.out" 2>&1 &
 wait

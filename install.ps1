@@ -348,10 +348,11 @@ param()   # the parameters are the scriptblock's below: here, irm | iex would se
             if (-not (Test-PlainJson (Get-Content $settingsPath -Raw -Encoding UTF8))) { throw 'not plain JSON (comments or trailing commas)' }
             $settings = Get-Content $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
             $settings | Add-Member -NotePropertyName attribution -NotePropertyValue ([pscustomobject]@{ commit = ''; pr = ''; sessionUrl = $false }) -Force
+            $settings | Add-Member -NotePropertyName includeCoAuthoredBy -NotePropertyValue $false -Force   # older Claude Code versions
             Write-Utf8 $settingsPath ($settings | ConvertTo-Json -Depth 20)
             Write-Host "==> AI attribution off in $settingsPath"
         } catch {
-            Write-Warning "could not update $settingsPath; add `"attribution`": {`"commit`": `"`", `"pr`": `"`", `"sessionUrl`": false} by hand"
+            Write-Warning "could not update $settingsPath; add `"attribution`": {`"commit`": `"`", `"pr`": `"`", `"sessionUrl`": false} and `"includeCoAuthoredBy`": false by hand"
         }
         # Git for Windows' sh.exe: <root>\bin\sh.exe, with <root> three levels above `git --exec-path`
         # (<root>\mingw64\libexec\git-core; also for Scoop), else whatever sh.exe is on PATH.

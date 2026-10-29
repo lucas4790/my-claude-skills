@@ -51,7 +51,7 @@ guarantees and where it stops.
 ## Layers
 
 1. **Off at the source.**
-   - The repository's [`.claude/settings.json`](../.claude/settings.json) sets `"attribution": {"commit": "", "pr": "", "sessionUrl": false}`. It applies locally and in single-repository cloud sessions.
+   - The repository's [`.claude/settings.json`](../.claude/settings.json) sets `"attribution": {"commit": "", "pr": "", "sessionUrl": false}`. It applies locally and in single-repository cloud sessions. `install.sh`/`install.ps1` write the same `attribution` plus `includeCoAuthoredBy: false` (the older setting) to `~/.claude/settings.json`, and [`scripts/cloud-setup.sh`](../scripts/cloud-setup.sh), loaded as a cloud environment's setup script, does that in every cloud session of that environment, for any repository.
    - Your own machines need the same object in `~/.claude/settings.json`, merged from [`settings/claude-guardrails.json`](../settings/claude-guardrails.json); `install.sh` / `install.ps1` set it.
    - Copilot CLI: `includeCoAuthoredBy: false` in `~/.copilot/settings.json`, set by `install-copilot.*`. A repository's `.github/copilot/settings.json` can override it.
    - VS Code: `"git.addAICoAuthor": "off"` (see [`settings/vscode-settings.jsonc`](../settings/vscode-settings.jsonc)).

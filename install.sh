@@ -349,15 +349,16 @@ main() {
   fi
 
   # --- no AI attribution -------------------------------------------------------------
-  # Claude Code: no co-author trailers, PR footers or session links; git: a global commit-msg/pre-push
+  # Claude Code: no co-author trailers, PR footers or session links (attribution; includeCoAuthoredBy is the
+  # older setting, kept for older Claude Code versions); git: a global commit-msg/pre-push
   # guard for every repository. See docs/ATTRIBUTION.md. MY_CLAUDE_SKILLS_ATTRIBUTION=keep skips this.
   if [ "${MY_CLAUDE_SKILLS_ATTRIBUTION:-}" != keep ]; then
     if jq -e . "$SETTINGS" >/dev/null 2>&1; then
-      tmp=$(mktemp) && jq '.attribution = {commit: "", pr: "", sessionUrl: false}' "$SETTINGS" > "$tmp" \
+      tmp=$(mktemp) && jq '.attribution = {commit: "", pr: "", sessionUrl: false} | .includeCoAuthoredBy = false' "$SETTINGS" > "$tmp" \
         && cat "$tmp" > "$SETTINGS" && rm -f "$tmp"
       echo "==> AI attribution off in $SETTINGS"
     else
-      warn "$SETTINGS is not plain JSON; add \"attribution\": {\"commit\": \"\", \"pr\": \"\", \"sessionUrl\": false} by hand"
+      warn "$SETTINGS is not plain JSON; add \"attribution\": {\"commit\": \"\", \"pr\": \"\", \"sessionUrl\": false} and \"includeCoAuthoredBy\": false by hand"
     fi
     guard_dir="$HERE/tools/attribution-guard"
     if [ ! -f "$guard_dir/install.sh" ]; then

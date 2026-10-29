@@ -398,6 +398,7 @@ EOF
   assert_eq "$(jq -r '[.hooks.SessionStart[].hooks[].command] | map(select(. == "echo mine")) | length' "$SETTINGS")" 1 "the user's hook"
   assert_eq "$(jq -r .model "$SETTINGS")" opus "other settings"
   assert_eq "$(jq -c .attribution "$SETTINGS")" '{"commit":"","pr":"","sessionUrl":false}' "attribution"
+  assert_eq "$(jq -c .includeCoAuthoredBy "$SETTINGS")" false "includeCoAuthoredBy"
   # UTF-8 without BOM
   assert_eq "$(head -c 1 "$SETTINGS")" "{" "first byte"
 }
@@ -411,6 +412,7 @@ EOF
   refute_output_contains "could not"
   assert_eq "$(our_hooks "$SETTINGS")" "$HOOK_CMD" "hook command"
   assert_eq "$(jq -c .attribution "$SETTINGS")" '{"commit":"","pr":"","sessionUrl":false}' "attribution"
+  assert_eq "$(jq -c .includeCoAuthoredBy "$SETTINGS")" false "includeCoAuthoredBy"
 }
 
 @test "install.ps1 leaves a settings.json with comments (JSONC) untouched and still finishes" {
