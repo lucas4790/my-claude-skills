@@ -2,13 +2,13 @@
   "agent-browser": {
     "ref": "main",
     "repo": "https://github.com/vercel-labs/agent-browser.git",
-    "sha": "5801a50d262a4d3e1a2381996a962b22000d8289",
+    "sha": "5868f7c05020e047c00e68e4abf9253cce864f41",
     "trust": "high"
   },
   "anthropics-skills": {
     "ref": "main",
     "repo": "https://github.com/anthropics/skills.git",
-    "sha": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+    "sha": "ca45fc496a3436251f191354091d557da31c15b5",
     "trust": "high"
   },
   "awesome-copilot": {
@@ -20,7 +20,7 @@
   "claude-plugins-official": {
     "ref": "main",
     "repo": "https://github.com/anthropics/claude-plugins-official.git",
-    "sha": "f8c5e7a1dcb71b10cb74586224b5401f3de5db28",
+    "sha": "a7ba5b93db0c7c8d17f3f1d25853adca79598a1a",
     "trust": "high"
   },
   "codebase-onboarding": {
@@ -32,7 +32,7 @@
   "dotnet-skills": {
     "ref": "main",
     "repo": "https://github.com/dotnet/skills.git",
-    "sha": "586f13f8d898a60583a3364f146a3b6f5a763164",
+    "sha": "95e7d0cb7994d47b5789baa68e13f7a2f348b956",
     "trust": "high"
   },
   "mattpocock-skills": {
