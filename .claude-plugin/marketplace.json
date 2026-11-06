@@ -272,7 +272,7 @@
         "source": "url",
         "url": "https://github.com/JuliusBrussee/caveman.git",
         "ref": "main",
-        "sha": "9b68f7ed12b05e7efaff18e65c5a3fc2849fd0a4"
+        "sha": "4bf8898b31c93326a5e5d90999241a1c15b52ed2"
       },
       "description": "Ultra-compressed communication mode: cuts ~65% of output tokens by talking like caveman while keeping technical accuracy",
       "author": {
