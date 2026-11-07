@@ -14,7 +14,7 @@
   "awesome-copilot": {
     "ref": "main",
     "repo": "https://github.com/github/awesome-copilot.git",
-    "sha": "60dcb901abbd87609d93d6281f1916c22b8bbd8c",
+    "sha": "797337f33f73e35d08d82f840e21c4b8c4932d88",
     "trust": "low"
   },
   "claude-plugins-official": {
