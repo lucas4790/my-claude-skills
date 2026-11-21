@@ -14,7 +14,7 @@
   "awesome-copilot": {
     "ref": "main",
     "repo": "https://github.com/github/awesome-copilot.git",
-    "sha": "60dcb901abbd87609d93d6281f1916c22b8bbd8c",
+    "sha": "f10fdb8b2660ce85c98f220b2f1ca24653768a5c",
     "trust": "low"
   },
   "claude-plugins-official": {
@@ -38,7 +38,7 @@
   "mattpocock-skills": {
     "ref": "main",
     "repo": "https://github.com/mattpocock/skills.git",
-    "sha": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
+    "sha": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
     "trust": "low"
   },
   "microsoft-agent-skills": {
@@ -56,7 +56,7 @@
   "stannard-dotnet-skills": {
     "ref": "master",
     "repo": "https://github.com/Aaronontheweb/dotnet-skills.git",
-    "sha": "5ca5db8cf25566f19d2a5dc53204d4af22b23a0d",
+    "sha": "02ff3c2aa206c7ad1ba1dd10e39da6b560e3e0de",
     "trust": "low"
   }
 }
